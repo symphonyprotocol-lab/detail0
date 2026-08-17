@@ -1,309 +1,311 @@
-# Knowledge Market 产品需求
+# mindmint 产品需求
 
-- 版本：1.0
-- 更新日期：2026-08-14
-- 状态：产品需求基线
+- 版本：2.0（简化版）
+- 更新日期：2026-08-16
+- 状态：MVP 产品基线
 - 开发与部署：[architecture.md](./architecture.md)
 
 ## 1. 产品定义
 
-Knowledge Market 让用户把拥有合法权利的文档、数据源和专业知识转换为 AI Agent 可以发现、检索、引用和付费使用的知识服务，同时也能发现并调用其他用户发布的知识。
+mindmint 把公开文档和用户拥有合法访问权的私有资料转换为 AI Agent 可以搜索、检索和引用的知识库。
 
-平台交易的是受控知识检索服务，不是原始文件所有权。调用知识的用户使用美元支付，发布知识的用户使用美元收款；同一用户可以同时进行两类活动。Aptos 只发布隐私保护的收益账单承诺，不托管资金、不扣款、不执行付款。
+MVP 采用与 Context7 类似的分层模式：
 
-### 1.1 用户与能力
+- **免费用户**可以搜索和查询公开知识库，但受请求额度和速率限制；
+- **付费用户**获得更高查询额度、个人私有知识库和管理能力；
+- 平台按订阅与 API 用量收费，不对每个知识片段报价，也不在 MVP 中向知识发布者分成。
 
-- **User**：使用同一个账户发现、调用、创建、发布和维护知识库，并统一管理预算、费用、收入与收益账单。
-- **Administrator**：负责准入、审核、投诉、安全、财务和运营异常。
-- **End User**：通过 User 的 Agent 间接使用知识；身份可选且必须最小化或匿名化。
+平台提供 Web、REST API 和 MCP 三种入口。所有入口使用同一套知识版本、访问控制、检索和用量规则。
 
-Creator 和 Consumer 只表示一笔发布或调用行为中的上下文身份，不是账号类型、系统角色或独立工作区。平台不得要求用户切换角色，也不得为创作和使用维护两套导航、设置或账户余额。
+### 1.1 MVP 目标
 
-### 1.2 目标
+- 建立可持续扩充的公开免费知识库目录；
+- 让 AI Agent 通过两步调用找到知识库并取得带引用的上下文；
+- 支持用户创建和查询自己的私有知识库；
+- 保证知识来源、更新时间、版本和引用可核对；
+- 使用简单的免费额度、付费订阅和超额用量完成商业闭环；
+- 提供 MCP、TypeScript SDK 和 REST API，降低 Agent 接入成本。
 
-- 安全接入文件和持续同步数据源。
-- 发布不可变、可追溯、可回滚的知识版本。
-- 支持 Private、Unlisted 和 Public Marketplace。
-- 使用统一 API 完成指定库和自动选库检索。
-- 准确完成美元报价、冻结、计量、结算、退款和对账。
-- 知识发布者只从最终实际交付的知识正文获得收益。
-- 提供可验证的引用、路由解释、调用记录和收益存证。
+### 1.2 MVP 不包含
 
-### 1.3 不包含
+- 发布者按检索 Token 获得收入的知识交易市场；
+- 单次调用报价、资金冻结、双重记账、发布者结算和付款；
+- Aptos、链上存证、平台代币、NFT 或加密资产支付；
+- 自动跨多个付费知识库执行复杂预算路由；
+- 通用 Agent Workflow、模型训练或原始文件交易平台；
+- 对公开网络上的全部资料进行无差别抓取。
 
-- 默认出售或下载完整原始文件。
-- 通用大模型训练平台或通用 Agent Workflow 平台。
-- 加密资产支付、平台代币、NFT、DeFi、质押或链上资金托管。
-- 把问题、知识正文、真实身份、稳定身份哈希或金额写入 Aptos。
-- 承诺完全阻止通过大量合法查询推断知识内容。
+发布者收益、按库定价和多库付费路由只有在公开库与订阅模式验证成功后，才能通过新的产品版本重新评估。
 
-## 2. Knowledge Base
+## 2. 用户、套餐与访问
 
-每个 Knowledge Base 包含：
+### 2.1 用户
 
-- 名称、简介、发布者、领域、标签、语言和封面；
-- 适用与不适用场景；
-- 来源、内容权利和更新说明；
-- 不可变的 Knowledge、Index、Tokenizer 和 Publication Version；
-- 可见性、授权、许可、质量指标和 Price Version；
-- 示例、固定预览和可选的受限实时试用。
+- **Visitor**：无需登录即可浏览公开目录，并可在严格速率限制下试用公开查询；
+- **User**：使用账户和 API Key 查询公开库、保存使用记录并管理个人设置；
+- **Paid User**：拥有更高额度，可创建和管理个人私有知识库；
+- **Administrator**：处理公共库审核、举报、安全事件、套餐和用量异常。
 
-支持 PDF、Word、Markdown、文本、网页、SaaS Drive、数据库、API、结构化问答和持续同步数据源。每种 Connector 必须通过授权、增量同步、删除、限流和安全测试后才能开放。
+同一个账户可以查询知识，也可以提交或维护知识库，不设置 Creator/Consumer 两套账号体系。
 
-### 2.1 独立状态
+### 2.2 套餐
 
-以下状态必须分开保存：
+| 能力 | Free | Pro |
+| --- | --- | --- |
+| 价格 | 免费 | $5 / 月 |
+| API / MCP 调用额度 | 1,000 Calls / 月 | 2,000 Calls / 月 |
+| 额外调用包 | 不支持 | $5 / 2,000 Calls |
+| 查询公开知识库 | 支持，计入 API Call 额度 | 支持，计入 API Call 额度 |
+| 创建公开知识库 | 可提交，需审核 | 可提交、认领和管理 |
+| 创建个人私有知识库 | 不支持 | 支持 |
+| API / MCP | 支持 | 支持 |
 
-- `visibility`：`private | unlisted | public_marketplace`
-- `lifecycle_status`：`draft | reviewing | published | rejected | suspended | archived`
-- `index_status`：`pending | building | ready | failed | stale`
+所有 API 与 MCP 查询统一按成功受理的 API Call 计量，不按输入、输出、解析或返回 Token 计费。价格与额度通过 Plan Version 保存，历史 Usage 不随套餐变更而改写。
 
-正式检索要求 Publication 为 `published`、所选 Index 为 `ready`，并且调用者拥有当前有效授权。新 Index 未就绪时继续使用完整旧 Publication，不能混用新旧 Chunk。
+### 2.3 访问规则
 
-`public_marketplace` 只表示 Catalog 元数据可以被公开发现，不表示知识正文可以匿名或无授权读取。免费、付费和公开知识库在正式检索前都必须形成可审计的有效授权或已接受的公开访问条款；`unlisted` 只允许通过不可枚举入口发现，并仍需显式授权。
+- `public`：目录和知识正文可以被所有用户查询，仍受速率、额度和安全规则限制；
+- `private`：只有所属用户可以发现和查询；
+- 公共目录不展示私有知识库的名称、描述、来源或存在性；
+- 订阅状态决定额度与私有能力，不能绕过知识库访问控制；
+- 管理员暂停的知识库不得开始新查询。
 
-## 3. 功能需求
+## 3. Knowledge Library
 
-### 3.1 知识创建与发布
+每个知识库包含：
 
-用户作为知识发布者时必须能够：
+- 稳定的 Library ID，例如 `/publisher/library`；
+- 名称、描述、发布者、领域、标签、语言和来源 URL；
+- 可见性、生命周期、索引状态和当前有效版本；
+- Token 数、Chunk 数、更新时间、新鲜度、Trust Score 和 Benchmark Score；
+- 来源文件、规范化文档、Chunk、Embedding 和 Citation 元数据；
+- 可选的历史版本，例如 `/publisher/library/v2`。
 
-- 创建知识库和数据源；
-- 上传文件或连接外部来源，查看同步状态；
-- 查看解析、切分、索引、评测和失败原因；
-- 在 Playground 验证检索和引用；
-- 配置可见性、授权、许可、价格、试用和保留规则；
-- 提交审核、原子发布、回滚到合格版本、暂停或归档；
-- 查看用量、质量、收入、调整、付款和 Aptos 验证结果。
+### 3.1 独立状态
 
-Publication 必须冻结 Source Snapshot、规范化内容、Chunk、Index、Evaluation、Policy、Price、Tokenizer 和 Digest Version。已发布版本不得原地修改；任何变更创建新版本。
+- `visibility`：`public | private`
+- `lifecycle_status`：`draft | reviewing | published | suspended | archived`
+- `index_status`：`pending | processing | ready | failed | stale`
 
-### 3.2 Marketplace 与访问
+正式查询要求 Library 为 `published`、当前 Version 为 `ready`，并且调用者拥有访问权限。
 
-用户作为知识使用者时必须能够：
+### 3.2 公开知识库
 
-- 搜索和过滤公开 Catalog 元数据；
-- 查看发布者、覆盖范围、排除范围、来源透明度、新鲜度、质量、价格、可用性、示例和引用；
-- 使用固定预览或经过批准的受限实时试用；
-- 收藏知识库或加入 Trust List；
-- 获取 Access Grant、Subscription 或 Bundle；
-- 创建 API Key，并设置单次、每日和每月预算。
+- 任何登录用户都可以建议收录公开 Git 仓库或官方文档网站；
+- 提交者不自动成为所有者，也不能仅凭提交行为修改知识库；
+- 平台优先收录官方文档、维护者仓库和有明确许可证的内容；
+- 所有者可以通过来源根目录中的配置文件认领知识库；
+- 公开知识库免费查询，不向来源维护者支付检索分成；
+- 被举报、来源失效或安全检查失败的知识库可以暂停或删除索引。
 
-Trust List 只是路由偏好，不能授予访问、购买 Subscription 或绕过价格。
+### 3.3 私有知识库
 
-Marketplace Visibility、正文访问授权和计费权益是三个独立维度。公开目录不得把 `public_marketplace` 解释为“正文无需授权”，Access Grant 页面也必须显示公开知识库当前采用的授权或条款接受状态。
+- 仅付费用户可以创建；
+- 只索引用户明确连接或上传的来源；
+- 来源凭证加密保存，查询结果不得泄漏给其他用户；
+- 私有库不自动刷新，除非用户启用计划任务或来源 Webhook；
+- 删除私有库时必须删除可识别的文档、Chunk 和 Embedding，并保留最小合规记录。
 
-### 3.3 Retrieval API
+### 3.4 来源与配置
 
-API 必须支持：
+MVP 支持：
 
-- 指定一个或多个 Knowledge Base；
-- `trusted_only`、`trusted_first`、`marketplace_auto` 和 `bundle`；
-- Retrieval-only、带引用的简短答案和结构化输出；
-- 同步、异步状态、SSE、取消，以及调用者明确接受的部分结果；
-- REST，以及 MCP、OpenAI-compatible Tool 和常用框架适配。
+- 公共 GitHub 仓库；
+- 公开文档网站或 `llms.txt`；
+- Markdown、MDX、TXT 和 PDF 上传；
+- OpenAPI 文件。
 
-每个付费创建或执行请求必须提供：
+数据库、SaaS Drive、Confluence、Notion 和更多 Git Provider 后续按 Connector 增加。
 
-- 具有正确 Scope 的 API Key；
-- HTTP Header `Idempotency-Key`；
-- Query，以及 Knowledge Base ID 或 Routing Mode；
-- 请求或 API Key 默认值提供的 `budget.max_cost`，使用 USD 十进制字符串；
-- 最大知识 Token、知识库数量、知识单价、执行时间和部分结果策略。
-
-请求示例：
-
-```http
-Authorization: Bearer <api-key>
-Idempotency-Key: req_01...
-Content-Type: application/json
-```
+来源可以提供 `knowledge-market.json`：
 
 ```json
 {
-  "query": "最新政策有什么变化？",
-  "knowledge_base_ids": [],
-  "routing": {
-    "mode": "trusted_first",
-    "fallback_to_marketplace": true,
-    "allow_parallel": false,
-    "max_trusted_kbs": 3,
-    "max_marketplace_kbs": 2
-  },
-  "retrieval": {
-    "max_knowledge_tokens": 12000
-  },
-  "budget": {
-    "currency": "USD",
-    "max_cost": "0.10",
-    "max_price_per_million_knowledge_tokens": "20.00"
-  },
-  "execution": {
-    "timeout_ms": 8000,
-    "accept_partial": false
+  "$schema": "https://knowledge.market/schema/knowledge-market.json",
+  "title": "Production RAG Playbook",
+  "description": "Production RAG documentation and examples",
+  "include": ["docs/**"],
+  "exclude": ["archive/**", "**/*.draft.md"],
+  "rules": ["Always include source citations"],
+  "versions": [{ "tag": "v1.0" }],
+  "claim": {
+    "url": "https://knowledge.market/publisher/library",
+    "public_key": "pk_example"
   }
 }
 ```
 
-响应必须包含：
+配置文件用于控制解析范围、Agent 使用规则、历史版本和所有权认领。平台必须发布 JSON Schema，并对字段、路径和大小进行验证。
 
-- 实际交付的知识片段、Citation、评分和更新时间；
-- Knowledge、Index、Tokenizer、Policy、Price、Router 和 Sufficiency Version；
-- 所选知识库、访问顺序与原因、回退路径和停止原因；
-- Request、Delivered Knowledge 和 Platform Output Token；
-- Quote、逐库 Publisher Fee、Platform Fee、Total Fee 和账务状态；
-- 权限、预算、质量或执行失败时的标准原因码。
+## 4. Ingestion、版本与更新
 
-### 3.4 Knowledge Router
+### 4.1 Ingestion 流程
 
-路由分两阶段：
+```text
+submit source
+  -> validate ownership/access
+  -> fetch or upload snapshot
+  -> malware and prompt-injection scan
+  -> parse and normalize documents
+  -> chunk and extract citations
+  -> generate embeddings
+  -> quality evaluation
+  -> publish immutable version
+```
 
-1. **免费 Catalog 选库**只使用公开或已授权的元数据，不读取付费 Chunk、不产生发布者收益。
-2. **渐进式检索**先访问最优合格知识库，只在 Sufficiency Policy、预算、知识库数量和 Deadline 允许时扩展。
+有文档时优先索引文档和示例，不默认索引全部源代码。文档不足时是否从源码生成说明属于后续能力。
 
-访问付费正文前，每个候选必须通过授权、生命周期、价格、语言、新鲜度、质量、地区和 Allow/Deny List 检查。默认渐进执行；只有调用者明确允许且最大费用已完全冻结时才能并行。
+每个 Version 冻结 Source Digest、Parser Version、Chunker Version、Embedding Model、Chunk 和 Citation。已发布版本不得原地修改。
 
-Sufficiency Policy 必须版本化相关性、最少有效 Chunk、独立 Citation、新鲜度、冲突处理和停止原因。多库结果必须去重，同一正文不得重复收取完整知识费。
+### 4.2 更新策略
 
-### 3.5 定价与权益
+- 查询公开库时检查新鲜度；
+- 过期时后台触发刷新，但当前请求继续使用完整旧版本；
+- 新版本只有在解析、索引和质量检查成功后才原子切换；
+- 热门公开库刷新更频繁，冷门库按需刷新；
+- 所有者可以手动刷新或通过 Webhook 在发布后触发刷新；
+- 刷新失败不能破坏当前可用版本。
 
-产品支持：
+## 5. 查询产品
 
-- 免费知识库；
-- 发布者按每百万实际交付知识 Token 定价；
-- 单独披露的 Platform Processing Fee；
-- Prepaid Balance、Included Quota、Subscription、Tier、Bundle、Promotion 和预先确认的特殊授权；
-- Request、API Key、Agent、End User、Tenant 的单次、每日和每月限制。
+### 5.1 两阶段查询
 
-Quote 必须冻结 Price、Policy、Entitlement、Promotion、Tax、Tokenizer 和 Knowledge Version，并包含过期时间。之后调价不能改变已接受 Quote 或历史账单。
+MVP 固定使用两阶段流程：
 
-Publisher Fee 只使用最终、去重、实际交付的知识正文 Token。Query、Routing、Rerank、Generation、Aggregation、Platform Output、未访问候选和内部召回但未交付的 Chunk 都不产生发布者收益。
+1. `resolve-library` 根据名称和查询意图返回候选知识库；
+2. `query-library` 使用明确的 Library ID 查询一个知识库。
 
-`Total Fee = Publisher Fee + Platform Processing Fee + Tax - Credit/Promotion`。调用前和调用后都必须逐项展示，任何页面不得把 Publisher Fee 单独称为“总费用”。预算与 FundHold 使用冻结 Quote 的 Total Fee 上限，而不是只使用知识库单价。
+如果调用者已经提供 `/publisher/library` 或具体版本 ID，可以跳过第一步。
 
-### 3.6 资金与结算
+MVP 不自动并行查询多个付费知识库。多库查询可以在单库质量稳定后作为独立功能增加。
 
-每个付费调用必须：
+### 5.2 REST API
 
-1. 创建或复用 Idempotency Record；
-2. 授权调用者并生成不可变 Quote；
-3. 原子检查 Entitlement、Limit 和 Available Balance；
-4. 在访问付费正文前创建唯一的最大费用 FundHold；
-5. 计量最终交付 Artifact；
-6. 写入一笔平衡 Settlement，并释放剩余 Hold；
-7. 相同重试返回原结果和原账务状态。
+最小 API：
 
-无结果、平台错误、未接受的部分结果或交付前取消，Usage Charge 必须为 0 并释放 Hold。Refund、Chargeback、Correction 和 Late Event 只能新增 Reversal/Adjustment，不得覆盖历史账务。
+- `GET /api/v1/libraries/search`
+- `POST /api/v1/libraries`
+- `GET /api/v1/libraries/{library_id}`
+- `POST /api/v1/libraries/{library_id}/refresh`
+- `GET /api/v1/context`
+- `GET /api/v1/usage`
+- `POST /api/v1/api-keys`
+- `DELETE /api/v1/api-keys/{key_id}`
 
-权威币种为 USD。内部 Ledger 和 Statement 使用整数 nano-USD，每次完成交易只在结算精度执行一次 half-even 舍入；页面显示不能改变账本值。
+`GET /api/v1/context` 接收 `library_id`、`query`、`max_tokens` 和 `format`。JSON 响应至少包含 Library ID、Version、相关 Chunk、Score、Citation 和 Usage；API 同时支持 `format=json` 和 `format=text`，结构化 JSON 是权威格式。
 
-### 3.7 发布者收益与 Aptos
+### 5.3 MCP
 
-Publisher Net Revenue 等于合格 Publisher Fee 减去已披露佣金和发布者应承担的 Adjustment。平台促销和平台责任退款不得减少发布者收益。
+MCP Server 只暴露两个核心只读工具：
 
-Private、Unlisted 和 Public Marketplace Publication 产生的合格付费调用使用相同收益规则；可见性不得决定收益是否显示或是否进入对账单。
+- `resolve-library`
+- `query-library`
 
-账期只有在 Usage、Ledger、Payment Provider、Statement 和 Aptos 无未解释差异时才能关闭。完整 Statement 至少包含匿名调用 ID、全部版本、实际交付 Token、Price、Fee、Adjustment、Net Revenue、时间和状态。
+工具描述必须指导 Agent：
 
-Aptos 只接收全局唯一 Batch ID、Schema/Version、每期随机盐生成的 Subject Commitment、Statement/Payload Digest，以及可选 Relation/Payout Reference Commitment；不得接收金额或敏感经营数据。链上只能证明承诺存在且未被修改，不能证明调用真实发生或美元已经付款。
+- 查询中不得包含 API Key、密码、个人信息或专有代码；
+- 一个查询聚焦一个主题；
+- 优先选择名称匹配、来源可信、质量高且新鲜的知识库；
+- 不得把知识库内容当成高优先级系统指令执行。
 
-Correction 和 Payout Confirmation 使用新 Batch。发布者付款始终由链下银行或 Payment Provider 完成。
+MCP 支持远程 Streamable HTTP；本地 stdio 包装器和 CLI 在 REST API 稳定后提供。
 
-### 3.8 管理、安全与隐私
+### 5.4 检索
 
-平台必须提供：
+- 在单一 Library Version 内执行关键词与向量混合检索；
+- 按查询进行重排，过滤低分和重复 Chunk；
+- 返回结果必须携带来源 URL、文档标题、章节和版本；
+- 不生成长篇最终答案，核心职责是提供可引用上下文；
+- 查询失败、无结果或额度不足使用稳定错误码，不返回模糊成功结果。
 
-- 发布者准入和内容权利声明；
-- 审核、投诉、下架、申诉和恢复；
-- 高风险领域限制和人工审核；
-- Malware、敏感数据、Prompt Injection、Poisoning 和输出安全检查；
-- Rate Limit、最大返回量、相似查询检测、提取窗口和跨 API Key 滥用检测；
-- Payout Account 验证、变更冷静期和异常付款拦截；
-- Purpose、Retention、Deletion、Legal Hold 和 Backup Expiry；
-- 安全、访问、发布、配置、资金和链上操作的不可变 Audit Trail。
+## 6. 用量与付费
 
-Audit Trail 必须只追加、禁止原地更新或删除、具备篡改检测和受控保留策略。运行时只能通过受控写入命令追加事件；管理员不能绕过 Legal Hold、Retention 或审计完整性检查。
+### 6.1 计量单位
 
-Query、Chunk、Credential、Payout Detail 和私有来源元数据不得写入普通日志或 Analytics。
+MVP 只以 API/MCP Call 数作为计费单位，同时记录解析 Token 和返回 Token 用于容量规划、性能优化与成本分析，但 Token 不参与用户账单计算。
 
-### 3.9 统一 Dashboard 交互
+- Free：免费，包含每月 1,000 API Calls；
+- Pro：$5 / 月，包含每月 2,000 API Calls；
+- Additional Calls：Pro 用户可按 $5 购买额外 2,000 API Calls；
+- 查询公开库和个人私有库使用同一 API Call 额度；
+- 单次请求无论返回多少 Chunk 或 Token，都只记为 1 API Call；
+- 缓存命中仍属于一次已受理的 API Call，不产生额外 Token 费用。
 
-所有登录后页面共用全局搜索、账户上下文、导航、Dialog、Drawer、Toast、表单校验和确认模式。必须实现：
+### 6.2 计费边界
 
-- 市场筛选、价格保护、排序、预览和知识库详情；
-- Trust List 条目优先级、回退策略、移除和顺序保存；
-- 访问申请的对象、用途、期限、预算和提交结果；
-- API Key 创建、Scope、预算、一次性密钥展示、复制、撤销和重建；
-- 调用记录筛选、详情、路由解释、引用、Token、费用和导出；
-- 充值、付款确认、预算保存和账单/对账单查看；
-- 账户偏好、社交登录、活跃会话、通知设置和保存反馈；
-- 知识库创建、数据源连接、草稿保存、发布检查和不可变发布确认；
-- 版本比较、质量门禁、Playground、回滚原因和回滚确认；
-- 收款账户、身份验证、最低付款额、收益对账单和 Aptos Proof 配置。
-- 管理员审核队列、内容权利检查、投诉/申诉、下架/恢复、安全事件、财务异常、对账差异和 Proof Backlog。
-- Index Failed/Stale、Publication Rejected/Suspended/Archived、Access Revoked、Payment/Provider Unknown、未接受 Partial Result、退款/拒付和 Aptos Pending/Failed 等关键异常状态。
+- 套餐、订阅、付款方式和发票由外部 Payment Provider 管理；
+- 本系统保存 Customer ID、Subscription ID、Plan Version、状态和 Usage 汇总，不保存银行卡数据；
+- Webhook 必须验签并按外部 Event ID 幂等处理；
+- 查询只做访问与额度检查，不创建 Quote、Fund Hold 或逐次财务 Journal；
+- Payment Provider 状态不确定时，对新增付费能力 Fail Closed，已支付周期内的读取按宽限策略处理；
+- 管理员可以查看用量和订阅状态，但不能直接修改已记录的 Usage Event。
 
-敏感值只能在必要步骤展示。API Key 完整值只显示一次；付款、发布、回滚、撤权和收款配置等高风险操作必须明确说明影响并二次确认。空状态必须提供可执行的下一步，成功提示不能替代服务端权威状态。
+## 7. Web 产品
 
-Dashboard 与公开页面至少覆盖 360、768、1024 和 1440 像素宽度。正文、标签和交互控件必须保持可读、可缩放、可键盘操作并具有清晰 Focus；关键业务文案不得依赖小于 12px 的文字表达，主要交互文字默认不小于 14px。
+### 7.1 公共页面
 
-## 4. 强制不变量
+- 首页说明免费公开知识查询和付费私有能力；
+- Library Catalog 支持名称、领域、语言、来源、Trust Score、新鲜度和更新时间筛选；
+- Library Detail 展示来源、版本、Token/Chunk 数、质量、示例和固定查询 Playground；
+- Add Library 允许提交公开 GitHub、网站或 `llms.txt`；
+- Pricing 清楚展示免费额度、Pro 能力和超额规则。
 
-1. 已过账 Journal 的 Debit 总额等于 Credit 总额。
-2. Available Balance 等于已过账预充值负债减有效 Hold 和其他约束，且不得为负。
-3. 同一 API Key 与 Idempotency Key 最多对应一个规范化请求和一个财务结果。
-4. 没有成功 Hold，不得访问或交付付费知识正文。
-5. Publisher Fee 只来自最终、去重、实际交付的知识正文。
-6. 每个 Artifact 必须解析到唯一 Publication、Index、Policy、Price、Tokenizer、Router 和 Sufficiency Version。
-7. Suspended、Revoked、Unpublished、Unready 或 Unauthorized Knowledge 不得开始新检索。
-8. 发现、报价、执行和交付都必须执行相应授权检查。
-9. Trust List 不能授予访问。
-10. Payout 不得超过已对账且未被其他 Payout 覆盖的 Publisher Payable。
-11. Closed Statement 不可修改；纠错只能新增 Adjustment。
-12. 同一 Aptos Batch ID 不能对应两个不同 Payload Digest。
-13. 发布者必须能用 Statement、Salt 和公开算法复算链上 Commitment。
-14. Cache、Search、Analytics、Workflow Log 和 Aptos 不能成为余额、权限或 Publication 权威。
-15. 除非存在明确且有效的授权，所有 Cross-tenant Access 默认拒绝。
-16. 外部财务或链上结果不确定时必须先查询或对账，禁止盲目重试。
+### 7.2 Dashboard
 
-## 5. 质量与运营要求
+- API Key 创建、一次性显示、复制、撤销和重建；
+- API Call 次数、套餐额度、额外调用包、账期和当前周期用量；
+- 创建、刷新、暂停和删除自己的知识库；
+- 查看解析日志、当前版本、失败原因、质量和查询示例；
+- 认领公共知识库并管理 `knowledge-market.json` 对应设置；
+- 套餐、付款方式和账单入口。
 
-- 至少 80% 的合格付费调用返回一个或以上有效 Chunk 和完整 Citation；具体领域可要求更高阈值。
-- 平台技术错误导致的合格付费调用失败率低于 2%；权限、预算和知识不足单独统计。
-- Usage、Ledger、Payment Provider、Statement 和 Aptos 的未解释差异为 0。
-- 100% 已生成的 Publisher Proof 可使用 Statement、Salt 和公开算法复算。
-- Accessibility、Browser/SDK、Latency、Availability、Freshness、Retention、RPO 和 RTO 必须在上线前冻结。
-- 上线 UI 必须通过桌面与移动端键盘、屏幕阅读器、缩放、对比度、触控目标和关键异常流程验收。
-- Security、Finance、Revocation、Deletion 和 Recovery 在各自权威边界 Fail Closed。
+## 8. 安全与隐私
 
-## 6. 验收基线
+- 只把 Agent 生成的短查询和 Library ID 发送到检索服务，不接收完整对话或代码库；
+- Query、API Key、来源凭证和私有 Chunk 不写普通日志；
+- API Key 只保存不可逆 Hash，完整值只显示一次；
+- 私有来源凭证加密保存，并限制用途、来源域和权限；
+- 入库前检测 Malware、Prompt Injection、恶意链接和异常大文件；
+- 检索结果作为不可信数据返回，不能升级为系统指令；
+- 公共提交需要速率限制、域名和 URL 安全检查，防止 SSRF；
+- 私有库的每次查询都必须在数据库层带 Owner 过滤；
+- 支持举报、暂停、删除和重新审核公共知识库；
+- 删除账户或私有知识库后，按保留策略删除文档、Chunk、Embedding 和凭证。
 
-上线版本必须自动化验证并保留证据：
+## 9. 强制不变量
 
-- 原子发布 Ready Version；进行中请求继续旧版本，新请求只用新版本。
-- Failed 或不完整 Index 不得审核或提供服务。
-- `trusted_first` 只在获得授权且结果不充分时回退，并返回选择与停止解释。
-- 不合格候选在访问付费正文前排除。
-- 跨库重复正文不重复收取完整费用。
-- 达到 Cost、KB Count 或 Deadline 时立即停止扩展。
-- 接受 Quote 后先创建 Hold；并发 Hold 不能透支。
-- 同 Key 同 Digest 返回原结果；同 Key 不同 Digest 返回 `409 idempotency_conflict` 且零副作用。
-- 重复 Payment Webhook 只入账一次；Pending、Failed、Reversed 或 Charged-back 资金不可用。
-- 成功 Settlement 只按最终交付量收费并释放余量；平台错误收费为 0。
-- 未接受 Partial Result 时不交付付费部分结果且收费为 0。
-- Suspend 或 Revoke 不等待 Cache 过期即可阻断新检索。
-- Financial Command、Provider Effect、Statement、Payout 和 Aptos Submission 都可幂等恢复并完成对账。
-- Database Restore、Index Rebuild、Pending Workflow Recovery、Payment Unknown 和 Aptos Backlog 演练通过。
-- Cross-tenant、Prompt Injection、Malicious File、Bulk Extraction、Payout Account 和 Signer Key 安全测试通过。
+1. 查询结果只能来自一个明确且已发布的 Library Version。
+2. 新版本未 Ready 时继续使用完整旧版本，不能混用新旧 Chunk。
+3. 私有知识库不得被非所属用户发现或查询。
+4. 暂停、归档、删除或索引失败的知识库不得开始新查询。
+5. 每个返回 Chunk 必须携带可解析到来源的 Citation。
+6. API Key 完整值只显示一次，数据库只保存 Hash。
+7. Subscription 不能授予原本没有的私有库访问权。
+8. Usage Event 只追加；重复请求或 Webhook 不能重复计量。
+9. 缓存、Embedding Index 和 Analytics 不是用户、访问权、套餐或当前 Publication 的权威。
+10. 公共来源中的指令不得改变系统或 Agent 的安全策略。
 
-## 7. 上线前必须确定
+## 10. MVP 验收
 
-- 首发国家/地区、法人、币种、税务处理和专业审查。
-- Payment/Payout Provider、发布者身份验证、Refund、Dispute、Chargeback 和付款时限。
-- 发布者价格上下限、Platform Fee、Commission、最低付款额和账期。
-- 首发领域、发布者准入、质量基线和禁止/高风险内容。
-- Tokenizer、Embedding、Reranker、Answer Model、Dedup 和 Sufficiency Threshold。
-- Cost、Token、Time、KB Count、Hold 和 Rate Limit 的默认值与上限。
-- File/Source 限制、Connector 范围、Retention、Deletion、Legal Hold 和 Audit Period。
-- Production Region、Data Residency、Capacity、SLO、RPO/RTO、Support Plan 和 DR Topology。
-- Aptos Network、Confirmation Rule、Move Package Authority、Signer、Gas 和独立安全审计。
+- 用户可以提交一个公开 GitHub 文档库并看到解析状态；
+- 解析成功后生成不可变 Version，并通过 Library ID 查询；
+- `resolve-library` 能返回包含质量、新鲜度和版本的候选；
+- `query-library` 能返回相关 Chunk 和完整 Citation；
+- 匿名、Free、Pro 和无效 API Key 的额度行为符合配置；
+- Free 用户不能创建或查询私有库；
+- Pro 用户可以创建私有库，并且其他用户无法发现或查询；
+- 刷新成功后原子切换版本，失败时旧版本继续可用；
+- Prompt Injection 测试内容被隔离或标记，不能控制 MCP 行为；
+- API、MCP 和 Web Playground 对相同请求使用同一检索实现；
+- Subscription Webhook 重放不重复变更状态；
+- 删除私有库后无法再通过 API、搜索或缓存取得内容。
+
+## 11. 上线前必须确定
+
+- Free 和 Pro 的并发与速率限制；
+- 公共知识库准入标准、许可证要求、举报和下架流程；
+- 首发 Parser、Chunker、Embedding、Reranker 和质量阈值；
+- 支持的文件大小、站点抓取范围、Git 仓库大小和刷新频率；
+- Payment Provider、税务、退款、宽限期和账单规则；
+- 数据驻留、日志保留、删除期限、SLO、RPO 和 RTO；
+- 私有知识库是否允许模型 Provider 处理，以及对应的数据处理协议。
