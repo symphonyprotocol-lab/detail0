@@ -1,0 +1,25 @@
+---
+title: 快速开始
+description: 两步调用，把带版本和引用的上下文接入你的 Agent。
+---
+
+recall0 把公开文档和你有权使用的私有资料，转换为 AI Agent 可搜索、可检索、可引用的**版本化知识库**。
+
+查询固定为两阶段：
+
+1. `resolve-library-id` — 用库名和查询意图取得候选
+2. `query-docs` — 用明确的 Library ID 查询一个库
+
+<Callout title="计费口径">
+按成功受理的 API/MCP Call 计费，不按 Token 计费。返回多少 Chunk 或 Token 都不改变价格。
+</Callout>
+
+## 接入方式
+
+| 入口 | 用途 |
+| --- | --- |
+| MCP | Claude、Codex、Cursor 等 Agent |
+| REST API | 服务端集成 |
+| SDK / CLI | 薄客户端封装 |
+
+REST 与 MCP 只返回**可引用的上下文**，不生成长篇答案。Web 在线试用是唯一会生成自然语言回答的入口，且每条事实都必须绑定到本次返回的 Chunk。

@@ -1,0 +1,199 @@
+'use client';
+
+import { useState, type FormEvent } from 'react';
+
+/**
+ * Playground transcript.
+ *
+ * requirement.md 5.1 makes this the only entry point allowed to generate prose,
+ * and puts eight hard rules on it. Two of them are visible in this component:
+ *
+ * - rule 2: with zero retrieved chunks the model is never called. Retrieval is
+ *   not wired yet, so a submitted question renders the no-context state rather
+ *   than a fabricated answer.
+ * - rule 5: every factual statement carries a footnote resolving to a chunk,
+ *   with source, version and anchor status shown alongside.
+ */
+
+const SEED_QUESTION = 'Next.js App Router 中如何安全地实现服务端鉴权？';
+
+const TOOL_CALLS = [
+  {
+    name: 'resolve-library-id',
+    params: [
+      ['libraryName', '"next.js"'],
+      ['query', '"App Router server authentication"'],
+    ],
+  },
+  {
+    name: 'query-docs',
+    params: [
+      ['libraryId', '"/vercel/next.js"'],
+      ['query', '"App Router server authentication"'],
+    ],
+  },
+] as const;
+
+const SAMPLE_CODE = `import { verifySession } from '@/lib/session'
+
+export async function getUser() {
+  const session = await verifySession()
+  if (!session) return null
+
+  return db.user.findUnique({
+    where: { id: session.userId }
+  })
+}`;
+
+function UserBubble({ text }: { text: string }) {
+  return (
+    <div className="flex justify-end">
+      <p className="max-w-[78%] rounded-[16px] rounded-br-[4px] bg-[#079b78] px-4 py-3 text-[13px] leading-[1.6] text-white">
+        {text}
+      </p>
+    </div>
+  );
+}
+
+function ToolCall({ name, params }: { name: string; params: readonly (readonly [string, string])[] }) {
+  return (
+    <div className="rounded-[9px] border border-line/70 bg-[#f8f9f8] p-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <code className="font-mono text-[11.5px] font-semibold text-ink">{name}</code>
+        <span aria-hidden className="text-[10px] text-faint">
+          ▾
+        </span>
+      </div>
+      <dl className="mt-1.5 flex flex-col gap-1">
+        {params.map(([k, v]) => (
+          <div key={k} className="flex gap-2">
+            <dt className="font-mono text-[11px] text-faint">{k}:</dt>
+            <dd className="font-mono text-[11px] break-all text-muted">{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function SeedAnswer() {
+  return (
+    <>
+      <div className="flex justify-start">
+        <p className="max-w-[78%] rounded-[13px] rounded-bl-[4px] bg-[#f2f4f3] px-3.5 py-2.5 text-[13px] leading-[1.6] text-ink">
+          我会查找最新的 Next.js 官方文档。
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {TOOL_CALLS.map((t) => (
+          <ToolCall key={t.name} name={t.name} params={t.params} />
+        ))}
+      </div>
+
+      <p className="text-[11.5px] leading-[1.7] text-faint">
+        以下回答基于检索到的 Next.js 官方文档片段生成，并保留版本与引用信息。
+      </p>
+
+      <article className="rounded-[12px] rounded-bl-[4px] bg-[#f2f4f3] p-3.5">
+        <h3 className="text-[14px] font-semibold tracking-[-0.02em] text-ink">
+          推荐的服务端鉴权方式
+        </h3>
+        <p className="mt-2 text-[12.5px] leading-[1.75] text-muted">
+          将会话校验放在服务端数据访问层。Middleware 适合做乐观重定向，但 Server Component、Route
+          Handler 和 Server Action 在读取敏感数据前仍应再次验证身份与权限。
+          <sup className="ml-0.5 rounded bg-[#087c6a]/12 px-1 text-[9px] font-semibold text-[#087c6a]">
+            1
+          </sup>
+        </p>
+
+        <p className="mt-3.5 text-[12.5px] font-semibold text-ink">基础示例</p>
+        <pre className="mt-2 overflow-x-auto rounded-lg bg-[#242a2f] p-3.5">
+          <code className="font-mono text-[11px] leading-[1.75] text-[#dbe4e4]">{SAMPLE_CODE}</code>
+        </pre>
+
+        <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-3">
+          <p className="flex items-center gap-1.5 text-[10.5px] text-[#087c6a]">
+            <span className="rounded bg-[#087c6a]/12 px-1 font-semibold">1</span>
+            <span className="font-semibold text-ink">Next.js</span>
+            官方文档 · 查看原始引用
+          </p>
+          <p className="flex items-center gap-2 text-[10.5px] text-muted">
+            <span className="rounded-full bg-goodsoft px-2 py-0.5 font-semibold text-good">
+              已存证
+            </span>
+            版本 v16.1.0 · Aptos 主网
+            <span className="font-mono">0x7f3c…a91b</span>
+          </p>
+        </div>
+      </article>
+    </>
+  );
+}
+
+/** Rule 2 made visible: no retrieved chunks means the model is not called at all. */
+function NoContextAnswer() {
+  return (
+    <article className="rounded-[12px] rounded-bl-[4px] border border-warnsoft bg-warnsoft/50 p-3.5">
+      <p className="text-[12.5px] font-semibold text-warn">未找到相关内容</p>
+      <p className="mt-1.5 text-[12px] leading-[1.75] text-muted">
+        检索链路尚未接入（architecture.md 第 21 节第 3–6 步）。Playground
+        在检索返回零结果时不会调用模型，因此这里不会生成回答 ——
+        宁可什么都不答，也不用模型的自有知识补一段看起来合理的内容。
+      </p>
+    </article>
+  );
+}
+
+export function Playground() {
+  const [question, setQuestion] = useState('');
+  const [asked, setAsked] = useState<string[]>([]);
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    const q = question.trim();
+    if (!q) return;
+    setAsked((prev) => [...prev, q]);
+    setQuestion('');
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-[780px]">
+      <div className="overflow-hidden rounded-[14px] border-2 border-line bg-card">
+        <div className="flex flex-col gap-3.5 p-4">
+          <UserBubble text={SEED_QUESTION} />
+          <SeedAnswer />
+
+          {asked.map((q, i) => (
+            <div key={`${q}-${i}`} className="flex flex-col gap-3.5">
+              <UserBubble text={q} />
+              <NoContextAnswer />
+            </div>
+          ))}
+        </div>
+
+        <form onSubmit={onSubmit} className="flex items-center gap-2 border-t-2 border-line p-3.5">
+          <input
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder="输入你的问题…"
+            aria-label="输入你的问题"
+            className="h-[42px] min-w-0 flex-1 rounded-[9px] border-2 border-line bg-[#fdfefe] px-3.5 text-[13px] text-ink outline-none placeholder:text-muted/70 focus:border-brand"
+          />
+          <button
+            type="submit"
+            className="h-[42px] shrink-0 rounded-[9px] bg-brand px-5 text-[13px] font-medium text-white transition-colors hover:bg-brand/90"
+          >
+            发送
+          </button>
+        </form>
+      </div>
+
+      <p className="mt-3.5 text-center text-[11.5px] leading-[1.7] text-faint">
+        匿名试用受 IP 速率限制；登录后每次问答计 1 API Call，答案生成成本由平台承担。
+        <br />
+        回答中的每条事实都必须绑定到本次检索返回的 Chunk，无法绑定的内容不会作为事实展示。
+      </p>
+    </div>
+  );
+}

@@ -1,0 +1,55 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+/*
+ * Design tokens lifted from knowleg-market.pen.
+ * The public marketing site commits to a single light look, matching the
+ * design source; only the docs site follows the reader's theme.
+ */
+@theme {
+  --color-surface: #f9fdff;
+  --color-card: #ffffff;
+  --color-subtle: #f7fbfb;
+  --color-mutedbg: #ebf4f4;
+  --color-line: #dae3e4;
+  --color-ink: #031a1e;
+  --color-inkdeep: #061415;
+  --color-muted: #50686d;
+  --color-faint: #8aa0a4;
+  --color-brand: #00bba7;
+  --color-brandink: #006363;
+  --color-brandsoft: #e4f2f2;
+  --color-good: #079566;
+  --color-goodsoft: #e7f7ef;
+  --color-warn: #9a6320;
+  --color-warnsoft: #fbe9e2;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Radial wash behind the hero, as in the design source. */
+.site-wash {
+  background-image: radial-gradient(
+    60% 42% at 50% 0%,
+    rgba(195, 236, 223, 0.54) 0%,
+    rgba(195, 236, 223, 0) 100%
+  );
+}
+
+/*
+ * Product surfaces (public site, dashboard, admin) commit to the single light
+ * look of the design source.
+ *
+ * This has to be explicit rather than inherited: the docs site uses Fumadocs,
+ * whose theme toggle puts `.dark` on <html> and repaints <body>. That class
+ * survives navigation away from /docs, so without pinning both the background
+ * and color-scheme here, returning to the product would leave a dark body
+ * behind the page and dark native controls inside it.
+ */
+.product-surface {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  color-scheme: light;
+}

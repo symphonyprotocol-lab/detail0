@@ -1,0 +1,137 @@
+/**
+ * Domain layer. Pure TypeScript.
+ *
+ * Must not import Next.js, Vercel, Neon, Drizzle, Payment, AI SDK or chain SDK.
+ * See architecture.md 4.
+ */
+
+export type Visibility = 'public' | 'private';
+
+export type LifecycleStatus =
+  | 'draft'
+  | 'submitted'
+  | 'reviewing'
+  | 'changes_requested'
+  | 'published'
+  | 'suspended'
+  | 'archived';
+
+export type IndexStatus =
+  | 'pending'
+  | 'processing'
+  | 'ready'
+  | 'failed'
+  | 'stale'
+  | 'deleting';
+
+export type ClaimStatus = 'pending' | 'verified' | 'failed' | 'expired' | 'revoked';
+
+export type ClaimMethod = 'github_permission' | 'dns_txt' | 'well_known';
+
+export type SourceType =
+  | 'github'
+  | 'website'
+  | 'llms_txt'
+  | 'markdown'
+  | 'pdf'
+  | 'openapi'
+  | 'notion';
+
+/** requirement.md 7.3.2: these source types have no claim flow; the creator owns them. */
+export const SELF_OWNED_SOURCE_TYPES: readonly SourceType[] = [
+  'markdown',
+  'pdf',
+  'openapi',
+  'notion',
+];
+
+export function claimMethodsFor(type: SourceType): readonly ClaimMethod[] {
+  switch (type) {
+    case 'github':
+      return ['github_permission', 'dns_txt', 'well_known'];
+    case 'website':
+    case 'llms_txt':
+      return ['dns_txt', 'well_known'];
+    default:
+      return [];
+  }
+}
+
+export function requiresClaim(type: SourceType): boolean {
+  return claimMethodsFor(type).length > 0;
+}
+
+/**
+ * requirement.md 6.2: a library is queryable only when published, its current
+ * version is ready, and the caller passed workspace plus policy checks.
+ * Visibility, lifecycle and index status are independent and never merged.
+ */
+export function isQueryable(input: {
+  lifecycleStatus: LifecycleStatus;
+  indexStatus: IndexStatus;
+}): boolean {
+  return input.lifecycleStatus === 'published' && input.indexStatus === 'ready';
+}
+
+/**
+ * requirement.md 4.4 and 7.3.6: only claimed public user libraries earn.
+ * Platform libraries, private libraries and unclaimed libraries do not,
+ * and unclaimed traffic must not dilute other publishers either.
+ */
+export function isRevenueEligible(input: {
+  visibility: Visibility;
+  lifecycleStatus: LifecycleStatus;
+  ownerWorkspaceId: string | null;
+  isPlatformLibrary: boolean;
+}): boolean {
+  return (
+    input.visibility === 'public' &&
+    input.lifecycleStatus === 'published' &&
+    input.ownerWorkspaceId !== null &&
+    !input.isPlatformLibrary
+  );
+}
+
+/**
+ * requirement.md 4.2: plan allowance first, then the non-expiring pack balance.
+ * Returns null when both are exhausted, which the caller maps to quota_exceeded.
+ */
+export type DebitSource = 'plan' | 'addon';
+
+export function nextDebitSource(input: {
+  planAllowanceRemaining: number;
+  addonBalanceRemaining: number;
+}): DebitSource | null {
+  if (input.planAllowanceRemaining > 0) return 'plan';
+  if (input.addonBalanceRemaining > 0) return 'addon';
+  return null;
+}
+
+/** requirement.md 4.4: pool = net revenue * share rate * attributable share. */
+export function allocatablePoolMinor(input: {
+  netRevenueMinor: number;
+  shareRateBps: number;
+  totalAttributableCalls: number;
+  totalBilledCalls: number;
+}): number {
+  if (input.totalBilledCalls <= 0) return 0;
+  const attributableShare = input.totalAttributableCalls / input.totalBilledCalls;
+  return Math.floor(
+    (input.netRevenueMinor * input.shareRateBps * attributableShare) / 10_000,
+  );
+}
+
+/**
+ * requirement.md 4.4: linear in attributable calls. Never weighted by Trust Score --
+ * scores decide eligibility, not amount.
+ */
+export function settlementAmountMinor(input: {
+  poolMinor: number;
+  libraryAttributableCalls: number;
+  totalAttributableCalls: number;
+}): number {
+  if (input.totalAttributableCalls <= 0) return 0;
+  return Math.floor(
+    (input.poolMinor * input.libraryAttributableCalls) / input.totalAttributableCalls,
+  );
+}
