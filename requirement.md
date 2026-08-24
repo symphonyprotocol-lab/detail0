@@ -1,311 +1,779 @@
-# mindmint 产品需求
+# recall0 产品需求文档
 
-- 版本：2.0（简化版）
-- 更新日期：2026-08-16
+- 版本：3.0
+- 更新日期：2026-08-17
 - 状态：MVP 产品基线
-- 开发与部署：[architecture.md](./architecture.md)
+- 设计依据：[knowleg-market.pen](./knowleg-market.pen)
+- 技术实现：[architecture.md](./architecture.md)
+- 参考实现：[Context7](https://github.com/upstash/context7/tree/f3a818d69db694e24d58e3bf803454fb20fc66ea)
 
-## 1. 产品定义
+## 1. 文档目的与决策顺序
 
-mindmint 把公开文档和用户拥有合法访问权的私有资料转换为 AI Agent 可以搜索、检索和引用的知识库。
+本文定义 recall0 MVP 的产品边界、用户行为、套餐、接口契约和验收标准。实现与文案发生冲突时，按以下顺序处理：
 
-MVP 采用与 Context7 类似的分层模式：
+1. 本文中的明确产品规则；
+2. 新设计稿中的页面结构和用户流程；
+3. `architecture.md` 中的技术约束；
+4. Context7 开源仓库中的接口与接入模式；
+5. 旧版本文档或设计稿中的示例数据。
 
-- **免费用户**可以搜索和查询公开知识库，但受请求额度和速率限制；
-- **付费用户**获得更高查询额度、个人私有知识库和管理能力；
-- 平台按订阅与 API 用量收费，不对每个知识片段报价，也不在 MVP 中向知识发布者分成。
+设计稿中的姓名、邮箱、收入、账单、知识库、请求数和管理员数据均为演示数据。套餐只有 **Free、Pro 和 Additional Calls** 三档，全部以 USD 计价；公共页面、Dashboard 和管理后台不得出现 Enterprise 档位、人民币价格，或与第 4.1 节不一致的额度、容量和 Key 上限。
 
-平台提供 Web、REST API 和 MCP 三种入口。所有入口使用同一套知识版本、访问控制、检索和用量规则。
+Context7 只作为以下能力的参考：两阶段知识检索、Library ID、REST/MCP/SDK/CLI 的薄客户端模式、来源配置、访问规则、后台刷新和插件分发。其生产抓取、解析、索引、排序和计费后端不在开源仓库中，recall0 不假定或复制这些内部实现。
 
-### 1.1 MVP 目标
+## 2. 产品定义
 
-- 建立可持续扩充的公开免费知识库目录；
-- 让 AI Agent 通过两步调用找到知识库并取得带引用的上下文；
-- 支持用户创建和查询自己的私有知识库；
-- 保证知识来源、更新时间、版本和引用可核对；
-- 使用简单的免费额度、付费订阅和超额用量完成商业闭环；
-- 提供 MCP、TypeScript SDK 和 REST API，降低 Agent 接入成本。
+recall0 把公开文档以及用户有权使用的私有资料，转换为 AI Agent 可搜索、可检索、可引用的版本化知识库。
 
-### 1.2 MVP 不包含
+产品提供四个入口：
 
-- 发布者按检索 Token 获得收入的知识交易市场；
-- 单次调用报价、资金冻结、双重记账、发布者结算和付款；
-- Aptos、链上存证、平台代币、NFT 或加密资产支付；
-- 自动跨多个付费知识库执行复杂预算路由；
-- 通用 Agent Workflow、模型训练或原始文件交易平台；
-- 对公开网络上的全部资料进行无差别抓取。
+- Web：发现知识库、在线试用、管理知识库和账户；
+- REST API：提供稳定、结构化的知识检索与管理接口；
+- MCP：让 Claude、Codex、Cursor 等 Agent 使用两项只读工具取得上下文；
+- CLI/SDK：完成安装、配置和 API 封装，不复制服务端业务逻辑。
 
-发布者收益、按库定价和多库付费路由只有在公开库与订阅模式验证成功后，才能通过新的产品版本重新评估。
+所有入口必须使用同一套身份、工作空间、知识版本、访问规则、检索、额度和审计规则。
 
-## 2. 用户、套餐与访问
+### 2.1 核心价值
 
-### 2.1 用户
+- **最新**：按来源变化创建不可变版本，查询时返回明确版本；
+- **可信**：公开知识库经过来源、权利、质量和安全审核；
+- **可追溯**：每段上下文保留来源 URL、文档、章节和版本；
+- **可独立验证**：已发布版本、审计链头和发布者结算单的摘要写入 Aptos 主网，第三方不调用 recall0 任何接口即可校验；
+- **可治理**：工作空间可以按来源类型、质量和名单限制可访问内容；
+- **易接入**：REST、MCP、SDK 和 CLI 使用一致契约；
+- **可预测计费**：按成功受理的 API/MCP Call 计量，不按 Token 计费；
+- **可持续供给**：通过审核的用户公开知识库，按被成功检索的次数从平台收入中分成，维护有回报。
 
-- **Visitor**：无需登录即可浏览公开目录，并可在严格速率限制下试用公开查询；
-- **User**：使用账户和 API Key 查询公开库、保存使用记录并管理个人设置；
-- **Paid User**：拥有更高额度，可创建和管理个人私有知识库；
-- **Administrator**：处理公共库审核、举报、安全事件、套餐和用量异常。
+### 2.2 MVP 成功标准
 
-同一个账户可以查询知识，也可以提交或维护知识库，不设置 Creator/Consumer 两套账号体系。
+- 用户可以从公开目录找到知识库，并在在线试用中得到带引用的上下文；
+- Agent 能稳定完成“解析 Library ID → 查询文档”两步调用；
+- Free 和 Pro 用户都能创建私有知识库，并在套餐容量内完成索引与查询；
+- 用户提交的公开知识库必须通过审核后才进入公共目录；
+- 工作空间访问规则对 Web、REST 和 MCP 的新请求同时生效；
+- 用户能创建和撤销 API Key，并查看请求状态、延迟和返回 Token；
+- 运营人员能完成审核、用户处置、平台库维护、套餐配置和审计追踪；
+- 刷新失败时，当前可用版本不受影响；
+- 用户公开知识库产生的可计分成 Call 能被准确归因、记账，并可用 Usage Event 独立复算；
+- 任取一个已发布版本或已关账结算单，用公开 Verifier 和链上数据即可完成校验，全程不调用 recall0 接口。
 
-### 2.2 套餐
+### 2.3 MVP 不包含
 
-| 能力 | Free | Pro |
-| --- | --- | --- |
-| 价格 | 免费 | $5 / 月 |
-| API / MCP 调用额度 | 1,000 Calls / 月 | 2,000 Calls / 月 |
-| 额外调用包 | 不支持 | $5 / 2,000 Calls |
-| 查询公开知识库 | 支持，计入 API Call 额度 | 支持，计入 API Call 额度 |
-| 创建公开知识库 | 可提交，需审核 | 可提交、认领和管理 |
-| 创建个人私有知识库 | 不支持 | 支持 |
-| API / MCP | 支持 | 支持 |
+- 按知识片段、Token 或单个知识库分别报价；
+- 平台自行持有或冻结用户资金、双重记账与自建清结算（分成出账全程由外部支付服务完成，见第 4.4 节）；
+- 代币、NFT、加密资产支付，以及任何形式的链上资金流转；链上只写摘要、不承载资产，存证范围见第 6.4 节；
+- 自动跨多个知识库规划预算；REST 与 MCP 不生成最终长篇答案，Web 在线试用的答案生成见第 5.1 节；
+- 通用 Agent Workflow、模型训练或原始文件交易；
+- 未经授权的全网抓取；
+- 面向普通用户开放的团队席位、SSO 和组织邀请；
+- Enterprise 套餐、席位合同与复杂合同计费；自助套餐只有 Free、Pro 和 Additional Calls 三档。
 
-所有 API 与 MCP 查询统一按成功受理的 API Call 计量，不按输入、输出、解析或返回 Token 计费。价格与额度通过 Plan Version 保存，历史 Usage 不随套餐变更而改写。
+## 3. 用户、身份与权限
 
-### 2.3 访问规则
+### 3.1 用户类型
 
-- `public`：目录和知识正文可以被所有用户查询，仍受速率、额度和安全规则限制；
-- `private`：只有所属用户可以发现和查询；
-- 公共目录不展示私有知识库的名称、描述、来源或存在性；
-- 订阅状态决定额度与私有能力，不能绕过知识库访问控制；
-- 管理员暂停的知识库不得开始新查询。
+| 用户 | 能力 |
+| --- | --- |
+| Visitor | 浏览公开页面和目录，在严格匿名限流下在线试用公开库 |
+| User | 使用 GitHub 或 Google 登录，拥有一个个人工作空间和 Free 套餐 |
+| Pro User | 拥有 Pro 套餐额度、容量和更多自建知识库 |
+| Reviewer | 审核用户提交的公开知识库，查看审核所需内容 |
+| Operator | 管理用户、平台知识库、订阅和账单 |
+| Super Admin | 管理管理员、角色和高风险配置 |
 
-## 3. Knowledge Library
+同一普通账户既可以查询知识，也可以创建和维护知识库。MVP 不设置 Creator/Consumer 两套账户。
+
+### 3.2 登录与账户
+
+- 普通用户使用 GitHub 或 Google OAuth 登录；首次登录自动创建账户和个人工作空间；
+- OAuth 只建立身份，不代表用户拥有某个仓库、网站或文档的发布权；
+- 用户可同时绑定多个登录方式，但相同邮箱不得自动合并高风险账户；
+- 管理后台使用独立入口、独立管理员身份和强制多因素认证；
+- 普通用户会话不能访问管理后台；管理员会话不能直接作为普通用户 API Key 使用；
+- 停用账户后，Web 会话和 API Key 立即失效，知识库按处置策略暂停访问。
+
+### 3.3 工作空间角色
+
+MVP 的普通用户只有个人工作空间，但权限模型按工作空间设计：
+
+- `owner`：管理套餐、API Key、知识库和访问规则；
+- `admin`：预留角色，可管理知识库和访问规则；
+- `developer`：预留角色，只读访问规则，可使用 API Key；
+- `viewer`：预留角色，只读查看。
+
+MVP 中个人工作空间创建者为 `owner`。团队成员邀请和席位收费不在首发范围，但数据模型不得把资源直接绑定到邮箱。
+
+## 4. 套餐、容量与计费
+
+### 4.1 自助套餐
+
+| 能力 | Free | Pro | Additional Calls |
+| --- | --- | --- | --- |
+| 月费 | $0 | $5 / 月 | $5 / 包，一次性 |
+| API/MCP Calls | 1,000 / 月 | 5,000 / 月 | +5,000 Calls |
+| Calls 有效期 | 当前账期，期末清零 | 当前账期，期末清零 | **不过期**，跨账期结转 |
+| 额外调用包 | 不支持购买 | 支持购买，可重复购买 | — |
+| 查询全部公开知识库 | 支持 | 支持 | 沿用 Pro 权限 |
+| 自建知识库 | 最多 5 个 | 最多 25 个 | 沿用 Pro 权限 |
+| 单个知识库容量 | 20 MB | 100 MB | 沿用 Pro 权限 |
+| 私有知识库 | 支持 | 支持 | 沿用 Pro 权限 |
+| 提交公开知识库 | 支持，必须审核 | 支持，必须审核 | 沿用 Pro 权限 |
+| 有效 API Key | 最多 3 个 | 最多 20 个 | 沿用 Pro 权限 |
+| 版本存证 | 包含 | 包含 | 沿用 Pro 权限 |
+| REST API / MCP | 支持 | 支持 | 沿用 Pro 权限 |
+
+知识库容量按一次版本导入的解压后、规范化前有效内容字节计算，不包含平台生成的 Embedding、索引和缩略信息。更新不得通过拆分版本绕过单库容量限制。
+
+### 4.2 Call 计量
+
+- 一次成功受理的 REST 检索或 MCP 工具调用计为 1 Call；
+- `resolve-library-id` 和 `query-docs` 分别计为 1 Call；
+- 缓存命中仍计 1 Call；返回 Chunk 和 Token 数不改变价格；
+- 页面浏览、Dashboard 管理操作和额度查询不计 Call；
+- 认证失败、参数校验失败、访问拒绝和平台内部错误不计 Call；
+- 已通过认证、授权和额度校验并开始检索的请求，是否有结果都计 1 Call；
+- 同一 `request_id` 最多产生一个 Usage Event，客户端重试必须使用新的请求 ID，除非是幂等重放；
+- 匿名在线试用按 IP、设备信号和短时间窗口限流，不占用户月度额度；
+- 已登录用户的在线试用计 1 Call，其中的答案生成成本由平台承担，不额外计费；
+- 版本存证、认领验证、索引与刷新任务不计 Call。
+
+**扣减顺序**固定为：先扣当前账期的套餐包含额度，套餐额度用尽后扣 Additional Calls 余额，两者都为零时返回 `quota_exceeded`。套餐包含额度在账期结束时清零并按新账期重置；Additional Calls 余额跨账期结转，不清零、不退款、不自动续费。降级到 Free 后已购余额继续可用，但不能再购买新的调用包。
+
+平台记录输入 Token、返回 Token、候选 Chunk、缓存命中和模型成本用于分析，但这些字段不参与用户账单。
+
+### 4.3 套餐版本与账单
+
+- 价格、额度、知识库数量、容量和 Key 上限来自不可变 `Plan Version`；
+- 套餐修改只影响新订阅或明确迁移的订阅，不改写历史 Usage；
+- 自助订阅以 USD 结算；界面可以显示本地货币估算，但订单保存原始金额和币种；
+- Pro 额外调用包增加**不过期**的 Calls 余额，跨账期结转，不自动续费，也不改变 Pro 的容量与 Key 上限；
+- 调用包余额是已交付的预付权益，不因降级、账期切换或套餐改价而失效或重估；
+- 支付、银行卡、发票和退款由外部 Payment Provider 处理；recall0 不保存卡号；
+- 自助套餐只有 Free、Pro 和 Additional Calls；不设 Enterprise 档位，管理后台的订阅配置也只维护这三档的 Plan Version。
+
+### 4.4 发布者调用分成
+
+通过审核发布的**用户公开知识库**，按其被成功检索的次数从平台收入中获得分成。完整设计见 [publisher-revenue-share.md](./publisher-revenue-share.md)，本节为产品规则摘要。
+
+- 只有 `visibility = public`、`lifecycle_status = published` 且**已完成认领**（第 7.3 节，有明确 Owner）的用户知识库参与；平台自建库、私有库和未认领的公开库都不参与，未认领库的 Call 也不计入可分配池的分子；
+- 收益自认领生效之后的账期开始计算，**不追溯**认领前的调用；
+- 只有 `query-docs` 计分成，`resolve-library-id` 不计；匿名在线试用不计；调用方与 Owner 同工作空间不计；
+- 可分配池 = 该账期可计分成 Call 占全部计费 Call 的比例 × 净收入 × `share_rate`；`share_rate` 来自不可变 `Plan Version`，初始 20%；
+- 分配按可计分成 Call 数线性进行，**不按 Trust Score 加权**——分数只决定资格，不决定金额；
+- 收益数据不得进入检索、召回或排序的任何环节；
+- 出账门槛 $20、持有期 45 天，通过外部支付服务完成；recall0 不保存银行账号、不持有用户资金；
+- 参与分成需完成来源权利验证、通过公开审核、达到分数门槛并在支付服务完成身份与税务信息；
+- 自刷、关联工作空间刷量和超过单调用方单库日上限的调用照常计费，但不产生收益；
+- 退款按比例回冲未出账收益；库被安全暂停或审核撤销时当期未出账收益作废；
+- 分成不改变第 4.1 节的用户侧价格，也不引入按库定价。
+
+MVP 交付阶段 1（记账与账期计算）与阶段 2（发布者账户、资格与收益 Dashboard）；阶段 3 的实际出账在分配数据可复算、参数定档后启动。
+
+## 5. Web 产品范围
+
+### 5.1 公共站点
+
+#### 首页与目录
+
+- 首页说明“经过验证、持续更新、可追溯”的产品价值；
+- 提供安装命令、获取 API Key、在线试用和 Pricing 入口；
+- Knowledge Directory 支持名称、领域或 Library ID 搜索；
+- 支持“热门”和“最近更新”排序；
+- 列表至少展示名称、Library ID、Trust Score、Chunk 数、更新时间和访问范围；
+- 公共目录只返回已发布的公开知识库，不泄漏私有库的名称或存在性。
+
+#### 知识库详情
+
+- 展示来源、当前版本与历史版本、Token/Chunk 数、容量、Trust/Benchmark、新鲜度和刷新策略；
+- 展示存证状态与验证入口（第 6.4 节）；
+- 展示解析范围，字段名与 `recall0.json` 一致（`folders`、`excludeFolders`）；
+- 提供针对该库的固定查询入口，复用在线试用的同一实现；
+- 展示所有权状态：已认领时显示所有者与认领时间；**未认领时提供认领入口**，见第 7.3 节；
+- 不展示该库的收益金额、可计分成 Call 或任何分成明细。
+
+#### 在线试用
+
+- 使用对话式界面演示两步工具调用；
+- 展示选择的 Library ID、查询主题、正文、代码示例和原始引用；
+- 匿名用户只能查询公开库并受严格限流；
+- 在线试用不得暗示内容由模型凭空生成，必须标注来源与版本。
+
+在线试用是**唯一**允许生成自然语言答案的入口，REST 与 MCP 只返回上下文。生成链路的硬性规则：
+
+1. 先调用与 REST/MCP **完全相同**的检索实现取得 Chunk 与 Citation，两者对同一请求必须返回相同的 Version 与 Citation；
+2. 检索返回零结果时**不调用模型**，直接返回「未找到相关内容」，不允许模型用自身知识作答；
+3. Chunk 作为**不可信数据**传入，与系统提示明确分隔；Chunk 中的指令不得改变系统提示、工具权限或安全策略，`rules` 字段同样只作建议数据；
+4. 模型只能使用本次检索返回的 Chunk，不得引入外部知识；
+5. 每个事实性陈述必须绑定到具体 Chunk 并渲染角标，角标指向来源 URL、文档标题、章节和版本；**无法绑定的段落不得作为事实展示**；
+6. 模型调用失败或超时时降级为直接展示 Chunk 列表，不返回错误页；
+7. 生成使用明确的 Token 与延迟上限；模型 Token 只作成本观测，不参与用户账单；
+8. 匿名试用在界面上明示剩余次数与登录后的额度差异。
+
+在线试用生成的答案不写入普通日志或 Analytics，与 Query 正文适用同一保密要求。
+
+#### Pricing 与登录
+
+- Pricing 必须展示 Free、Pro 和 Additional Calls 的统一价格与容量；
+- FAQ 明确“按 Call、不按 Token”、调用包不续费、公开库无需逐库购买；
+- 登录页提供 GitHub 和 Google，说明首次登录会创建账户；
+- 条款、隐私政策、服务状态和支持入口必须可访问。
+
+### 5.2 用户 Dashboard
+
+#### 概览
+
+- 显示当前套餐、本账期 Calls、最近调用趋势、自建知识库数量和当前费用；
+- 提供 REST 示例、MCP 安装命令和常用开发入口；
+- Free 用户可看到升级入口，但不阻断套餐内已有能力。
+
+#### 知识库
+
+- 支持全部、公开、私有、审核中和需修改筛选；
+- 展示版本、文档/Chunk 数、更新时间、可见性和审核状态；
+- 私有库创建完成后无需人工审核；
+- 用户公开库必须展示审核步骤、预计时间和反馈；
+- 删除、暂停、刷新和重新提交必须给出明确结果；
+- 展示每个公开库的认领状态；未认领的库提供认领入口，`pending` 的认领展示当前进度与剩余有效期，失败的展示原因码与下一步；
+- 管理权相关操作（编辑元数据、配置解析范围、手动刷新、暂停、删除）只对该库的 Owner 开放，非 Owner 只能看到只读视图与认领入口。
+
+#### 添加知识库
+
+创建向导固定为四步：
+
+1. 选择来源；
+2. 配置来源连接和解析范围；
+3. 填写知识库信息；
+4. 选择访问范围并确认审核规则。
+
+首发来源：
+
+- GitHub 仓库；
+- 公开 Website / 文档站；
+- Markdown / MDX；
+- PDF；
+- OpenAPI URL 或文件；
+- Notion 已授权页面。
+
+草稿自动保存。公开提交进入“权利与来源 → 内容解析 → 质量与安全 → 人工审核 → 正式发布”；私有提交跳过人工审核，但不能跳过恶意内容和安全检查。
+
+#### API Key
+
+- Key 创建时选择名称、环境和 Scope；
+- 完整 Key 只显示一次，之后只展示前缀和末四位；
+- 支持 `knowledge:search`、`knowledge:read`、`usage:read` 和预留管理 Scope；
+- 用户可以撤销、轮换和查看最后使用时间；
+- UI 提醒用户不要把 Key 放进公开仓库、查询文本或客户端代码。
+
+#### 调用记录
+
+- 展示请求 ID、时间、入口、操作、知识库、状态、延迟和返回 Token；
+- 支持时间、状态、入口和知识库筛选，支持 CSV 导出；
+- 默认只保留 Query 摘要或不可逆指纹，不展示私有查询正文；
+- Free 可以查看基础记录；高级分析可以作为 Pro 能力，但不能隐藏错误诊断信息。
+
+#### 访问规则
+
+访问规则以工作空间为范围，对该工作空间所有 Web、REST 和 MCP 请求生效：
+
+- 来源类型开关：公开代码仓库、网站、OpenAPI/Markdown、上传文件、Notion 和私有知识库；
+- `quality` 模式：按审核/验证状态、Trust Score、新鲜度、仓库 Stars、许可证、反向链接、引用域名和自然流量筛选；
+- `select` 模式：仅允许明确列出的 Library ID、组织或域名；
+- `quality` 模式支持阻止名单和始终允许名单；
+- 保存前展示当前可访问知识库数量；
+- 规则更新只影响新请求，不中断已经固定版本的进行中请求；
+- Owner/Admin 可修改，Developer 只读。
+
+#### 设置
+
+- 展示个人资料、登录方式、加入时间和邮箱验证状态；
+- 展示当前套餐、账期、Calls、知识库数量和容量；
+- 提供升级、账单、调用记录和联系支持入口。
+
+### 5.3 管理后台
+
+管理后台是产品运营所需能力，不与普通 Dashboard 共用权限。
+
+- 运营概览：注册、付费、知识库、审核队列、收入和服务状态；
+- 注册用户：搜索、筛选、导出、查看详情、启用或停用账户；
+- 用户知识库：查看来源、可见性、容量和审核状态，执行通过、拒绝或要求修改；
+- 所有权与认领：查看认领记录与验证证据，裁定争议、执行所有权转移、撤销认领；不得跳过第 7.3 节的验证直接授予所有权，除争议裁定外，且裁定必须记录依据；
+- 平台知识库：由 recall0 官方创建、刷新、暂停和发布公共库；
+- 订阅配置：创建不可变 Plan Version，配置 Free、Pro 和 Additional Calls 三档的额度、容量、Key 上限和公开审核要求；不得出现 Enterprise 档位或非 USD 价格；
+- 订阅账单：只读同步订单、支付、退款和开票状态，人工动作必须调用 Provider；
+- 管理员：最小权限角色、邀请、停用和强制 MFA；
+- 审计日志：记录登录、审批、用户处置、套餐、权限和账单操作，默认保留 365 天。
+
+高风险操作必须二次确认并记录操作者、目标、变更前后值、原因、结果、时间和网络来源摘要。
+
+## 6. Knowledge Library 领域模型
+
+### 6.1 Library
 
 每个知识库包含：
 
-- 稳定的 Library ID，例如 `/publisher/library`；
-- 名称、描述、发布者、领域、标签、语言和来源 URL；
-- 可见性、生命周期、索引状态和当前有效版本；
-- Token 数、Chunk 数、更新时间、新鲜度、Trust Score 和 Benchmark Score；
-- 来源文件、规范化文档、Chunk、Embedding 和 Citation 元数据；
-- 可选的历史版本，例如 `/publisher/library/v2`。
+- 稳定 Library ID、名称、描述、领域、标签和语言；
+- Owner Workspace、来源类型、可见性和发布状态；
+- 当前有效 Version；
+- 总 Token、总 Chunk、更新时间和新鲜度；
+- Trust Score、Benchmark Score、验证状态和审核记录；
+- 一个或多个 Source，以及不可变的历史版本。
 
-### 3.1 独立状态
+ID 规则：
+
+- Git 仓库：`/owner/repository`；
+- Website：`/websites/slug`；
+- 上传文档：`/docs/slug`；
+- Notion：`/notion/slug`；
+- 指定版本：`/owner/repository/version`；
+- Slug 变更保留 Redirect，API 返回新的 Library ID；
+- 私有 Library ID 不得通过公共搜索、错误差异或统计接口枚举。
+
+### 6.2 独立状态
 
 - `visibility`：`public | private`
-- `lifecycle_status`：`draft | reviewing | published | suspended | archived`
-- `index_status`：`pending | processing | ready | failed | stale`
+- `lifecycle_status`：`draft | submitted | reviewing | changes_requested | published | suspended | archived`
+- `index_status`：`pending | processing | ready | failed | stale | deleting`
 
-正式查询要求 Library 为 `published`、当前 Version 为 `ready`，并且调用者拥有访问权限。
+正式查询统一要求 Library 为 `published`、当前 Version 为 `ready`，并且调用者通过工作空间和访问规则检查。私有库通过安全与索引检查后自动进入 `published`，但不进入人工审核且 `visibility` 始终为 `private`。可见性、审核和索引状态不得合并为一个字段。
 
-### 3.2 公开知识库
+### 6.3 Trust、Benchmark 与验证
 
-- 任何登录用户都可以建议收录公开 Git 仓库或官方文档网站；
-- 提交者不自动成为所有者，也不能仅凭提交行为修改知识库；
-- 平台优先收录官方文档、维护者仓库和有明确许可证的内容；
-- 所有者可以通过来源根目录中的配置文件认领知识库；
-- 公开知识库免费查询，不向来源维护者支付检索分成；
-- 被举报、来源失效或安全检查失败的知识库可以暂停或删除索引。
+- Trust Score 为 0–100，衡量来源身份、所有权、许可证、维护状态和安全历史；
+- Benchmark Score 为 0–100，衡量检索覆盖、引用完整性、重复率和测试集表现；
+- `verified` 表示来源或维护者已完成验证，不等于内容绝对正确；
+- 分数算法必须版本化，UI 展示更新时间和解释，不得伪装成法律或事实保证。
 
-### 3.3 私有知识库
+### 6.4 链上存证
 
-- 仅付费用户可以创建；
-- 只索引用户明确连接或上传的来源；
-- 来源凭证加密保存，查询结果不得泄漏给其他用户；
-- 私有库不自动刷新，除非用户启用计划任务或来源 Webhook；
-- 删除私有库时必须删除可识别的文档、Chunk 和 Embedding，并保留最小合规记录。
+存证把「可信」和「可追溯」从平台自证变为第三方可验证。完整设计见 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md)，本节为产品规则摘要。
 
-### 3.4 来源与配置
+锚定对象共三类，写入 **Aptos 主网**，链上只有摘要，没有任何知识正文、Query、用户标识或资产：
 
-MVP 支持：
+| 对象 | 内容 | 频率 |
+| --- | --- | --- |
+| Version Anchor | 每个 `published` Version 的摘要 | 每小时 1 笔 |
+| Audit Anchor | 每日审计链头 | 每天 1 笔 |
+| Earning Anchor | 每个已关账账期的发布者结算单摘要 | 每账期 1 笔 |
 
-- 公共 GitHub 仓库；
-- 公开文档网站或 `llms.txt`；
-- Markdown、MDX、TXT 和 PDF 上传；
-- OpenAPI 文件。
+规则：
 
-数据库、SaaS Drive、Confluence、Notion 和更多 Git Provider 后续按 Connector 增加。
+- 存证是**旁路能力**：链或签名账户不可用时，发布、刷新、检索、计量、审核和出账全部不受影响，存证状态停留在 `待存证`；
+- 存证不产生 Call 计量、不占额度，Free 与 Pro 均包含；
+- 平台库、用户公开库和私有库默认全部锚定；公开库原像可公开，私有库与结算单原像恒加盐，第三方无法判定存在性、内容或归属；
+- Library Detail、Dashboard 知识库详情和发布者收益页展示存证状态与验证入口；Context 与 Search 响应默认不返回 Anchor 字段，需要时走独立的 Anchor 查询接口；
+- 平台发布独立于 recall0 的公开 Verifier，校验过程不调用 recall0 任何接口；
+- **文案纪律**：存证只证明「某时刻的内容就是这一份」，不构成对内容正确性的保证；对结算单只证明「锚定后未被改写」，不证明归因与分配算得对。归因正确性由第 4.4 节的可独立复算要求承担，与链无关；
+- 用户全程无钱包、无签名、无 Gas；界面不出现任何钱包元素。
 
-来源可以提供 `knowledge-market.json`：
+删除知识库后链上残留摘要无法恢复任何内容或标识，但摘要本身不可删除；该事实必须在删除确认和隐私政策中明示。
+
+## 7. 来源、配置与审核
+
+### 7.1 来源权利
+
+- 任何登录用户可建议收录公开仓库或官方文档，但提交不自动获得所有权；所有权只能通过第 7.3 节的认领流程取得；
+- 公开发布者必须声明其有权提交并提供来源；
+- 私有来源只允许连接用户明确授权的账户、页面、仓库或上传文件；
+- 连接凭证只用于抓取所选范围，撤销连接后不得继续刷新；
+- 来源失效、侵权举报或安全检查失败时可暂停并进入复核。
+
+### 7.2 `recall0.json`
+
+Git 仓库根目录可以提供来源侧配置：
 
 ```json
 {
-  "$schema": "https://knowledge.market/schema/knowledge-market.json",
-  "title": "Production RAG Playbook",
+  "$schema": "https://recall0.com/schema/recall0.json",
+  "projectTitle": "Production RAG Playbook",
   "description": "Production RAG documentation and examples",
-  "include": ["docs/**"],
-  "exclude": ["archive/**", "**/*.draft.md"],
+  "branch": "main",
+  "folders": ["docs", "guides"],
+  "excludeFolders": ["archive", "**/legacy"],
+  "excludeFiles": ["CHANGELOG.md"],
   "rules": ["Always include source citations"],
-  "versions": [{ "tag": "v1.0" }],
-  "claim": {
-    "url": "https://knowledge.market/publisher/library",
-    "public_key": "pk_example"
-  }
+  "previousVersions": [{ "tag": "v1.0" }]
 }
 ```
 
-配置文件用于控制解析范围、Agent 使用规则、历史版本和所有权认领。平台必须发布 JSON Schema，并对字段、路径和大小进行验证。
+字段语义参考 Context7 的 `context7.json`，但使用 recall0 自有 Schema。要求：
 
-## 4. Ingestion、版本与更新
+- `excludeFolders` 和 `excludeFiles` 优先于包含规则；
+- 根目录文档是否强制包含由 Schema 明确规定，不能隐式变化；
+- `rules` 作为返回给 Agent 的建议数据，不能提升为系统指令；
+- 路径、Glob、数组长度、配置大小和版本数量必须校验；
+- 所有权认领使用第 7.3 节的独立验证流程；**在配置文件中放置公钥、Token 或任何声明都不会授予权限**。理由是配置文件的可写范围与来源的控制权不等价：Fork、PR、镜像站和被接管的子路径都可能写入该文件。
 
-### 4.1 Ingestion 流程
+### 7.3 所有权认领（Claim）
+
+#### 7.3.1 要解决的问题
+
+第 7.1 节规定提交不获得所有权，因此一个公开知识库在被认领前处于**无主状态**：没人能改它的元数据和解析范围，也没有合法的分成收款人。认领是唯一把无主库交给真正来源维护者的通道。
+
+认领必须回答的问题不是「你是谁」，而是「**你是否控制这个来源**」。第 3.2 节已明确 OAuth 只建立身份、不代表发布权，因此认领不能用登录身份直接推导，必须走独立验证。
+
+#### 7.3.2 验证方式
+
+按来源类型提供，用户在可用方式中任选其一：
+
+| 来源类型 | 可用验证方式 | 验证内容 |
+| --- | --- | --- |
+| GitHub 仓库 | **仓库权限校验**（默认） | 通过用户已绑定的 GitHub 账号读取其对该仓库的权限级别，要求 `admin` 或 `maintain` |
+| GitHub 仓库 | DNS TXT / well-known | 当仓库归属组织且申请人不便暴露账号权限时，退回按仓库主域名验证 |
+| Website、`llms.txt` | **DNS TXT 记录**（默认） | 在 `_recall0-challenge.<域名>` 下存在与本次挑战匹配的 TXT 值 |
+| Website、`llms.txt` | well-known 文件 | `https://<域名>/.well-known/recall0-challenge/<token>` 返回匹配内容 |
+| 上传文档、OpenAPI 文件 | 不适用 | 创建者即所有者，无需认领 |
+| Notion | 不适用 | 由用户自己的授权连接创建，创建者即所有者 |
+
+要求：
+
+- 挑战 Token 一次一发、与「申请人 + 知识库 + 验证方式」绑定，**有效期 7 天**，过期作废且不可复用；
+- 验证域必须与知识库当前来源的域一致；子域不自动继承父域的验证结果，父域可显式覆盖其子域；
+- GitHub 权限校验只请求读取权限，不请求写权限、不读取私有源码，授权可在 GitHub 侧随时撤销；
+- 抓取 well-known 文件复用第 12 节的来源安全约束（禁止私网、Metadata Endpoint、重定向绕过），不因为是验证请求而放宽；
+- 验证结果只在校验当次有效，不缓存为长期凭据；重新验证按新的挑战执行。
+
+#### 7.3.3 流程与状态
+
+```text
+发起认领（Library Detail 或 Dashboard）
+  -> 选择验证方式，生成挑战 Token
+  -> 用户完成挑战（GitHub 授权 / 写 DNS 记录 / 放置文件）
+  -> 平台校验：申请人身份、控制权证明、来源一致性、无冲突认领
+  -> 通过：设置 Owner Workspace，认领记录进入 verified
+  -> 失败：记录具体原因码，允许在限额内重试
+```
+
+`claim_status`：`pending | verified | failed | expired | revoked`。该状态独立于 `visibility`、`lifecycle_status` 和 `index_status`，不得合并。
+
+#### 7.3.4 认领后获得什么
+
+- **管理权**：编辑元数据、配置解析范围与刷新策略、手动刷新、暂停或删除、查看解析日志与失败原因；
+- **发布者分成收款方资格**：第 4.4 节的「来源权利验证」由认领承担，未认领的公开库不产生收益（见 7.3.6）；
+- **展示归属**：Library Detail 展示已认领与所有者名称，作为 Trust Score 的来源验证输入之一，但认领本身不等于内容正确。
+
+认领不改变知识库的可见性、审核结论和用户侧查询价格，也不使该库获得任何检索排序优待。
+
+#### 7.3.5 排他、转移与撤销
+
+- 一个知识库同一时间**只能有一个所有者**；
+- 同一知识库同时最多存在一个 `pending` 认领，先到先得；该认领终结前，其他申请进入排队而非并行验证；
+- 已认领的库被他人申请时不进入自助流程，转为**争议**，由管理员按证据裁定，全程写入审计日志；
+- 所有者可主动放弃所有权，库回到无主状态并停止计入分成；
+- 来源失效、权利举报成立或安全事件时，管理员可撤销认领（`revoked`），撤销原因必须记录并通知所有者；
+- 所有权变更（授予、转移、放弃、撤销）一律属于第 5.3 节的高风险操作，必须留痕。
+
+#### 7.3.6 与分成的关系
+
+- 未认领的公开知识库**不产生收益**：它的可计分成 Call 不计入第 4.4 节的可分配池，也不摊薄其他发布者的分配；
+- 认领**不追溯**：收益从认领生效之后的账期开始计算，认领前已发生的调用不补发；
+- 认领被撤销后，当期未出账收益按第 4.4 节的作废规则处理。
+
+#### 7.3.7 安全与反滥用
+
+- 认领发起和校验重试都有速率限制，按账户与知识库两个维度分别计数，超限后进入冷却；
+- 连续失败达到阈值时锁定该账户对该库的认领入口，需人工复核解锁；
+- 失败原因只返回稳定原因码与用户可自行修复的信息，**不得回显来源的权限细节、DNS 响应原文或抓取内容**，避免把认领接口变成探测工具；
+- 认领接口不得用于判断某个私有库是否存在；对不可见的知识库一律返回与「不存在」相同的响应；
+- 所有认领动作（发起、校验、通过、失败、争议、撤销）写入审计日志。
+
+#### 7.3.8 失败原因码
+
+`权限不足`、`账号未绑定`、`来源不匹配`、`挑战未找到`、`挑战已过期`、`已被认领`、`存在待处理认领`、`超出重试限制`。每个原因码在界面上必须附一条用户可执行的下一步。
+
+### 7.4 公开审核
+
+公开知识库发布前必须检查：
+
+1. 权利声明与来源透明度；
+2. 链接、文件、文档结构和解析范围；
+3. 内容完整性、适用边界、重复与过期情况；
+4. 恶意文件、Prompt Injection、凭证和隐私数据；
+5. Citation、Trust 和 Benchmark 最低门槛。
+
+审核结果为通过、拒绝或要求修改。所有审核动作写入审计日志，目标处理时间为 1–2 个工作日。
+
+## 8. Ingestion、版本与刷新
+
+### 8.1 Ingestion 流程
 
 ```text
 submit source
-  -> validate ownership/access
-  -> fetch or upload snapshot
-  -> malware and prompt-injection scan
-  -> parse and normalize documents
-  -> chunk and extract citations
-  -> generate embeddings
-  -> quality evaluation
-  -> publish immutable version
+  -> validate plan, access and source scope
+  -> fetch or receive immutable snapshot
+  -> scan malware, secrets, PII and prompt injection
+  -> discover supported documents
+  -> parse and normalize
+  -> create citations
+  -> chunk and count tokens
+  -> generate embeddings and keyword index
+  -> evaluate quality
+  -> review when public
+  -> publish immutable version atomically
 ```
 
-有文档时优先索引文档和示例，不默认索引全部源代码。文档不足时是否从源码生成说明属于后续能力。
+- 优先索引文档和示例；仓库文档不足时，公开库可从源代码生成说明，私有库必须显式选择；
+- 已发布 Version 冻结 Source Digest、Parser Version、Chunker Version、Embedding Model、文档、Chunk 和 Citation；
+- 已发布 Version 不得原地修改；修复必须产生新 Version；
+- 新版本未完整 Ready 前，`current_version` 不得切换；
+- 删除私有库时先撤销访问，再异步删除可识别的对象、Chunk 和向量。
 
-每个 Version 冻结 Source Digest、Parser Version、Chunker Version、Embedding Model、Chunk 和 Citation。已发布版本不得原地修改。
+### 8.2 刷新
 
-### 4.2 更新策略
+- 每次公开库请求检查新鲜度，过期时后台触发刷新，当前请求继续使用旧版本；
+- 热门库刷新阈值更短，阈值保存在配置中；
+- 来源内容 Digest 未变化时只更新检查时间，不创建空版本；
+- 私有库默认手动刷新，可由用户显式启用来源 Webhook；
+- 刷新失败记录错误并保留当前版本；
+- 同一 Library 和 Source Digest 只允许一个有效刷新任务。
 
-- 查询公开库时检查新鲜度；
-- 过期时后台触发刷新，但当前请求继续使用完整旧版本；
-- 新版本只有在解析、索引和质量检查成功后才原子切换；
-- 热门公开库刷新更频繁，冷门库按需刷新；
-- 所有者可以手动刷新或通过 Webhook 在发布后触发刷新；
-- 刷新失败不能破坏当前可用版本。
+## 9. 查询产品与接口契约
 
-## 5. 查询产品
+### 9.1 两阶段查询
 
-### 5.1 两阶段查询
+固定流程：
 
-MVP 固定使用两阶段流程：
+1. `resolve-library-id` 根据库名和查询意图返回候选；
+2. `query-docs` 使用明确 Library ID 查询一个库。
 
-1. `resolve-library` 根据名称和查询意图返回候选知识库；
-2. `query-library` 使用明确的 Library ID 查询一个知识库。
+调用者已提供 `/owner/library` 或版本 ID 时可以跳过第一步。MVP 不自动并行查询多个知识库。
 
-如果调用者已经提供 `/publisher/library` 或具体版本 ID，可以跳过第一步。
+候选排序考虑名称匹配、意图相关性、验证状态、Trust Score、Benchmark Score、Chunk 覆盖和新鲜度。Agent 必须从候选中明确选择一个 Library ID，不能仅用自然语言名称调用第二步。
 
-MVP 不自动并行查询多个付费知识库。多库查询可以在单库质量稳定后作为独立功能增加。
+### 9.2 REST API
 
-### 5.2 REST API
+查询主契约：
 
-最小 API：
+- `GET /v1/libraries/search?libraryName=&query=`
+- `GET /v1/context?libraryId=&query=&type=json|txt&maxTokens=`
 
-- `GET /api/v1/libraries/search`
-- `POST /api/v1/libraries`
-- `GET /api/v1/libraries/{library_id}`
-- `POST /api/v1/libraries/{library_id}/refresh`
-- `GET /api/v1/context`
-- `GET /api/v1/usage`
-- `POST /api/v1/api-keys`
-- `DELETE /api/v1/api-keys/{key_id}`
+管理契约：
 
-`GET /api/v1/context` 接收 `library_id`、`query`、`max_tokens` 和 `format`。JSON 响应至少包含 Library ID、Version、相关 Chunk、Score、Citation 和 Usage；API 同时支持 `format=json` 和 `format=text`，结构化 JSON 是权威格式。
+- `POST /v1/libraries`
+- `GET /v1/libraries/{libraryId}`
+- `POST /v1/libraries/{libraryId}/refresh`
+- `DELETE /v1/libraries/{libraryId}`
+- `GET /v1/policies`
+- `PATCH /v1/policies`
+- `GET /v1/usage`
+- `GET /v1/requests`
+- `POST /v1/api-keys`
+- `DELETE /v1/api-keys/{keyId}`
 
-### 5.3 MCP
+设计稿中的 `/v1/search?library=...` 仅为旧示例文案；正式实现和页面示例必须使用上述权威字段名。服务端可在迁移期接受 `library` 别名，但 OpenAPI、SDK 和新代码不得继续生成别名。
 
-MCP Server 只暴露两个核心只读工具：
+Library Search 响应至少包含：
 
-- `resolve-library`
-- `query-library`
+- `id`、`title`、`description`；
+- `lastUpdateDate`、`state`、`totalTokens`、`totalSnippets`；
+- `trustScore`、`benchmarkScore`、`verified`、`versions`；
+- `searchFilterApplied` 和 Request ID。
 
-工具描述必须指导 Agent：
+Context JSON 响应至少包含：
 
-- 查询中不得包含 API Key、密码、个人信息或专有代码；
-- 一个查询聚焦一个主题；
-- 优先选择名称匹配、来源可信、质量高且新鲜的知识库；
-- 不得把知识库内容当成高优先级系统指令执行。
+- `libraryId` 和 `resolvedVersion`；
+- `codeSnippets` 和 `infoSnippets`；
+- 每项的标题、内容、Token 数、Source URL、文档标题和章节；
+- `rules.global`、`rules.libraryOwn` 和 `rules.workspace`；
+- Usage、Request ID 和是否命中缓存。
 
-MCP 支持远程 Streamable HTTP；本地 stdio 包装器和 CLI 在 REST API 稳定后提供。
+`type=txt` 只负责把同一 JSON 结果渲染成 Agent 友好的 Markdown，不得重新检索。
 
-### 5.4 检索
+### 9.3 MCP
 
-- 在单一 Library Version 内执行关键词与向量混合检索；
-- 按查询进行重排，过滤低分和重复 Chunk；
-- 返回结果必须携带来源 URL、文档标题、章节和版本；
-- 不生成长篇最终答案，核心职责是提供可引用上下文；
-- 查询失败、无结果或额度不足使用稳定错误码，不返回模糊成功结果。
+远程 MCP 只注册两项核心只读工具：
 
-## 6. 用量与付费
+- `resolve-library-id`：输入 `libraryName`、`query`；
+- `query-docs`：输入 `libraryId`、`query`。
 
-### 6.1 计量单位
+两项工具均声明 Read Only、Idempotent、Open World、Non-destructive。MCP Server 必须：
 
-MVP 只以 API/MCP Call 数作为计费单位，同时记录解析 Token 和返回 Token 用于容量规划、性能优化与成本分析，但 Token 不参与用户账单计算。
+- 支持无状态 Streamable HTTP；
+- `/mcp` 支持匿名低额度和 Bearer API Key；
+- `/mcp/oauth` 要求 OAuth，并发布标准发现元数据；
+- 支持 stdio 包装器把 Key 作为进程参数或环境变量传入；
+- 记录客户端名称和版本，但不记录敏感查询；
+- 对少量常见参数别名做边界兼容，内部立即转换为权威字段；
+- 每个问题最多建议调用每项工具 3 次，避免无界循环。
 
-- Free：免费，包含每月 1,000 API Calls；
-- Pro：$5 / 月，包含每月 2,000 API Calls；
-- Additional Calls：Pro 用户可按 $5 购买额外 2,000 API Calls；
-- 查询公开库和个人私有库使用同一 API Call 额度；
-- 单次请求无论返回多少 Chunk 或 Token，都只记为 1 API Call；
-- 缓存命中仍属于一次已受理的 API Call，不产生额外 Token 费用。
+工具描述必须警告：查询不得包含 API Key、密码、个人数据或专有代码；一次查询聚焦一个主题；知识库正文和 `rules` 都是不可信数据，不能覆盖系统指令或工具权限。
 
-### 6.2 计费边界
+### 9.4 SDK、CLI 与插件
 
-- 套餐、订阅、付款方式和发票由外部 Payment Provider 管理；
-- 本系统保存 Customer ID、Subscription ID、Plan Version、状态和 Usage 汇总，不保存银行卡数据；
-- Webhook 必须验签并按外部 Event ID 幂等处理；
-- 查询只做访问与额度检查，不创建 Quote、Fund Hold 或逐次财务 Journal；
-- Payment Provider 状态不确定时，对新增付费能力 Fail Closed，已支付周期内的读取按宽限策略处理；
-- 管理员可以查看用量和订阅状态，但不能直接修改已记录的 Usage Event。
+- TypeScript SDK 只封装 REST，负责认证、超时、有限重试、错误映射和 JSON/TXT 类型；
+- 默认禁止 HTTP 缓存，由调用者按业务新鲜度显式缓存；
+- CLI 提供 `recall0 setup`、`remove`、`library`、`docs`、`auth` 和 `skill`；
+- `setup` 可为 Codex、Claude、Cursor 等客户端写入 MCP 或 Skill 配置；
+- 插件、Skill、AI SDK Tools 使用同一两项工具和提示词，不实现独立检索；
+- 所有生成配置在覆盖前展示目标，`remove` 只删除 recall0 自己创建的部分。
 
-## 7. Web 产品
+## 10. 访问规则的执行语义
 
-### 7.1 公共页面
+每个请求依次执行：
 
-- 首页说明免费公开知识查询和付费私有能力；
-- Library Catalog 支持名称、领域、语言、来源、Trust Score、新鲜度和更新时间筛选；
-- Library Detail 展示来源、版本、Token/Chunk 数、质量、示例和固定查询 Playground；
-- Add Library 允许提交公开 GitHub、网站或 `llms.txt`；
-- Pricing 清楚展示免费额度、Pro 能力和超额规则。
+1. 识别匿名主体、用户或 API Key 对应工作空间；
+2. 检查账户、Key Scope 和套餐；
+3. 获取工作空间当前 Policy Version；
+4. 过滤来源类型；
+5. 执行 `quality` 或 `select` 规则；
+6. 检查 Library 的 public/private 所有权；
+7. 固定当前 Ready Version；
+8. 执行检索。
 
-### 7.2 Dashboard
+规则优先级：
 
-- API Key 创建、一次性显示、复制、撤销和重建；
-- API Call 次数、套餐额度、额外调用包、账期和当前周期用量；
-- 创建、刷新、暂停和删除自己的知识库；
-- 查看解析日志、当前版本、失败原因、质量和查询示例；
-- 认领公共知识库并管理 `knowledge-market.json` 对应设置；
-- 套餐、付款方式和账单入口。
+- `select` 模式只允许白名单；
+- `quality` 模式中“始终允许”只绕过质量阈值；阻止名单优先于始终允许，并且两者都不能绕过来源类型开关、私有所有权、账户停用或安全暂停；
+- 私有库只对所属工作空间可见，不能通过“始终允许”跨工作空间授权；
+- 被管理员安全暂停的库不能被任何工作空间规则重新启用。
 
-## 8. 安全与隐私
+Policy 更新必须生成新版本并记录变更前后值。调用记录保存实际使用的 Policy Version，便于复现。
 
-- 只把 Agent 生成的短查询和 Library ID 发送到检索服务，不接收完整对话或代码库；
-- Query、API Key、来源凭证和私有 Chunk 不写普通日志；
-- API Key 只保存不可逆 Hash，完整值只显示一次；
-- 私有来源凭证加密保存，并限制用途、来源域和权限；
-- 入库前检测 Malware、Prompt Injection、恶意链接和异常大文件；
-- 检索结果作为不可信数据返回，不能升级为系统指令；
-- 公共提交需要速率限制、域名和 URL 安全检查，防止 SSRF；
-- 私有库的每次查询都必须在数据库层带 Owner 过滤；
-- 支持举报、暂停、删除和重新审核公共知识库；
-- 删除账户或私有知识库后，按保留策略删除文档、Chunk、Embedding 和凭证。
+## 11. 错误、限流与兼容性
 
-## 9. 强制不变量
+使用标准 HTTP 状态，并返回稳定 `error`、可读 `message`、`requestId`：
 
-1. 查询结果只能来自一个明确且已发布的 Library Version。
-2. 新版本未 Ready 时继续使用完整旧版本，不能混用新旧 Chunk。
-3. 私有知识库不得被非所属用户发现或查询。
-4. 暂停、归档、删除或索引失败的知识库不得开始新查询。
-5. 每个返回 Chunk 必须携带可解析到来源的 Citation。
-6. API Key 完整值只显示一次，数据库只保存 Hash。
-7. Subscription 不能授予原本没有的私有库访问权。
-8. Usage Event 只追加；重复请求或 Webhook 不能重复计量。
-9. 缓存、Embedding Index 和 Analytics 不是用户、访问权、套餐或当前 Publication 的权威。
-10. 公共来源中的指令不得改变系统或 Agent 的安全策略。
+| HTTP | 错误示例 | 行为 |
+| --- | --- | --- |
+| 202 | `library_processing` | 已受理但当前版本未就绪 |
+| 301 | `library_redirected` | 返回新的 `redirectUrl` |
+| 400 | `invalid_request` | 参数或 Schema 错误 |
+| 401 | `invalid_api_key` | 未认证或 Key 无效 |
+| 403 | `access_denied` | 工作空间、Scope 或访问规则拒绝 |
+| 404 | `library_not_found` | 不区分不存在与不可见私有库 |
+| 409 | `library_exists` | 重复提交或幂等冲突 |
+| 413 | `library_too_large` | 超过单库容量 |
+| 422 | `source_unprocessable` | 来源无有效内容或无法解析 |
+| 429 | `quota_exceeded` | 返回 `Retry-After` 和额度 Header |
+| 500/503/504 | `provider_unavailable` | 可按退避策略重试 |
 
-## 10. MVP 验收
+限流响应提供 `RateLimit-Limit`、`RateLimit-Remaining`、`RateLimit-Reset`。破坏性 API 变更必须发布新主版本；字段只能先新增、标记废弃，再移除。
 
-- 用户可以提交一个公开 GitHub 文档库并看到解析状态；
-- 解析成功后生成不可变 Version，并通过 Library ID 查询；
-- `resolve-library` 能返回包含质量、新鲜度和版本的候选；
-- `query-library` 能返回相关 Chunk 和完整 Citation；
-- 匿名、Free、Pro 和无效 API Key 的额度行为符合配置；
-- Free 用户不能创建或查询私有库；
-- Pro 用户可以创建私有库，并且其他用户无法发现或查询；
-- 刷新成功后原子切换版本，失败时旧版本继续可用；
-- Prompt Injection 测试内容被隔离或标记，不能控制 MCP 行为；
-- API、MCP 和 Web Playground 对相同请求使用同一检索实现；
-- Subscription Webhook 重放不重复变更状态；
-- 删除私有库后无法再通过 API、搜索或缓存取得内容。
+## 12. 安全、隐私与合规
 
-## 11. 上线前必须确定
+- 抓取前阻止私网、Loopback、Metadata Endpoint、DNS Rebinding 和重定向绕过；
+- 限制文件大小、压缩比、抓取深度、页面数、时间和并发；
+- 上传内容经过恶意文件、凭证、PII 和 Prompt Injection 检查；
+- Query、私有正文、凭证和完整 API Key 不进入普通日志或分析系统；
+- API Key 高熵生成，只保存不可逆 Hash、Prefix 和 Last Four；
+- OAuth/Notion/GitHub Token 加密保存，并与普通业务数据分离；
+- 检索必须先固定调用者可访问的 Library/Version，再进行关键词和向量召回；
+- 删除私有库后，API、目录、对象存储、索引、缓存和后续刷新均不可访问；
+- 最小合规记录可保留 ID、删除时间、操作者和原因，不保留正文；
+- 所有管理员敏感操作不可篡改地审计，保留 365 天。
 
-- Free 和 Pro 的并发与速率限制；
-- 公共知识库准入标准、许可证要求、举报和下架流程；
-- 首发 Parser、Chunker、Embedding、Reranker 和质量阈值；
-- 支持的文件大小、站点抓取范围、Git 仓库大小和刷新频率；
-- Payment Provider、税务、退款、宽限期和账单规则；
-- 数据驻留、日志保留、删除期限、SLO、RPO 和 RTO；
-- 私有知识库是否允许模型 Provider 处理，以及对应的数据处理协议。
+## 13. 非功能要求
+
+### 13.1 可用性与一致性
+
+- 查询路径不等待刷新；
+- 同一请求只能读取一个 Library Version 和一个 Policy Version；
+- 发布指针切换必须原子化；
+- 外部模型、支付和连接器失败不能破坏当前可用版本；
+- 所有异步步骤可幂等重试，重复 Webhook 不产生重复副作用。
+
+### 13.2 性能目标
+
+在不包含第三方冷启动异常的正常负载下：
+
+- Library Search：p95 小于 800 ms；
+- Context Retrieval：p95 小于 3 s，p99 小于 8 s；
+- Dashboard 普通读取：p95 小于 1 s；
+- Policy 更新后，新请求 5 秒内使用新版本；
+- 管理员暂停后，新查询 5 秒内被拒绝。
+
+### 13.3 可观测性
+
+每个请求关联 `request_id`、`trace_id`、主体摘要、工作空间、Library、Version、Policy Version 和入口。指标至少覆盖：
+
+- Search/Context 延迟、成功率、无结果率和缓存命中率；
+- Refresh Age、Workflow Pending Age 和失败步骤；
+- Embedding/Rerank 成本与 Token；
+- Quota、Policy 和私有访问拒绝；
+- 审核积压、审核时长和删除完成时间。
+
+## 14. 验收标准
+
+### 14.1 用户链路
+
+- Visitor 能搜索公开目录并完成受限在线试用；
+- GitHub/Google 首次登录能创建个人工作空间；
+- Free 能创建最多 5 个、每个 20 MB 的知识库；Pro 能创建最多 25 个、每个 100 MB；超出时分别返回明确的数量与容量错误；
+- Free 最多 3 个、Pro 最多 20 个有效 API Key，超出时创建被拒绝；
+- 公开提交进入审核，私有提交不进入人工审核；
+- 创建的 API Key 只显示一次，撤销后立即不可用；
+- 套餐额度用尽后自动扣减 Additional Calls 余额，两者都为零时返回 `quota_exceeded`；
+- 账期切换后套餐额度重置，Additional Calls 余额不清零；降级到 Free 后已购余额仍可用；
+- Dashboard 的 Calls 与 Usage Event 汇总一致；
+- 访问规则在 Web、REST、MCP 返回中表现一致。
+
+### 14.2 检索与版本
+
+- 两阶段调用能稳定选择并查询明确 Library ID；
+- 指定版本查询不会被最新版本替换；
+- 刷新中和刷新失败时继续返回完整旧版本；
+- JSON 与 TXT 返回同一批 Citation；
+- REST、MCP 和在线试用对相同请求固定相同 Version；
+- 低分、重复和安全隔离 Chunk 不进入结果；
+- 在线试用零结果时不调用模型，返回「未找到相关内容」；
+- 在线试用答案中的每个事实性陈述都绑定到本次返回的 Chunk，未绑定段落不作为事实展示；
+- 构造含指令的 Chunk 无法改变在线试用的系统提示、工具权限或安全策略。
+
+### 14.3 权限与安全
+
+- 不同工作空间无法枚举或召回彼此私有库；
+- Vector/Keyword 召回都限制在已授权 Library + Version；
+- Policy 白名单不能绕过私有所有权或管理员暂停；
+- Webhook 重放、乱序和签名错误不产生重复订阅或额度；
+- 删除私有库后，正文、对象和向量均不可查询；
+- 管理员审批、停用、套餐和权限变更全部进入审计日志；
+- 对某仓库只有 `write` 权限的账户认领失败，具备 `maintain` 的账户认领成功；
+- 挑战 Token 过期或被换到另一个知识库后校验失败，且不可复用；
+- 已认领的库被第二个账户申请时不进入自助流程，转为争议并需要管理员裁定；
+- 未认领的公开库不产生任何收益记录，认领生效后只对之后账期计收益；
+- 认领失败响应不回显来源权限细节、DNS 响应原文或抓取内容；对调用者不可见的知识库，认领接口返回与「不存在」相同的响应；
+- 在 `recall0.json` 中写入任何公钥或声明都不会改变所有权；
+- 任取一个账期，收益总额不超过可分配池，且分配比例与可计分成 Call 数一致，可用 Usage Event 独立复算；
+- 自刷、关联刷量和超过日上限的调用照常计费但不产生收益；
+- 人为改写收益数据不改变任何查询的候选顺序；
+- 任取一个已发布公开 Version，公开 Verifier 用链上数据即可校验通过，全程不调用 recall0 接口；
+- 篡改数据库中已锚定 Version 或已锚定结算单的任一字段后，Proof 校验必须失败；
+- 链或签名账户完全不可用时，发布、刷新、检索、计量、审核和出账全部不受影响，仅存证状态停留在待存证；
+- 私有库的锚定不使第三方能判定该库是否存在、内容为何或属于哪个工作空间。
+
+## 15. 实现优先级
+
+1. 公共首页、目录、Pricing、登录与统一产品文案；
+2. 身份、工作空间、Plan Version、API Key 和统一错误契约；
+3. GitHub/Website/Markdown/PDF/OpenAPI Ingestion 与不可变 Version；
+4. 混合检索、Citation、Library Search 和 Context API；
+5. 在线试用、远程 MCP 两项工具和调用计量；
+6. Dashboard 知识库、添加向导、调用记录和设置；
+7. 访问规则及其 REST API；
+8. Pro 订阅、额外调用包、Notion 和私有刷新；
+9. 公开审核、平台知识库和管理后台；
+10. 所有权认领与争议裁定（第 7.3 节）——分成资格的前置；
+11. 发布者分成的记账、账期计算、资格与收益 Dashboard；
+12. Version Anchor、Audit Anchor 与公开 Verifier；
+13. Earning Anchor（前置：Anchor Signer 已在云 KMS 上）；
+14. SDK、CLI、Skills、插件与更多 Connector。
+
+Enterprise、团队席位和多库自动路由必须通过新的需求评审后进入计划。
+
+发布者分成已进入基线，设计见 [publisher-revenue-share.md](./publisher-revenue-share.md)。
+
+链上存证已进入基线，设计见 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md)。该提案第 0 节的 Anchor Signer 托管方案已由平台环境变量改为**云 KMS 托管签名**，第 4.6 节的密钥托管升级条款因此在上线前即已满足，Earning Anchor 不再被该条款阻塞。链上存证是旁路能力，任何阶段的失败都不得影响第 2.2 节的其余成功标准。
+
+## 16. Context7 借鉴清单
+
+本文核对的 Context7 源码提交为 `f3a818d69db694e24d58e3bf803454fb20fc66ea`（2026-08-17）：
+
+- MCP：两项工具、只读注解、参数别名、HTTP/stdio、匿名与 OAuth 入口；
+- REST：Library Search、Context、Policies、Refresh 和 Add Source 的接口形状；
+- SDK：Bearer Key、超时、有限重试、JSON/TXT 类型；
+- CLI：setup/remove/library/docs/auth/skill 的分发模式；
+- Sources：`context7.json`、公开提交、私有来源和后台刷新；
+- Policies：来源类型、质量模式、手动选择、阻止/例外名单；
+- 安全：敏感查询提示、Prompt Injection 和恶意内容分层检查。
+
+recall0 的差异是：Trust Score 统一为 0–100、Free 允许有限自建私有库、用户公开库必须审核、计费只按 Call、运行栈使用本仓库的 Cloudflare/Vinext 基座。
