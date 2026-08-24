@@ -1,0 +1,13 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+/* Design tokens from knowleg-market.pen */
+:root {
+  --recall0-primary: #00bba7;
+  --recall0-surface: #f9fdff;
+  --recall0-card: #ffffff;
+  --recall0-border: #dae3e4;
+  --recall0-text: #031a1e;
+  --recall0-text-muted: #50686d;
+}

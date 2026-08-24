@@ -16,6 +16,7 @@ recall0 使用一个 TypeScript 代码库交付公共站点、用户 Dashboard�
 | 关注点 | 4.0 决策 |
 | --- | --- |
 | Web 与 BFF | Next.js App Router，Vercel 原生，不再使用 Vinext 兼容层 |
+| 开发者文档站 | [Fumadocs](https://github.com/fuma-nama/fumadocs)，与主应用同一个 Next.js 项目，内容为仓库内 MDX |
 | 运行环境 | Vercel Functions |
 | 业务数据库 | Neon Postgres + Drizzle |
 | 关键词检索 | Postgres 全文检索 + BM25 排序，可重建派生索引 |
@@ -159,32 +160,46 @@ app/
     pricing/
     playground/
     libraries/
+      [...libraryId]/       # Library Detail
+      claim/                # 认领向导
     login/
+  docs/                     # Fumadocs 开发者文档站
+    layout.tsx
+    [[...slug]]/page.tsx
   dashboard/
     page.tsx
     libraries/
     api-keys/
     requests/
     policies/
+    revenue/
     settings/
   admin/
     login/
     overview/
     users/
     libraries/
+    claims/                 # 认领与争议裁定
     platform-libraries/
     plans/
     billing/
+    settlements/
     administrators/
     audit/
   api/v1/
     libraries/
     context/
+    claims/
     policies/
     usage/
     requests/
+    revenue/
+    anchors/
     api-keys/
+  api/search/               # Fumadocs 搜索索引
   mcp/
+content/
+  docs/                     # 文档站 MDX 内容
 components/
 contracts/
   api/
@@ -195,13 +210,17 @@ db/
   migrations/
   queries/
 lib/
+  source.ts                 # Fumadocs loader
   application/
     auth/
     libraries/
+    claims/
     ingestion/
     retrieval/
+    playground/
     policies/
     plans/
+    revenue/
     administration/
   domain/
   infrastructure/
@@ -211,16 +230,21 @@ lib/
     identity/
     payment/
     ai/
+    chain/
     connectors/
 workflows/
   index-library.ts
   refresh-library.ts
   delete-library.ts
+  anchor-versions.ts
+  anchor-audit.ts
+  settle-revenue.ts
 packages/
   sdk/
   mcp/
   cli/
   tools-ai-sdk/
+  verifier/
 skills/
 plugins/
 tests/
@@ -236,9 +260,11 @@ tests/
 - Route Handler 和 MCP Tool 只能调用 `lib/application` Use Case；
 - `contracts` 是 REST、MCP、SDK、CLI 和前端共同的权威类型来源；
 - Provider SDK 只出现在 `lib/infrastructure` 或 Workflow；
-- Domain 不依赖 Next.js、Vercel、Neon、Payment 或 AI SDK；
+- Domain 不依赖 Next.js、Vercel、Neon、Payment、AI SDK 或链 SDK；
 - 管理后台不能直连表，必须经过 Admin Use Case 和 Audit Decorator；
-- `packages` 只放需要独立发布的薄客户端，不放服务端检索实现。
+- `packages` 只放需要独立发布的薄客户端，不放服务端检索实现；
+- `packages/verifier` 不得 import 任何 `lib/` 代码，见 §8.5；
+- **文档站是内容，不是应用**：`app/docs` 与 `content/docs` 只读取仓库内 MDX，不访问 Postgres、对象存储或任何 Use Case；它的构建失败不得阻断 API 与 MCP 的部署。
 
 ## 5. 身份、工作空间与授权
 

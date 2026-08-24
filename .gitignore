@@ -41,3 +41,9 @@ yarn-error.log*
 
 # claude code worktrees
 /.claude/worktrees/
+
+# next.js
+/.next/
+/out/
+/.source/
+next-env.d.ts
