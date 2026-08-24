@@ -17,15 +17,21 @@ export const metadata: Metadata = {
 };
 
 /**
- * Fumadocs' RootProvider is intentionally NOT here: it paints the document in
- * the reader's theme, and the marketing site commits to the single light look
- * of the design source. The provider is mounted in app/docs/layout.tsx so the
- * docs site keeps its own theming without bleeding into the rest of the app.
+ * The root layout sets typography only -- deliberately no background or text
+ * colour.
+ *
+ * Two different colour regimes live in this app and each must own its own:
+ * - the product surfaces (public site, dashboard, admin) commit to the single
+ *   light look of the design source, and paint it in their own layouts
+ * - the docs site follows the reader's theme, painted by Fumadocs
+ *
+ * Forcing a colour here breaks the second one: anything that inherits from body
+ * renders near-black on Fumadocs' dark background.
  */
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="zh-CN" className={`${inter.variable} ${jetbrains.variable}`}>
-      <body className="bg-surface font-sans text-ink antialiased">{children}</body>
+    <html lang="zh-CN" suppressHydrationWarning className={`${inter.variable} ${jetbrains.variable}`}>
+      <body className="font-sans antialiased">{children}</body>
     </html>
   );
 }

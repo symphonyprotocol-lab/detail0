@@ -37,3 +37,19 @@
     rgba(195, 236, 223, 0) 100%
   );
 }
+
+/*
+ * Product surfaces (public site, dashboard, admin) commit to the single light
+ * look of the design source.
+ *
+ * This has to be explicit rather than inherited: the docs site uses Fumadocs,
+ * whose theme toggle puts `.dark` on <html> and repaints <body>. That class
+ * survives navigation away from /docs, so without pinning both the background
+ * and color-scheme here, returning to the product would leave a dark body
+ * behind the page and dark native controls inside it.
+ */
+.product-surface {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  color-scheme: light;
+}
