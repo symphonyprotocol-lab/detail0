@@ -2,12 +2,38 @@
 @import 'fumadocs-ui/css/neutral.css';
 @import 'fumadocs-ui/css/preset.css';
 
-/* Design tokens from knowleg-market.pen */
-:root {
-  --recall0-primary: #00bba7;
-  --recall0-surface: #f9fdff;
-  --recall0-card: #ffffff;
-  --recall0-border: #dae3e4;
-  --recall0-text: #031a1e;
-  --recall0-text-muted: #50686d;
+/*
+ * Design tokens lifted from knowleg-market.pen.
+ * The public marketing site commits to a single light look, matching the
+ * design source; only the docs site follows the reader's theme.
+ */
+@theme {
+  --color-surface: #f9fdff;
+  --color-card: #ffffff;
+  --color-subtle: #f7fbfb;
+  --color-mutedbg: #ebf4f4;
+  --color-line: #dae3e4;
+  --color-ink: #031a1e;
+  --color-inkdeep: #061415;
+  --color-muted: #50686d;
+  --color-faint: #8aa0a4;
+  --color-brand: #00bba7;
+  --color-brandink: #006363;
+  --color-brandsoft: #e4f2f2;
+  --color-good: #079566;
+  --color-goodsoft: #e7f7ef;
+  --color-warn: #9a6320;
+  --color-warnsoft: #fbe9e2;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Radial wash behind the hero, as in the design source. */
+.site-wash {
+  background-image: radial-gradient(
+    60% 42% at 50% 0%,
+    rgba(195, 236, 223, 0.54) 0%,
+    rgba(195, 236, 223, 0) 100%
+  );
 }
