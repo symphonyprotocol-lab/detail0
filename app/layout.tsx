@@ -11,7 +11,7 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: { default: 'recall0', template: '%s · recall0' },
+  title: { default: 'Recall0', template: '%s · Recall0' },
   description:
     '可信知识，为每一个 AI Agent 而生。搜索公开知识库，把带版本、来源与引用的最新上下文接入你的 Agent。',
 };

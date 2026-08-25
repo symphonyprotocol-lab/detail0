@@ -1,11 +1,10 @@
 import type { ReactNode } from 'react';
-import { SiteHeader, AnnouncementBar } from '@/components/site/header';
+import { SiteHeader } from '@/components/site/header';
 import { SiteFooter } from '@/components/site/footer';
 
 export default function PublicLayout({ children }: { children: ReactNode }) {
   return (
     <div className="product-surface flex min-h-screen flex-col">
-      <AnnouncementBar />
       <SiteHeader />
       <main className="flex-1">{children}</main>
       <SiteFooter />
