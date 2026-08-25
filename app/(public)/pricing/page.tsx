@@ -1,14 +1,104 @@
 import type { Metadata } from 'next';
-import { Button, Card, Chip, SectionHeading } from '@/components/ui/primitives';
+import type { ReactNode } from 'react';
+import Link from 'next/link';
+import { SectionHeading } from '@/components/ui/primitives';
 
 export const metadata: Metadata = {
   title: '定价',
   description: '只按 API Call 计费，不按 Token 计费。Free 每月 1,000 Calls，Pro $5 / 月。',
 };
 
-const PLANS = [
+/*
+ * Icons are inlined rather than pulled from a package: the design source uses a
+ * handful of Lucide glyphs and the project has no icon dependency.
+ */
+const ICON_PROPS = {
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 2,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+} as const;
+
+function GiftIcon() {
+  return (
+    <svg {...ICON_PROPS} aria-hidden className="size-[18px]">
+      <rect x="3" y="8" width="18" height="4" rx="1" />
+      <path d="M12 8v13" />
+      <path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" />
+      <path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5" />
+    </svg>
+  );
+}
+
+function SparklesIcon() {
+  return (
+    <svg {...ICON_PROPS} aria-hidden className="size-[18px]">
+      <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" />
+      <path d="M20 2v4" />
+      <path d="M22 4h-4" />
+      <circle cx="4" cy="20" r="2" />
+    </svg>
+  );
+}
+
+function PackagePlusIcon() {
+  return (
+    <svg {...ICON_PROPS} aria-hidden className="size-[18px]">
+      <path d="M16 16h6" />
+      <path d="M19 13v6" />
+      <path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l1.67-.95" />
+      <path d="M3.3 7 12 12l8.7-5" />
+      <path d="M12 22V12" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg {...ICON_PROPS} aria-hidden className="size-3.5 shrink-0 text-brand">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
+function ArrowRightIcon({ className = 'size-3.5' }: { className?: string }) {
+  return (
+    <svg {...ICON_PROPS} aria-hidden className={`shrink-0 ${className}`}>
+      <path d="M5 12h14" />
+      <path d="m12 5 7 7-7 7" />
+    </svg>
+  );
+}
+
+function HelpCircleIcon() {
+  return (
+    <svg {...ICON_PROPS} aria-hidden className="size-5 text-brand">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+      <path d="M12 17h.01" />
+    </svg>
+  );
+}
+
+const PLANS: {
+  id: string;
+  icon: ReactNode;
+  kicker: string;
+  name: string;
+  price: string;
+  unit: string;
+  calls: string;
+  blurb: string;
+  points: string[];
+  cta: string;
+  href: string;
+  featured: boolean;
+}[] = [
   {
     id: 'free',
+    icon: <GiftIcon />,
     kicker: '轻量体验',
     name: 'Free',
     price: '$0',
@@ -22,7 +112,8 @@ const PLANS = [
   },
   {
     id: 'pro',
-    kicker: '持续使用',
+    icon: <SparklesIcon />,
+    kicker: '推荐',
     name: 'Pro',
     price: '$5',
     unit: '/ 月',
@@ -35,6 +126,7 @@ const PLANS = [
   },
   {
     id: 'addon',
+    icon: <PackagePlusIcon />,
     kicker: '仅 Pro 可用',
     name: 'Additional Calls',
     price: '$5',
@@ -51,11 +143,9 @@ const PLANS = [
 const COMPARE: [string, string, string, string][] = [
   ['月度价格', '$0', '$5', '$5 / 包'],
   ['包含 API Calls', '1,000 / 月', '5,000 / 月', '+5,000'],
-  ['Calls 有效期', '当账期', '当账期', '不过期'],
   ['公开知识库', '全部可用', '全部可用', '沿用 Pro 权限'],
   ['自建知识库', '最多 5 个', '最多 25 个', '沿用 Pro 权限'],
   ['单个知识库容量', '20 MB', '100 MB', '沿用 Pro 权限'],
-  ['有效 API Key', '3 个', '20 个', '沿用 Pro 权限'],
   ['版本存证', '全部包含', '全部包含', '沿用 Pro 权限'],
   ['额外调用包', '—', '可购买', '本身即调用包'],
   ['Token 费用', '$0', '$0', '$0'],
@@ -72,7 +162,7 @@ const FAQ = [
   },
   {
     q: 'Calls 用完后会发生什么？',
-    a: '新的计费调用会暂停。Pro 用户购买额外调用包后即可继续使用。扣减顺序固定为先套餐额度、后调用包余额。',
+    a: '新的计费调用会暂停。Pro 用户购买额外调用包后即可继续使用。',
   },
   {
     q: '额外调用包会自动续费吗？',
@@ -84,118 +174,225 @@ const FAQ = [
   },
   {
     q: '版本存证会消耗 Call 吗？',
-    a: '不会。已发布版本的上链存证由平台自动完成，不计入 API Call 额度。存证只证明版本内容与时间，不构成对内容正确性的保证。',
+    a: '不会。已发布版本的上链存证由平台自动完成，不计入 API Call 额度，Free 与 Pro 都可使用。存证只证明版本内容与时间，不构成对内容正确性的保证。',
   },
   {
     q: '我提交的公开知识库能拿到分成吗？',
-    a: '完成认领后可以。按被成功检索的次数从平台收入中分成，初始分成率 20%，按调用量线性分配，不按 Trust Score 加权。私有库和平台自建库不参与。',
+    a: '可以。通过审核发布的公开知识库，按被成功检索的次数从平台收入中分成，初始分成率 20%，按调用量线性分配，不按 Trust Score 加权。私有库和平台自建库不参与。分成不改变你作为调用方的价格。',
   },
 ];
+
+/** The teal-washed banner the design source uses to close a run of sections. */
+function CtaBanner({
+  eyebrow,
+  title,
+  cta,
+  href,
+}: {
+  eyebrow: string;
+  title: string;
+  cta: string;
+  href: string;
+}) {
+  return (
+    <div className="mx-auto w-full max-w-[918px] px-5">
+      <section className="flex flex-wrap items-center justify-between gap-7 rounded-[11px] border-2 border-[#a6d9d5] bg-card bg-[linear-gradient(120deg,rgba(228,242,242,0.78)_0%,rgba(228,242,242,0)_65%)] px-10 py-[34px] shadow-[0_4px_10px_rgba(45,45,83,0.06)] md:h-[150px] md:flex-nowrap md:py-0">
+        <div className="flex flex-col gap-[11px] pt-2">
+          <p className="text-[11px] font-bold tracking-[-0.03em] text-brand">{eyebrow}</p>
+          <h2 className="text-[25px] leading-[1.5] font-semibold tracking-[-0.04em] text-ink">
+            {title}
+          </h2>
+        </div>
+        <Link
+          href={href}
+          className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-brand px-[18px] text-sm font-medium tracking-[-0.03em] text-white transition-colors hover:bg-brand/90"
+        >
+          {cta}
+          <ArrowRightIcon className="size-[15px]" />
+        </Link>
+      </section>
+    </div>
+  );
+}
 
 export default function PricingPage() {
   return (
     <>
-      <section className="mx-auto w-full max-w-[918px] px-5 pt-11 pb-14">
-        <SectionHeading eyebrow="PLANS" title="选择适合你的调用额度" as="h1" size="lg" />
-        <p className="mt-3 max-w-[70ch] text-[13px] leading-[1.7] text-muted">
-          只按 API Call 计费，不按 Token 计费；公开知识库无需逐库购买。所有套餐使用同一套 REST API 与
-          MCP。
-        </p>
+      <section className="mx-auto w-full max-w-[918px] px-5 pt-[50px] pb-[70px]">
+        <SectionHeading
+          eyebrow="PLANS"
+          title="选择适合你的调用额度"
+          as="h1"
+          action={
+            <p className="text-[11px] tracking-[-0.03em] text-muted">
+              所有套餐使用同一套 REST API 与 MCP
+            </p>
+          }
+        />
 
-        <div className="mt-7 grid gap-4 md:grid-cols-3">
+        <div className="mt-3.5 grid gap-3.5 md:grid-cols-3">
           {PLANS.map((plan) => (
-            <Card
+            <article
               key={plan.id}
-              className={`flex flex-col p-6 ${plan.featured ? 'border-brand shadow-[0_10px_30px_rgba(0,187,167,0.10)]' : ''}`}
+              className={`flex flex-col rounded-lg border-2 bg-card p-6 ${
+                plan.featured
+                  ? 'border-[#46c8bb] shadow-[0_4px_10px_rgba(45,45,83,0.12),0_1px_1px_rgba(45,45,83,0.12)]'
+                  : 'border-line shadow-[0_4px_10px_rgba(45,45,83,0.06)]'
+              }`}
             >
-              <div className="flex items-center justify-between">
-                <p className="text-[11px] font-semibold tracking-[0.04em] text-muted">
+              <div className="flex items-center justify-between gap-3">
+                <span className="flex size-[34px] shrink-0 items-center justify-center rounded-lg border-2 border-[#a3d9d5] bg-brandsoft text-brand">
+                  {plan.icon}
+                </span>
+                <span
+                  className={`inline-flex items-center rounded-full px-2 py-1 text-[10px] font-bold tracking-[-0.03em] whitespace-nowrap ${
+                    plan.featured ? 'bg-brand text-white' : 'bg-brandsoft text-brandink'
+                  }`}
+                >
                   {plan.kicker}
-                </p>
-                {plan.featured ? <Chip tone="brand">推荐</Chip> : null}
+                </span>
               </div>
-              <h3 className="mt-3 text-[19px] font-semibold tracking-[-0.03em] text-ink">
+
+              <h3 className="mt-[23px] text-[18px] leading-[1.5] font-semibold tracking-[-0.03em] text-ink">
                 {plan.name}
               </h3>
-              <p className="mt-4 flex items-baseline gap-1.5">
-                <span className="text-[34px] leading-none font-semibold tracking-[-0.04em] text-ink">
+
+              <p className="mt-[9px] flex items-end gap-[7px]">
+                <span className="text-[48px] leading-none font-semibold tracking-[-0.055em] text-ink">
                   {plan.price}
                 </span>
-                <span className="text-[13px] text-muted">{plan.unit}</span>
+                <span className="pb-1.5 text-[11px] tracking-[-0.03em] text-muted">{plan.unit}</span>
               </p>
-              <p className="mt-3 text-[13px] font-semibold text-brandink">{plan.calls}</p>
-              <p className="mt-3 text-[12.5px] leading-[1.7] text-muted">{plan.blurb}</p>
-              <ul className="mt-5 flex flex-col gap-2.5 text-[12.5px] text-muted">
-                {plan.points.map((p) => (
-                  <li key={p} className="flex items-start gap-2.5">
-                    <span aria-hidden className="mt-1.5 size-1.5 shrink-0 rounded-full bg-brand" />
-                    {p}
+
+              <p className="mt-3.5 self-start rounded-md bg-mutedbg px-[9px] py-1.5 text-[16px] leading-[1.5] tracking-[-0.02em] text-[#2d4e54]">
+                {plan.calls}
+              </p>
+
+              <p className="mt-3.5 min-h-10 text-[12px] leading-[1.65] tracking-[-0.03em] text-muted">
+                {plan.blurb}
+              </p>
+
+              <ul className="mt-[17px] flex flex-col gap-[11px] border-t-2 border-line pt-[19px] text-[11px] leading-[1.5] tracking-[-0.03em] text-[#2d4e54]">
+                {plan.points.map((point) => (
+                  <li key={point} className="flex items-center gap-2">
+                    <CheckIcon />
+                    {point}
                   </li>
                 ))}
               </ul>
-              <Button
-                href={plan.href}
-                variant={plan.featured ? 'primary' : 'outline'}
-                className="mt-6 w-full"
-              >
-                {plan.cta}
-              </Button>
-            </Card>
+
+              <div className="mt-auto pt-[22px]">
+                <Link
+                  href={plan.href}
+                  className={`flex h-10 items-center justify-center gap-2 rounded-full text-sm font-medium tracking-[-0.03em] transition-colors ${
+                    plan.featured
+                      ? 'bg-brand text-white hover:bg-brand/90'
+                      : 'border-2 border-line bg-surface text-ink hover:bg-subtle'
+                  }`}
+                >
+                  {plan.cta}
+                  <ArrowRightIcon />
+                </Link>
+              </div>
+            </article>
           ))}
         </div>
 
-        <p className="mt-5 text-[12px] text-faint">
+        <p className="mt-3.5 flex items-center justify-center gap-2 rounded-lg border-2 border-line bg-brandsoft/60 px-[17px] py-[15px] text-center text-[11px] leading-[1.5] tracking-[-0.03em] text-[#2d4e54]">
+          <span aria-hidden className="font-semibold text-brand">
+            $
+          </span>
           一次成功受理的 API 或 MCP 查询 = 1 API Call；返回内容长度不会改变价格。
         </p>
       </section>
 
-      <section className="mx-auto w-full max-w-[918px] border-t-2 border-line px-5 pt-12 pb-14">
-        <SectionHeading eyebrow="COMPARE" title="套餐能力一目了然" />
-        <p className="mt-3 text-[13px] text-muted">价格以美元计，按月度账期计算</p>
+      <div className="border-y-2 border-line bg-[#f6fafc]">
+        <div className="mx-auto w-full max-w-[918px] px-5 pt-16 pb-18">
+          <SectionHeading
+            eyebrow="COMPARE"
+            title="套餐能力一目了然"
+            action={
+              <p className="text-[11px] tracking-[-0.03em] text-muted">
+                价格以美元计，按月度账期计算
+              </p>
+            }
+          />
 
-        <div className="mt-6 overflow-hidden rounded-lg border-2 border-line bg-card">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left">
-              <thead>
-                <tr className="border-b-2 border-line bg-subtle text-[10px] font-semibold tracking-[0.04em] text-muted">
-                  <th className="px-4 py-3 font-semibold">能力</th>
-                  <th className="px-4 py-3 font-semibold">FREE</th>
-                  <th className="px-4 py-3 font-semibold">PRO</th>
-                  <th className="px-4 py-3 font-semibold">ADDITIONAL CALLS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {COMPARE.map((row, i) => (
-                  <tr
-                    key={row[0]}
-                    className={i === COMPARE.length - 1 ? '' : 'border-b-2 border-line'}
-                  >
-                    <td className="px-4 py-3 text-[12.5px] text-muted">{row[0]}</td>
-                    <td className="px-4 py-3 text-[12.5px] font-medium text-ink">{row[1]}</td>
-                    <td className="px-4 py-3 text-[12.5px] font-medium text-ink">{row[2]}</td>
-                    <td className="px-4 py-3 text-[12.5px] text-muted">{row[3]}</td>
+          <div className="mt-[25px] overflow-hidden rounded-[9px] border-2 border-line bg-card p-0.5">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] table-fixed text-left">
+                <colgroup>
+                  <col className="w-[32.2%]" />
+                  <col className="w-[22.2%]" />
+                  <col className="w-[22.2%]" />
+                  <col className="w-[23.4%]" />
+                </colgroup>
+                <thead>
+                  <tr className="h-[42px] border-b-2 border-line bg-mutedbg text-[10px] tracking-[-0.03em] text-muted">
+                    <th className="px-[17px] font-normal">能力</th>
+                    <th className="px-[17px] font-bold">FREE</th>
+                    <th className="px-[17px] font-semibold text-brandink">PRO</th>
+                    <th className="px-[17px] font-bold">ADDITIONAL CALLS</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="text-[11px] tracking-[-0.03em]">
+                  {COMPARE.map((row, i) => (
+                    <tr
+                      key={row[0]}
+                      className={`h-[54px] ${i === COMPARE.length - 1 ? '' : 'border-b-2 border-line'}`}
+                    >
+                      <td className="px-[17px] font-semibold text-ink">{row[0]}</td>
+                      <td className="px-[17px] text-[#2d4e54]">{row[1]}</td>
+                      <td className="px-[17px] font-semibold text-brandink">{row[2]}</td>
+                      <td className="px-[17px] text-[#2d4e54]">{row[3]}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </section>
+      </div>
 
-      <section className="mx-auto w-full max-w-[918px] border-t-2 border-line px-5 pt-12 pb-16">
-        <SectionHeading eyebrow="FAQ" title="关于 API Call 计费" />
-        <p className="mt-3 text-[13px] text-muted">
-          计费规则不受返回内容长度、Chunk 数量或缓存状态影响。
-        </p>
-        <dl className="mt-7 grid gap-x-10 gap-y-6 sm:grid-cols-2">
+      <CtaBanner
+        eyebrow="发布者分成"
+        title="让维护知识库这件事有回报。"
+        cta="了解分成规则"
+        href="/docs/claiming"
+      />
+
+      <section className="mx-auto flex w-full max-w-[918px] flex-col gap-10 px-5 py-[68px] md:flex-row md:gap-[72px]">
+        <div className="md:w-[300px] md:shrink-0">
+          <HelpCircleIcon />
+          <p className="mt-[13px] text-[10px] font-extrabold tracking-[0.1em] text-brand">FAQ</p>
+          <h2 className="mt-[7px] text-[28px] leading-[1.5] font-semibold tracking-[-0.04em] text-ink">
+            关于 API Call 计费
+          </h2>
+          <p className="mt-2.5 text-[12px] leading-[1.65] tracking-[-0.03em] text-muted">
+            计费规则不受返回内容长度、Chunk 数量或缓存状态影响。
+          </p>
+        </div>
+
+        <dl className="min-w-0 flex-1 border-t-2 border-line pt-0.5">
           {FAQ.map((item) => (
-            <div key={item.q} className="border-t-2 border-line pt-4">
-              <dt className="text-[13.5px] font-semibold tracking-[-0.02em] text-ink">{item.q}</dt>
-              <dd className="mt-2 text-[12.5px] leading-[1.75] text-muted">{item.a}</dd>
+            <div key={item.q} className="flex flex-col gap-[7px] border-b-2 border-line pt-[18px] pb-5">
+              <dt className="text-[13px] leading-[1.5] font-semibold tracking-[-0.03em] text-ink">
+                {item.q}
+              </dt>
+              <dd className="text-[11px] leading-[1.65] tracking-[-0.03em] text-muted">{item.a}</dd>
             </div>
           ))}
         </dl>
       </section>
+
+      <CtaBanner
+        eyebrow="从免费额度开始"
+        title="先验证价值，再决定是否升级。"
+        cta="免费查询公开知识库"
+        href="/libraries"
+      />
+
+      <div aria-hidden className="h-[62px]" />
     </>
   );
 }

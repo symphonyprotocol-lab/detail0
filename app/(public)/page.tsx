@@ -1,11 +1,24 @@
 import Link from 'next/link';
 import { Button, Card, Chip, SectionHeading } from '@/components/ui/primitives';
+import {
+  ClaudeIcon,
+  CodexIcon,
+  CursorIcon,
+  McpIcon,
+  RestApiIcon,
+} from '@/components/ui/brand-icons';
 import { LibraryTable } from '@/components/site/library-table';
 import { CATALOG } from '@/lib/site/demo-data';
 
 const HERO_POINTS = ['公开库免费查询', '每条结果保留引用', 'API 与 MCP 同一套规则'];
 
-const SURFACES = ['Claude', 'Codex', 'Cursor', 'REST API', 'MCP'];
+const SURFACES = [
+  { label: 'Claude', icon: <ClaudeIcon /> },
+  { label: 'Codex', icon: <CodexIcon /> },
+  { label: 'Cursor', icon: <CursorIcon /> },
+  { label: 'REST API', icon: <RestApiIcon /> },
+  { label: 'MCP', icon: <McpIcon /> },
+];
 
 const PROOF = [
   {
@@ -109,17 +122,18 @@ export default function HomePage() {
       </section>
 
       {/* Surfaces */}
-      <section className="mx-auto w-full max-w-[918px] border-t-2 border-line px-5 py-11">
-        <p className="text-center text-[15px] font-medium tracking-[-0.02em] text-ink">
+      <section className="mx-auto w-full max-w-[918px] border-t-2 border-line px-5 pt-11 pb-[54px]">
+        <p className="text-center text-[11px] tracking-[-0.03em] text-muted">
           一次接入，让可信知识在你的工作流中保持一致
         </p>
-        <ul className="mt-6 flex flex-wrap items-center justify-center gap-3">
-          {SURFACES.map((s) => (
+        <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-10 gap-y-4 text-[#2d4e54]/80 md:justify-between md:px-12">
+          {SURFACES.map((surface) => (
             <li
-              key={s}
-              className="rounded-full border-2 border-line bg-card px-4 py-2 text-[12.5px] text-muted"
+              key={surface.label}
+              className="flex items-center gap-2 text-[13px] font-semibold tracking-[-0.03em]"
             >
-              {s}
+              {surface.icon}
+              {surface.label}
             </li>
           ))}
         </ul>
