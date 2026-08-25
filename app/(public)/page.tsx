@@ -1,33 +1,31 @@
 import Link from 'next/link';
 import { Button, SectionHeading } from '@/components/ui/primitives';
+import { ClaudeIcon, CodexIcon, CursorIcon, McpIcon } from '@/components/ui/brand-icons';
 import { LibraryTable } from '@/components/site/library-table';
 import {
   ArrowRightIcon,
   ArrowUpRightIcon,
-  BotIcon,
   BracesIcon,
   CircleCheckIcon,
   ClockIcon,
   CopyIcon,
-  DatabaseIcon,
   KeyIcon,
   PlusIcon,
   SearchIcon,
   ShieldCheckIcon,
   SparklesIcon,
-  SquareTerminalIcon,
 } from '@/components/ui/icons';
 import { CATALOG } from '@/lib/site/demo-data';
 
 const HERO_POINTS = ['公开库免费查询', '每条结果保留引用', 'API 与 MCP 同一套规则'];
 
-/** The design source pairs each surface with a lucide icon. */
+/** Vendor logomarks where the surface has one; the design source's glyph otherwise. */
 const SURFACES = [
-  { label: 'Claude', Icon: BotIcon },
-  { label: 'Codex', Icon: SparklesIcon },
-  { label: 'Cursor', Icon: SquareTerminalIcon },
+  { label: 'Claude', Icon: ClaudeIcon },
+  { label: 'Codex', Icon: CodexIcon },
+  { label: 'Cursor', Icon: CursorIcon },
   { label: 'REST API', Icon: BracesIcon },
-  { label: 'MCP', Icon: DatabaseIcon },
+  { label: 'MCP', Icon: McpIcon },
 ];
 
 const PROOF = [
