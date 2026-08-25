@@ -158,7 +158,7 @@ export function Playground() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[780px]">
+    <div className="mx-auto w-full">
       <div className="overflow-hidden rounded-[14px] border-2 border-line bg-card">
         <div className="flex flex-col gap-3.5 p-4">
           <UserBubble text={SEED_QUESTION} />
