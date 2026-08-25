@@ -35,7 +35,7 @@ export default function CatalogPage() {
 
       <p className="mt-4 max-w-[80ch] text-[13px] leading-[1.7] text-muted">
         全部公开知识库均已通过平台审核，可被任意用户免费查询；每个已发布版本都会生成链上内容存证，引用可脱离
-        recall0 独立验证。
+        Recall0 独立验证。
       </p>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">

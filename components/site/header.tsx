@@ -11,11 +11,11 @@ export function Wordmark() {
     <Link href="/" className="flex items-center gap-2">
       <span
         aria-hidden
-        className="flex size-6 items-center justify-center rounded-md bg-brand text-[13px] font-bold text-white"
+        className="flex size-6 items-center justify-center rounded-md bg-brand text-[11px] font-bold tracking-[-0.04em] text-white"
       >
-        r
+        r0
       </span>
-      <span className="text-[15px] font-semibold tracking-[-0.03em] text-ink">recall0</span>
+      <span className="text-[15px] font-semibold tracking-[-0.03em] text-ink">Recall0</span>
     </Link>
   );
 }
@@ -54,18 +54,5 @@ export function SiteHeader() {
         </div>
       </div>
     </header>
-  );
-}
-
-export function AnnouncementBar() {
-  return (
-    <Link
-      href="/docs"
-      className="flex h-[35px] w-full items-center justify-center gap-2 bg-card/75 text-[11px] text-muted transition-colors hover:text-ink"
-    >
-      <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-white bg-brand">新</span>
-      REST API 与 MCP 接入指南现已开放
-      <span aria-hidden>→</span>
-    </Link>
   );
 }

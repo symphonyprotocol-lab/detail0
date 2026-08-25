@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/primitives';
 
 export const metadata: Metadata = {
   title: '登录',
-  description: '使用 GitHub 或 Google 账户登录 recall0。',
+  description: '使用 GitHub 或 Google 账户登录 Recall0。',
 };
 
 const PROVIDERS = [
@@ -19,7 +19,7 @@ export default function LoginPage() {
     <section className="site-wash">
       <div className="mx-auto flex w-full max-w-[420px] flex-col items-center px-5 py-20">
         <h1 className="text-[26px] font-semibold tracking-[-0.04em] text-ink">欢迎回来</h1>
-        <p className="mt-2 text-[13px] text-muted">选择一个账户，继续访问 recall0。</p>
+        <p className="mt-2 text-[13px] text-muted">选择一个账户，继续访问 Recall0。</p>
 
         <Card className="mt-8 w-full p-6">
           <div className="flex flex-col gap-3">
@@ -44,8 +44,8 @@ export default function LoginPage() {
           </div>
 
           <p className="mt-5 text-[11.5px] leading-[1.7] text-faint">
-            recall0 不会读取你的账户密码，仅使用第三方账户完成安全身份验证。首次登录时会自动创建
-            recall0 账户。
+            Recall0 不会读取你的账户密码，仅使用第三方账户完成安全身份验证。首次登录时会自动创建
+            Recall0 账户。
           </p>
         </Card>
 
@@ -59,7 +59,7 @@ export default function LoginPage() {
         </ul>
 
         <p className="mt-6 text-center text-[11.5px] text-faint">
-          登录即表示你同意 recall0 的
+          登录即表示你同意 Recall0 的
           <Link href="/legal" className="mx-1 text-brandink hover:underline">
             服务条款和隐私政策
           </Link>

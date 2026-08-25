@@ -180,7 +180,7 @@ export default async function LibraryDetailPage({ params }: Params) {
               独立验证此版本
             </Button>
             <p className="text-[11px] leading-[1.65] text-faint">
-              验证工具不调用 recall0 任何接口。存证只证明「该时刻内容即此版本」，不构成对内容正确性的保证。
+              验证工具不调用 Recall0 任何接口。存证只证明「该时刻内容即此版本」，不构成对内容正确性的保证。
             </p>
           </Panel>
 
