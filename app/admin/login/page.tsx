@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { AdminSignInButton } from '@/components/admin/sign-in-button';
 import {
-  ArrowRightIcon,
   AtSignIcon,
   CircleCheckIcon,
   CircleXIcon,
@@ -195,13 +195,7 @@ export default async function AdminLoginPage({
             </Link>
           </div>
 
-          <button
-            type="submit"
-            className="mt-[25px] flex h-11 w-full items-center justify-center gap-2 rounded-[8px] bg-brand text-[11px] leading-[1.55] font-bold tracking-[-0.023em] text-white transition-colors hover:bg-brand/90"
-          >
-            {l.submit}
-            <ArrowRightIcon size={15} />
-          </button>
+          <AdminSignInButton label={l.submit} pendingLabel={l.submitPending} />
 
           <p className="mt-[18px] flex items-center justify-center gap-1.5 text-[9px] leading-[1.55] tracking-[-0.023em] text-faint">
             <ShieldCheckIcon size={14} className="text-brand" />

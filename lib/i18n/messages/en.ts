@@ -1108,6 +1108,7 @@ export const en: Dictionary = {
       sessionNote: 'Session expires after 8 hours',
       trouble: 'Trouble signing in?',
       submit: 'Enter the console',
+      submitPending: 'Verifying…',
       auditNote: 'Sign-in and two-factor results are written to the audit log',
       errors: {
         invalid_credentials:

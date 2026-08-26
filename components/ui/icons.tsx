@@ -662,3 +662,13 @@ export function AtSignIcon(props: IconProps) {
     </Icon>
   );
 }
+
+/** Ring plus a quarter arc; the arc is what reads as motion when it spins. */
+export function SpinnerIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="9" strokeOpacity={0.3} />
+      <path d="M21 12a9 9 0 0 0-9-9" />
+    </Icon>
+  );
+}

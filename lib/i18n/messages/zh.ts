@@ -1022,6 +1022,7 @@ export const zh = {
       sessionNote: '会话 8 小时后过期',
       trouble: '无法登录？',
       submit: '进入管理后台',
+      submitPending: '正在验证…',
       auditNote: '登录与两步验证结果均写入审计日志',
       errors: {
         invalid_credentials: '邮箱、密码或两步验证码不正确。连续多次失败会临时锁定账户。',
