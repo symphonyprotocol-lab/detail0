@@ -7,6 +7,7 @@
  */
 import { and, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { ref } from './column-ref';
 import { likePattern } from './like-pattern';
 
 export type LibraryReviewFilter = 'all' | 'pending' | 'approved' | 'rejected';
@@ -25,14 +26,14 @@ export interface ConsoleLibraryRow {
 
 /** The one source a library was built from, when it has exactly one. */
 const sourceType = sql<string | null>`(
-  select ${schema.source.type} from ${schema.source}
-  where ${schema.source.libraryId} = ${schema.library.id}
-  order by ${schema.source.id} limit 1
+  select ${ref(schema.source.type)} from ${schema.source}
+  where ${ref(schema.source.libraryId)} = ${ref(schema.library.id)}
+  order by ${ref(schema.source.id)} limit 1
 )`;
 
 const ownerName = sql<string | null>`(
-  select ${schema.workspace.name} from ${schema.workspace}
-  where ${schema.workspace.id} = ${schema.library.ownerWorkspaceId}
+  select ${ref(schema.workspace.name)} from ${schema.workspace}
+  where ${ref(schema.workspace.id)} = ${ref(schema.library.ownerWorkspaceId)}
 )`;
 
 /**
@@ -154,8 +155,8 @@ export async function listClaims(input: { query?: string; status?: ClaimFilter; 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
   const claimant = sql<string>`(
-    select ${schema.workspace.name} from ${schema.workspace}
-    where ${schema.workspace.id} = ${schema.libraryClaim.claimantWorkspaceId}
+    select ${ref(schema.workspace.name)} from ${schema.workspace}
+    where ${ref(schema.workspace.id)} = ${ref(schema.libraryClaim.claimantWorkspaceId)}
   )`;
 
   const [rows, [totalRow], statusRows, [disputedRow]] = await Promise.all([
