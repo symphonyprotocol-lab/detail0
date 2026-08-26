@@ -75,26 +75,24 @@ export default async function AdminAdministratorsPage({
   const query = typeof params.q === 'string' ? params.q : undefined;
 
   const roles = ADMIN_ROLE_IDS.map((id) => ({ id, label: t.admin.roles[id] }));
-  const roleLabel = (id: AdminRoleId | null) => (id ? t.admin.roles[id] : a.matrixNone);
 
   const administrators: AdministratorView[] = (await listAdministrators(query)).map((row) => {
-    // Only the presets are assignable, so the first is the effective role.
-    const roleId = row.roles[0] ?? null;
     const capabilities = capabilitiesForRoles(row.roles);
     return {
       id: row.id,
       username: row.username,
       email: row.email,
       initial: initials(row.username),
-      roleId,
-      roleLabel: roleLabel(roleId),
+      // Every role, so the badge cannot understate what the account reaches.
+      roles: row.roles.map((id) => ({ id, label: t.admin.roles[id] })),
       scopeLabel:
         capabilities.length === ADMIN_CAPABILITIES.length
           ? a.scopeAll
-          : capabilities.map((capability) => t.adminDemo.capabilities[capability]).join('、') ||
-            a.scopeNone,
+          : capabilities
+              .map((capability) => t.admin.capabilities[capability])
+              .join(a.scopeSeparator) || a.scopeNone,
       status: row.status,
-      statusLabel: t.adminDemo.adminStatus[row.status],
+      statusLabel: t.admin.statuses[row.status],
       lastActive: timestamp(row.lastActiveAt, a.neverActive),
       activeSessions: row.activeSessions,
       mfaEnrolled: row.mfaEnrolled,
@@ -171,7 +169,7 @@ export default async function AdminAdministratorsPage({
                       <span className="sr-only">
                         {fill(roleAllows(role, capability) ? a.matrixAllowed : a.matrixDenied, {
                           role: t.admin.roles[role],
-                          capability: t.adminDemo.capabilities[capability],
+                          capability: t.admin.capabilities[capability],
                         })}
                       </span>
                       {roleAllows(role, capability) ? (

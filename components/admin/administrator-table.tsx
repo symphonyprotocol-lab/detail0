@@ -22,8 +22,12 @@ export interface AdministratorView {
   username: string;
   email: string;
   initial: string;
-  roleId: AdminRoleId | null;
-  roleLabel: string;
+  /**
+   * Every role the account holds, not just the first: an account carrying two
+   * would otherwise show a badge that understates what it can reach, next to a
+   * scope column that does not.
+   */
+  roles: { id: AdminRoleId; label: string }[];
   scopeLabel: string;
   status: AdminStatus;
   statusLabel: string;
@@ -140,18 +144,28 @@ function Row({
           />
         </td>
         <td className={TD}>
-          <Pill tone={administrator.roleId === 'super' ? 'brand' : 'neutral'}>
-            {administrator.roleLabel}
-          </Pill>
+          <span className="flex flex-wrap items-center gap-1">
+            {administrator.roles.length === 0 ? (
+              <Pill tone="warn">{t.admin.shell.noRole}</Pill>
+            ) : (
+              administrator.roles.map((role) => (
+                <Pill key={role.id} tone={role.id === 'super' ? 'brand' : 'neutral'}>
+                  {role.label}
+                </Pill>
+              ))
+            )}
+          </span>
         </td>
         <td className={TD}>{administrator.scopeLabel}</td>
         <td className={TD}>
           <span className="flex flex-col gap-0.5">
             <span>{administrator.lastActive}</span>
             <span className="text-[11px] text-muted">
-              {administrator.activeSessions > 0
-                ? fill(a.sessions, { count: administrator.activeSessions })
-                : a.noSessions}
+              {administrator.activeSessions === 0
+                ? a.noSessions
+                : administrator.activeSessions === 1
+                  ? a.sessionsOne
+                  : fill(a.sessions, { count: administrator.activeSessions })}
             </span>
           </span>
         </td>
@@ -189,7 +203,7 @@ function Row({
                   >
                     <select
                       name="role"
-                      defaultValue={administrator.roleId ?? 'support'}
+                      defaultValue={administrator.roles[0]?.id ?? 'support'}
                       className={FIELD}
                     >
                       {roles.map((role) => (
@@ -218,17 +232,17 @@ function Row({
                       />
                     </ActionForm>
                   )}
+
+                  <ActionForm
+                    action={actions.revokeSessions}
+                    administratorId={administrator.id}
+                    title={a.actionRevoke}
+                    note={a.revokeNote}
+                    submitLabel={a.confirm}
+                    disabled={administrator.activeSessions === 0}
+                  />
                 </>
               )}
-
-              <ActionForm
-                action={actions.revokeSessions}
-                administratorId={administrator.id}
-                title={a.actionRevoke}
-                note={a.revokeNote}
-                submitLabel={a.confirm}
-                disabled={administrator.activeSessions === 0}
-              />
 
               <div>
                 <ConsoleButton onClick={onToggle}>{a.close}</ConsoleButton>

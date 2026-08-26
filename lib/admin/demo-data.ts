@@ -497,7 +497,7 @@ export function adminCopy(t: Dictionary) {
       initial: initials(administrator.name),
       role: roles[role],
       status,
-      statusLabel: d.adminStatus[status],
+      statusLabel: t.admin.statuses[status],
     };
   });
 
@@ -549,7 +549,7 @@ export function adminCopy(t: Dictionary) {
     statements,
     administrators,
     roleMatrix,
-    capabilityLabels: d.capabilities,
+    capabilityLabels: t.admin.capabilities,
     anchorDigest: d.anchorDigest,
     auditEntries,
   };

@@ -8,8 +8,6 @@ import { completeEnrolmentAction, type EnrolResult } from '@/app/admin/enroll/ac
 export interface EnrolCopy {
   secretLabel: string;
   secretHelp: string;
-  copySecret: string;
-  copyUri: string;
   passwordLabel: string;
   passwordHelp: string;
   confirmLabel: string;
@@ -69,7 +67,6 @@ export function EnrolmentForm({
   return (
     <form action={submit} className="flex flex-col gap-4">
       <input type="hidden" name="token" value={token} />
-      <input type="hidden" name="secret" value={secret} />
 
       <div className="rounded-[8px] border-2 border-line bg-subtle p-3.5">
         <p className="text-[11px] font-semibold tracking-[-0.023em] text-steel">

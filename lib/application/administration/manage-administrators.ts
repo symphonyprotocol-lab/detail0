@@ -12,6 +12,7 @@ import { and, eq, ilike, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import {
   AdminChangeRefused,
   ADMIN_PASSWORD_MIN_LENGTH,
+  normalizeReason,
   capabilitiesForRoles,
   inviteExpiryFrom,
   isAcceptableAdminPassword,
@@ -22,20 +23,41 @@ import {
   type AdminRoleId,
   type AdminStatus,
 } from '@/lib/domain/admin';
-import { randomTotpSecret, totpProvisioningUri } from '@/lib/domain/totp';
+import { base32Encode, totpProvisioningUri, verifyTotpCounter } from '@/lib/domain/totp';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { seal } from '@/lib/infrastructure/crypto/sealed';
-import { hmacSha256, randomToken } from '@/lib/infrastructure/crypto/tokens';
+import { hmacSha256, hmacSha256Bytes, randomToken } from '@/lib/infrastructure/crypto/tokens';
 import { hashAdminPassword } from './password';
 import { recordAudit } from './audit';
 
-/** Same "never store the secret itself" rule the session tokens follow. */
-function inviteTokenHash(token: string): Promise<string> {
+function signingSecret(): string {
   const secret = process.env.SESSION_SIGNING_SECRET;
   if (!secret || secret.length < 32) {
     throw new Error('SESSION_SIGNING_SECRET is not set (needs at least 32 characters)');
   }
-  return hmacSha256(secret, `admin-invite:${token}`);
+  return secret;
+}
+
+/** Same "never store the secret itself" rule the session tokens follow. */
+function inviteTokenHash(token: string): Promise<string> {
+  return hmacSha256(signingSecret(), `admin-invite:${token}`);
+}
+
+/**
+ * The TOTP secret an invitation is worth, derived rather than chosen.
+ *
+ * It used to be minted per render and carried back through a hidden form field,
+ * which meant the browser decided what got stored: a caller could post a
+ * one-byte secret and reach `active` with a second factor worth 256 guesses.
+ * Deriving it from the invitation token under the server's signing key removes
+ * the client from the decision entirely, and as a bonus makes it stable across
+ * reloads -- the same invitation always shows the same secret.
+ *
+ * 20 bytes is what RFC 4226 recommends for HMAC-SHA1.
+ */
+async function secretForInvite(token: string): Promise<string> {
+  const bytes = await hmacSha256Bytes(signingSecret(), `admin-totp:${token}`);
+  return base32Encode(bytes.slice(0, 20));
 }
 
 export interface AdministratorRow {
@@ -52,13 +74,22 @@ export interface AdministratorRow {
   inviteExpiresAt: Date | null;
 }
 
+/**
+ * `%` and `_` are wildcards to `LIKE`, so a search for either would quietly
+ * match every administrator rather than the character the operator typed.
+ */
+function likePattern(term: string): string {
+  return `%${term.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`;
+}
+
 export async function listAdministrators(query?: string): Promise<AdministratorRow[]> {
   const database = db();
   const term = query?.trim();
+  const pattern = term ? likePattern(term) : '';
   const filter = term
     ? or(
-        ilike(schema.administrator.username, `%${term}%`),
-        ilike(schema.administrator.email, `%${term}%`),
+        ilike(schema.administrator.username, pattern),
+        ilike(schema.administrator.email, pattern),
       )
     : undefined;
 
@@ -131,6 +162,16 @@ export async function listAdministrators(query?: string): Promise<AdministratorR
     activeSessions: sessionsById.get(row.id) ?? 0,
     inviteExpiresAt: row.inviteExpiresAt,
   }));
+}
+
+/** Postgres `unique_violation`. */
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === '23505'
+  );
 }
 
 interface Actor {
@@ -210,28 +251,41 @@ export async function inviteAdministrator(input: {
     .from(schema.administrator)
     .where(eq(schema.administrator.email, email))
     .limit(1);
-  if (existing) throw new AdminChangeRefused('email_taken', 'that address is already an administrator');
+  if (existing) {
+    throw new AdminChangeRefused('email_taken', 'that address is already an administrator');
+  }
 
   const now = new Date();
   const token = randomToken();
   const administratorId = crypto.randomUUID();
   const expiresAt = inviteExpiryFrom(now);
 
-  await database.transaction(async (tx) => {
-    await tx.insert(schema.administrator).values({
-      id: administratorId,
-      username,
-      email,
-      passwordHash: null,
-      status: 'invited',
-      inviteTokenHash: await inviteTokenHash(token),
-      inviteExpiresAt: expiresAt,
-      invitedBy: input.actor.administratorId,
+  try {
+    await database.transaction(async (tx) => {
+      await tx.insert(schema.administrator).values({
+        id: administratorId,
+        username,
+        email,
+        passwordHash: null,
+        status: 'invited',
+        inviteTokenHash: await inviteTokenHash(token),
+        inviteExpiresAt: expiresAt,
+        invitedBy: input.actor.administratorId,
+      });
+      await tx.insert(schema.administratorRole).values({ administratorId, roleId: input.role });
     });
-    await tx
-      .insert(schema.administratorRole)
-      .values({ administratorId, roleId: input.role });
-  });
+  } catch (error) {
+    /*
+     * The check above is a read followed by a write, so two invitations to the
+     * same address can both pass it. The unique index is what actually holds
+     * the line; catching its violation is what turns the loser of that race
+     * into the accurate answer instead of a generic "check the form".
+     */
+    if (isUniqueViolation(error)) {
+      throw new AdminChangeRefused('email_taken', 'that address is already an administrator');
+    }
+    throw error;
+  }
 
   await recordAudit({
     administratorId: input.actor.administratorId,
@@ -255,6 +309,7 @@ export async function changeAdministratorRole(input: {
   if (!isAdminRoleId(input.role)) {
     throw new AdminChangeRefused('invalid_input', 'unknown role');
   }
+  const reason = normalizeReason(input.reason);
   refuseSelfChange(input.actor.administratorId, input.administratorId);
 
   const target = await loadTarget(input.administratorId);
@@ -292,7 +347,7 @@ export async function changeAdministratorRole(input: {
     action: 'admin.change_role',
     targetType: 'administrator',
     targetId: target.email,
-    reason: input.reason.trim() || null,
+    reason,
     beforeValue: { roles: target.roles, capabilities: capabilitiesForRoles(target.roles) },
     afterValue: { roles: [input.role], capabilities: capabilitiesForRoles([input.role]) },
     clientAddress: input.actor.clientAddress ?? null,
@@ -306,6 +361,7 @@ export async function setAdministratorStatus(input: {
   status: Extract<AdminStatus, 'active' | 'disabled'>;
   reason: string;
 }): Promise<void> {
+  const reason = normalizeReason(input.reason);
   refuseSelfChange(input.actor.administratorId, input.administratorId);
 
   const target = await loadTarget(input.administratorId);
@@ -317,10 +373,13 @@ export async function setAdministratorStatus(input: {
   }
 
   /*
-   * An invited administrator has no credential yet, so "enable" is meaningless
-   * for them -- they become active by finishing enrolment, not by decree.
+   * An invited administrator is outside this control in both directions. They
+   * become active by finishing enrolment, not by decree -- and disabling them
+   * used to strand the account: status moved off `invited`, which made the
+   * invitation unusable, while `email_taken` blocked a fresh one, leaving a row
+   * nobody could sign in as and nobody could fix from the console.
    */
-  if (input.status === 'active' && target.status === 'invited') {
+  if (target.status === 'invited') {
     throw new AdminChangeRefused('invalid_input', 'an invited administrator must finish enrolment');
   }
 
@@ -349,7 +408,7 @@ export async function setAdministratorStatus(input: {
     action: input.status === 'disabled' ? 'admin.disable' : 'admin.enable',
     targetType: 'administrator',
     targetId: target.email,
-    reason: input.reason.trim() || null,
+    reason,
     beforeValue: { status: target.status },
     afterValue: { status: input.status },
     clientAddress: input.actor.clientAddress ?? null,
@@ -362,6 +421,7 @@ export async function revokeAdministratorSessions(input: {
   administratorId: string;
   reason: string;
 }): Promise<number> {
+  const reason = normalizeReason(input.reason);
   const target = await loadTarget(input.administratorId);
 
   const revoked = await db()
@@ -380,7 +440,7 @@ export async function revokeAdministratorSessions(input: {
     action: 'admin.revoke_sessions',
     targetType: 'administrator',
     targetId: target.email,
-    reason: input.reason.trim() || null,
+    reason,
     afterValue: { revokedSessions: revoked.length },
     clientAddress: input.actor.clientAddress ?? null,
     result: 'success',
@@ -399,9 +459,11 @@ export interface EnrolmentOffer {
 }
 
 /**
- * Turns a live invitation into the pair of secrets the invitee has to accept:
- * their own password, and a TOTP secret. Called on render, so the secret shown
- * is the one `completeEnrolment` will store.
+ * What a live invitation is worth: who it is for, and the TOTP secret it binds.
+ *
+ * The secret is derived from the token, not minted here, so rendering this page
+ * twice shows the same one and `completeEnrolment` can recompute it without
+ * being told.
  */
 export async function offerEnrolment(token: string): Promise<EnrolmentOffer> {
   const [row] = await db()
@@ -420,7 +482,7 @@ export async function offerEnrolment(token: string): Promise<EnrolmentOffer> {
     throw new AdminChangeRefused('invite_invalid', 'invitation is unknown, used or expired');
   }
 
-  const secret = randomTotpSecret();
+  const secret = await secretForInvite(token);
   return {
     administratorId: row.id,
     email: row.email,
@@ -441,12 +503,9 @@ export async function offerEnrolment(token: string): Promise<EnrolmentOffer> {
 export async function completeEnrolment(input: {
   token: string;
   password: string;
-  secret: string;
   mfaCode: string;
   clientAddress?: string | null;
 }): Promise<void> {
-  const { verifyTotpCounter } = await import('@/lib/domain/totp');
-
   if (!isAcceptableAdminPassword(input.password)) {
     throw new AdminChangeRefused(
       'weak_password',
@@ -471,16 +530,24 @@ export async function completeEnrolment(input: {
     throw new AdminChangeRefused('invite_invalid', 'invitation is unknown, used or expired');
   }
 
-  const counter = await verifyTotpCounter(input.secret, input.mfaCode, now);
+  // Recomputed from the token: the caller has no say in which secret is bound.
+  const secret = await secretForInvite(input.token);
+  const counter = await verifyTotpCounter(secret, input.mfaCode, now);
   if (counter === null) {
     throw new AdminChangeRefused('invalid_input', 'that code does not match the secret');
   }
 
-  await database
+  /*
+   * Conditional on the row still being `invited`, so two submissions of the
+   * same invitation cannot both write: the second updates nothing and is told
+   * the account is already enrolled, rather than silently rebinding a factor
+   * the first one already confirmed.
+   */
+  const claimed = await database
     .update(schema.administrator)
     .set({
       passwordHash: await hashAdminPassword(input.password),
-      mfaSecret: await seal(input.secret),
+      mfaSecret: await seal(secret),
       mfaEnrolledAt: now,
       mfaLastCounter: counter,
       status: 'active',
@@ -490,7 +557,12 @@ export async function completeEnrolment(input: {
       failedAttempts: 0,
       lockedUntil: null,
     })
-    .where(eq(schema.administrator.id, row.id));
+    .where(and(eq(schema.administrator.id, row.id), eq(schema.administrator.status, 'invited')))
+    .returning({ id: schema.administrator.id });
+
+  if (claimed.length === 0) {
+    throw new AdminChangeRefused('already_enrolled', 'that invitation was already completed');
+  }
 
   await recordAudit({
     administratorId: row.id,

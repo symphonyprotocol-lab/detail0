@@ -211,6 +211,8 @@ export const ADMIN_CHANGE_ERRORS = [
   'invalid_input',
   'invite_invalid',
   'weak_password',
+  'reason_required',
+  'already_enrolled',
 ] as const;
 
 export type AdminChangeError = (typeof ADMIN_CHANGE_ERRORS)[number];
@@ -227,6 +229,17 @@ export class AdminChangeRefused extends Error {
     super(message);
     this.name = 'AdminChangeRefused';
   }
+}
+
+/** An audited action has to say why. requirement.md 5.3. */
+export const ADMIN_REASON_MAX_LENGTH = 200;
+
+export function normalizeReason(reason: string): string {
+  const trimmed = reason.trim();
+  if (trimmed.length === 0) {
+    throw new AdminChangeRefused('reason_required', 'a reason is recorded with every change');
+  }
+  return trimmed.slice(0, ADMIN_REASON_MAX_LENGTH);
 }
 
 /**

@@ -146,6 +146,16 @@ describeWithDb('managing administrators', () => {
     ).rejects.toMatchObject({ loginError: 'invalid_credentials' });
   });
 
+  it('derives the enrolment secret from the invitation, not from the caller', async () => {
+    // Rendering the page twice must offer the same secret, and nothing the
+    // client sends can change which one gets bound.
+    const first = await offerEnrolment(inviteToken);
+    const second = await offerEnrolment(inviteToken);
+    expect(first.secret).toBe(second.secret);
+    expect(first.secret.length).toBeGreaterThanOrEqual(32);
+    expect(first.provisioningUri).toContain(`secret=${first.secret}`);
+  });
+
   it('refuses a second invitation to the same address', async () => {
     await expect(
       inviteAdministrator({ actor, email: inviteeEmail, username: 'Dup', role: 'support' }),
@@ -160,7 +170,6 @@ describeWithDb('managing administrators', () => {
       completeEnrolment({
         token: inviteToken,
         password: 'short',
-        secret: offer.secret,
         mfaCode: '000000',
       }),
     ).rejects.toMatchObject({ code: 'weak_password' });
@@ -169,7 +178,6 @@ describeWithDb('managing administrators', () => {
       completeEnrolment({
         token: inviteToken,
         password: 'a password long enough',
-        secret: offer.secret,
         mfaCode: '000000',
       }),
     ).rejects.toMatchObject({ code: 'invalid_input' });
@@ -177,7 +185,6 @@ describeWithDb('managing administrators', () => {
     await completeEnrolment({
       token: inviteToken,
       password: 'a password long enough',
-      secret: offer.secret,
       mfaCode: await codeFor(offer.secret),
     });
 
@@ -221,6 +228,54 @@ describeWithDb('managing administrators', () => {
     const listed = await listAdministrators(inviteeEmail);
     expect(listed[0]?.roles).toEqual(['support']);
     expect(listed[0]?.activeSessions).toBe(0);
+  });
+
+  it('refuses any change that does not say why', async () => {
+    const inviteeId = await idFor(inviteeEmail);
+    for (const call of [
+      () => changeAdministratorRole({ actor, administratorId: inviteeId, role: 'support', reason: '   ' }),
+      () => setAdministratorStatus({ actor, administratorId: inviteeId, status: 'disabled', reason: '' }),
+      () => revokeAdministratorSessions({ actor, administratorId: inviteeId, reason: '' }),
+    ]) {
+      await expect(call()).rejects.toMatchObject({ code: 'reason_required' });
+    }
+  });
+
+  it('refuses to enable or disable an administrator who has not enrolled', async () => {
+    const pendingEmail = `pending-${stamp}@example.test`;
+    createdEmails.push(pendingEmail);
+    const invite = await inviteAdministrator({
+      actor,
+      email: pendingEmail,
+      username: 'Still Pending',
+      role: 'support',
+    });
+    const pendingId = invite.administratorId;
+
+    /*
+     * Disabling used to be allowed here, which stranded the account: status
+     * moved off `invited`, so the invitation stopped working, while the address
+     * was taken, so a fresh one was refused.
+     */
+    await expect(
+      setAdministratorStatus({
+        actor,
+        administratorId: pendingId,
+        status: 'disabled',
+        reason: 'not joining after all',
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_input' });
+
+    // The invitation still works, which is the point of refusing.
+    const token = new URL(`http://x${invite.enrolmentPath}`).searchParams.get('token')!;
+    await expect(offerEnrolment(token)).resolves.toMatchObject({ email: pendingEmail });
+  });
+
+  it('treats % and _ in a search as characters, not wildcards', async () => {
+    expect(await listAdministrators('%')).toHaveLength(0);
+    expect(await listAdministrators('_')).toHaveLength(0);
+    // A real substring still matches.
+    expect((await listAdministrators(inviteeEmail.slice(0, 12))).length).toBeGreaterThan(0);
   });
 
   it('refuses to let an administrator change their own role or status', async () => {

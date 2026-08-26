@@ -68,8 +68,6 @@ export default async function AdminEnrolPage({
               copy={{
                 secretLabel: e.secretLabel,
                 secretHelp: e.secretHelp,
-                copySecret: e.copySecret,
-                copyUri: e.copyUri,
                 passwordLabel: e.passwordLabel,
                 passwordHelp: e.passwordHelp,
                 confirmLabel: e.confirmLabel,

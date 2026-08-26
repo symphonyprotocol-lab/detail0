@@ -14,8 +14,8 @@ export interface EnrolResult {
  *
  * Deliberately unauthenticated -- the invitee has no session yet; the
  * invitation token is the credential, and it is single use and expiring. The
- * password never leaves this call, and the TOTP secret is sealed before it
- * reaches the database.
+ * password never leaves this call, and the TOTP secret is not accepted from the
+ * form at all: the use case recomputes it from the token.
  */
 export async function completeEnrolmentAction(
   _previous: EnrolResult | null,
@@ -29,7 +29,6 @@ export async function completeEnrolmentAction(
     await completeEnrolment({
       token: String(form.get('token') ?? ''),
       password,
-      secret: String(form.get('secret') ?? ''),
       mfaCode: String(form.get('mfa') ?? ''),
       clientAddress: bag.get('x-forwarded-for')?.split(',')[0]?.trim() ?? bag.get('x-real-ip'),
     });

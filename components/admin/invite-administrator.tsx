@@ -21,11 +21,7 @@ import type { ActionResult } from '@/app/admin/(console)/administrators/actions'
  * display it again, and saying so plainly is better than a copy affordance that
  * quietly stops working.
  */
-export function InviteAdministrator({
-  action,
-  inviteTtlDays,
-  roles,
-}: {
+export function InviteAdministrator(props: {
   action: (previous: ActionResult | null, form: FormData) => Promise<ActionResult>;
   inviteTtlDays: number;
   roles: { id: AdminRoleId; label: string }[];
@@ -33,7 +29,13 @@ export function InviteAdministrator({
   const { t } = useI18n();
   const a = t.admin.administrators;
   const [open, setOpen] = useState(false);
-  const [state, submit, pending] = useActionState(action, null);
+  /*
+   * Closing bumps the key so the panel is a new component next time it opens.
+   * `useActionState` has no reset, so without this the previous invitation's
+   * one-time link is what renders on reopen -- and a second invitation becomes
+   * impossible without reloading the page.
+   */
+  const [attempt, setAttempt] = useState(0);
 
   if (!open) {
     return (
@@ -43,6 +45,33 @@ export function InviteAdministrator({
       </ConsoleButton>
     );
   }
+
+  return (
+    <InvitePanel
+      key={attempt}
+      {...props}
+      onClose={() => {
+        setOpen(false);
+        setAttempt((value) => value + 1);
+      }}
+    />
+  );
+}
+
+function InvitePanel({
+  action,
+  inviteTtlDays,
+  roles,
+  onClose,
+}: {
+  action: (previous: ActionResult | null, form: FormData) => Promise<ActionResult>;
+  inviteTtlDays: number;
+  roles: { id: AdminRoleId; label: string }[];
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const a = t.admin.administrators;
+  const [state, submit, pending] = useActionState(action, null);
 
   if (state?.ok && state.enrolmentPath) {
     const link = `${window.location.origin}${state.enrolmentPath}`;
@@ -57,8 +86,7 @@ export function InviteAdministrator({
           <CopyButton value={link} label={a.inviteCopy} />
         </div>
         <div className="mt-3.5 flex gap-2">
-          {/* Remounts the form, so the spent link cannot linger on screen. */}
-          <ConsoleButton onClick={() => setOpen(false)}>{a.close}</ConsoleButton>
+          <ConsoleButton onClick={onClose}>{a.close}</ConsoleButton>
         </div>
       </Panel>
     );
@@ -120,7 +148,7 @@ export function InviteAdministrator({
               a.inviteSubmit
             )}
           </ConsoleButton>
-          <ConsoleButton onClick={() => setOpen(false)}>{a.inviteCancel}</ConsoleButton>
+          <ConsoleButton onClick={onClose}>{a.inviteCancel}</ConsoleButton>
         </div>
       </form>
     </Panel>

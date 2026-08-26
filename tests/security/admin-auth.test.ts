@@ -13,6 +13,7 @@ import {
   isAdminSessionLive,
   isLockedOut,
   lockoutUntil,
+  normalizeReason,
   refuseLastSuperAdmin,
   refuseSelfChange,
   roleAllows,
@@ -209,5 +210,31 @@ describe('administrator change guards', () => {
     expect(() =>
       refuseLastSuperAdmin({ targetIsSuper: false, otherActiveSuperAdmins: 0 }),
     ).not.toThrow();
+  });
+});
+
+/**
+ * requirement.md 5.3 requires a reason on every high-risk action. `required` on
+ * an input element is a browser convention, not a rule -- a server action is a
+ * public endpoint, so the rule has to live here.
+ */
+describe('normalizeReason', () => {
+  it('refuses an empty or whitespace-only reason', () => {
+    for (const input of ['', '   ', '\n\t']) {
+      expect(() => normalizeReason(input)).toThrow(AdminChangeRefused);
+      try {
+        normalizeReason(input);
+      } catch (error) {
+        expect((error as AdminChangeRefused).code).toBe('reason_required');
+      }
+    }
+  });
+
+  it('trims and keeps a real reason', () => {
+    expect(normalizeReason('  left the team  ')).toBe('left the team');
+  });
+
+  it('caps the length so an audit row cannot be used as storage', () => {
+    expect(normalizeReason('x'.repeat(5_000))).toHaveLength(200);
   });
 });
