@@ -29,6 +29,17 @@ export {
   type ClaimFilter,
 } from './list-libraries';
 export {
+  getConsoleUser,
+  setUserAccountStatus,
+  type ConsoleUserDetail,
+  type UserApiKeyView,
+  type UserAuditView,
+  type UserLibraryView,
+  type UserSessionView,
+  type UserStatusChangeResult,
+  type UserWorkspaceView,
+} from './manage-users';
+export {
   listAdministrators,
   inviteAdministrator,
   changeAdministratorRole,
