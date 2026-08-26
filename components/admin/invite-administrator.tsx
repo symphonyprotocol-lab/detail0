@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState, type ReactNode } from 'react';
+import { useActionState, useId, useState, type ReactNode } from 'react';
 import { ConsoleDialog } from '@/components/admin/console-dialog';
 import { ConsoleButton } from '@/components/admin/ui';
 import { CopyButton } from '@/components/dashboard/copy-button';
@@ -67,6 +67,9 @@ function InviteDialog({
   const a = t.admin.administrators;
   const [state, submit, pending] = useActionState(action, null);
   const done = state?.ok && state.enrolmentPath ? state.enrolmentPath : null;
+  // The submit lives in the dialog footer, outside the form, so the two are
+  // joined by `form=` -- which needs an id no second dialog can collide with.
+  const formId = useId();
 
   return (
     <ConsoleDialog
@@ -75,15 +78,17 @@ function InviteDialog({
       closeLabel={a.close}
       title={a.inviteTitle}
       description={done ? undefined : a.inviteDescription}
-      footer={
+      footer={(dismissBlocked) =>
         done ? (
           <ConsoleButton onClick={onClose}>{a.close}</ConsoleButton>
         ) : (
           <>
-            <ConsoleButton onClick={onClose} disabled={pending}>
+            {/* Follows the dialog's own guard rather than `pending`, so a
+                request that never settles cannot leave this disabled forever. */}
+            <ConsoleButton onClick={onClose} disabled={dismissBlocked}>
               {a.inviteCancel}
             </ConsoleButton>
-            <ConsoleButton variant="primary" type="submit" form={INVITE_FORM} disabled={pending}>
+            <ConsoleButton variant="primary" type="submit" form={formId} disabled={pending}>
               {pending ? (
                 <>
                   <SpinnerIcon size={14} className="motion-safe:animate-spin" />
@@ -111,11 +116,7 @@ function InviteDialog({
           </div>
         </div>
       ) : (
-        /*
-         * The submit lives in the dialog footer, outside this element, so the
-         * two are joined by `form=` rather than by nesting.
-         */
-        <form id={INVITE_FORM} action={submit} className="flex flex-col gap-3">
+        <form id={formId} action={submit} className="flex flex-col gap-3">
           {state?.error ? (
             <p
               role="alert"
@@ -162,8 +163,6 @@ function InviteDialog({
     </ConsoleDialog>
   );
 }
-
-const INVITE_FORM = 'invite-administrator-form';
 
 const FIELD =
   'h-9 w-full rounded-[7px] border-2 border-line bg-card px-2.5 text-[12px] tracking-[-0.023em] text-ink placeholder:text-faint focus:border-brand focus:outline-none';
