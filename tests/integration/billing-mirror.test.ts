@@ -23,9 +23,7 @@ process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
 const { mirrorProviderDocument } = await import('@/lib/application/billing/mirror');
-const { listBillingDocuments, billingSummary } = await import(
-  '@/lib/application/billing/list-documents'
-);
+const { listBillingDocuments } = await import('@/lib/application/billing/list-documents');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 
@@ -119,6 +117,78 @@ describeWithDb('the provider billing mirror', () => {
   });
 
   /*
+   * The shape of every follow-up notification a provider actually sends: the
+   * id, the state and the money, and nothing else. Treating that silence as a
+   * value is how a refund erases the payment time of the sale it refunds --
+   * taking the document out of every revenue figure keyed on `paid_at` -- and
+   * how it replaces the invoice number an operator searches by with a machine
+   * id.
+   */
+  it('leaves what a partial event did not mention alone', async () => {
+    const result = await mirrorProviderDocument({
+      workspaceId,
+      provider,
+      externalId,
+      kind: 'subscription',
+      status: 'refunded',
+      refundedMinor: 350,
+      amountMinor: 500,
+      currency: 'USD',
+      observedAt: new Date(LATER.getTime() + 60_000),
+      event: { externalEventId: 'evt_partial', payload: { type: 'charge.refunded' } },
+    });
+
+    expect(result.skipped).toBeUndefined();
+
+    const { rows } = await listBillingDocuments({ workspaceId });
+    expect(rows[0]?.refundedMinor).toBe(350);
+    expect(rows[0]?.number).toBe('INV-TEST-0001');
+    expect(rows[0]?.currency).toBe('USD');
+    expect(rows[0]?.method).toBe('card');
+    expect(rows[0]?.paidAt).toEqual(EARLIER);
+    expect(rows[0]?.periodEnd).not.toBeNull();
+  });
+
+  it('keeps a recorded refund when a later event says nothing about it', async () => {
+    await mirrorProviderDocument({
+      ...base,
+      status: 'paid',
+      paidAt: EARLIER,
+      observedAt: new Date(LATER.getTime() + 90_000),
+      event: { externalEventId: 'evt_repaid', payload: { type: 'invoice.payment_succeeded' } },
+    });
+
+    const { rows } = await listBillingDocuments({ workspaceId });
+    expect(rows[0]?.status).toBe('paid');
+    expect(rows[0]?.refundedMinor).toBe(350);
+  });
+
+  /*
+   * The other half of that rule. Here the null is a fact the event established
+   * rather than a gap in it: a voided document must not keep the timestamp of a
+   * payment that was reversed.
+   */
+  it('clears the payment time when the document stops being collected', async () => {
+    await mirrorProviderDocument({
+      workspaceId,
+      provider,
+      externalId,
+      kind: 'subscription',
+      status: 'void',
+      amountMinor: 500,
+      currency: 'USD',
+      observedAt: new Date(LATER.getTime() + 120_000),
+      event: { externalEventId: 'evt_void', payload: { type: 'invoice.voided' } },
+    });
+
+    const { rows } = await listBillingDocuments({ workspaceId });
+    expect(rows[0]?.status).toBe('void');
+    expect(rows[0]?.paidAt).toBeNull();
+    // Still not invented, still not blanked.
+    expect(rows[0]?.number).toBe('INV-TEST-0001');
+  });
+
+  /*
    * The one that would be silent. A late `paid` notification overwriting a
    * refunded document leaves the console reporting money that has gone back,
    * and nothing about the row would say it had happened.
@@ -136,14 +206,7 @@ describeWithDb('the provider billing mirror', () => {
     expect(result.documentId).not.toBeNull();
 
     const { rows } = await listBillingDocuments({ workspaceId });
-    expect(rows[0]?.status).toBe('refunded');
-    expect(rows[0]?.refundedMinor).toBe(200);
-  });
-
-  it('counts the document net of its refund, in the month it was paid', async () => {
-    const summary = await billingSummary(new Date('2026-08-31T00:00:00.000Z'));
-    expect(summary.currency).toBe('USD');
-    // Other fixtures may share the database, so the assertion is a floor.
-    expect(summary.monthRefundedMinor).toBeGreaterThanOrEqual(200);
+    expect(rows[0]?.status).toBe('void');
+    expect(rows[0]?.paidAt).toBeNull();
   });
 });

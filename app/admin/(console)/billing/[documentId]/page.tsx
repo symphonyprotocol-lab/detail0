@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { cache } from 'react';
+import { BillingStatusPill } from '@/components/admin/billing-status';
 import { CopyValue } from '@/components/admin/copy-value';
 import {
   ConsoleButton,
@@ -10,10 +11,15 @@ import {
   Metric,
   Panel,
   PanelHead,
-  Pill,
 } from '@/components/admin/ui';
 import { ChevronLeftIcon, ReceiptIcon } from '@/components/ui/icons';
-import { isCollected, netMinor, percentFromBps, refundRateBps } from '@/lib/domain/billing';
+import {
+  hasBillingPeriod,
+  isCollected,
+  netMinor,
+  percentFromBps,
+  refundRateBps,
+} from '@/lib/domain/billing';
 import { getBillingDocument } from '@/lib/application/billing';
 import { currentAdminSession, requireAdminCapability } from '@/lib/http/admin';
 import type { Dictionary } from '@/lib/i18n/dictionary';
@@ -155,7 +161,7 @@ export default async function AdminBillingDetailPage({
         <PanelHead
           title={d.order.title}
           description={d.order.description}
-          action={<Pill tone={collected ? 'ok' : 'warn'}>{b.statuses[record.status]}</Pill>}
+          action={<BillingStatusPill status={record.status} label={b.statuses[record.status]} />}
         />
         <dl className="grid gap-x-6 px-[19px] py-2 sm:grid-cols-2">
           <Fact label={d.order.kind} value={b.kinds[record.kind]} />
@@ -171,12 +177,22 @@ export default async function AdminBillingDetailPage({
                 : d.order.noPlanVersion
             }
           />
+          {/*
+            * Two different absences, and only one of them is "a one-off order".
+            * A pack has no period by rule; a subscription document mirrored
+            * from an event that did not carry one has a period nobody told us
+            * about, and telling an operator investigating a subscription charge
+            * that it was a one-time purchase is worse than telling them the
+            * dates are missing.
+            */}
           <Fact
             label={d.order.period}
             value={
               record.periodStart && record.periodEnd
                 ? `${utcDate(record.periodStart)} — ${utcDate(record.periodEnd)}`
-                : d.order.noPeriod
+                : hasBillingPeriod(record.kind)
+                  ? d.order.noPeriodRecorded
+                  : d.order.noPeriod
             }
           />
           <Fact label={d.order.issuedAt} value={`${utcStamp(record.issuedAt)} UTC`} />

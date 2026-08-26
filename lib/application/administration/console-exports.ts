@@ -15,7 +15,7 @@
  * than no export at all -- it looks like a record.
  */
 import type { AdminCapability } from '@/lib/domain/admin';
-import type { BillingStatusFilter } from '@/lib/domain/billing';
+import { isBillingStatusFilter } from '@/lib/domain/billing';
 import { listBillingDocuments } from '@/lib/application/billing';
 import { toCsv } from './csv';
 import { listAuditEntries, type AuditResultFilter } from './list-audit';
@@ -91,7 +91,15 @@ export const CONSOLE_EXPORTS: Record<string, ConsoleExport> = {
     async build(input) {
       const { rows } = await listBillingDocuments({
         query: input.query,
-        status: (input.status as BillingStatusFilter) ?? 'all',
+        /*
+         * Narrowed rather than cast. `billing_document.status` is a Postgres
+         * enum, so a hand-typed `?status=bogus` is not an empty extract -- it
+         * is `invalid input value for enum` and a 500. The other exports here
+         * are safe by accident of their columns: `users` normalises to one of
+         * two literals, the library and claim filters run through a `switch`
+         * with a default, and `audit_log.result` is plain text.
+         */
+        status: isBillingStatusFilter(input.status) ? input.status : 'all',
         limit: EXPORT_LIMIT,
       });
       /*

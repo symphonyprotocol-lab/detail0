@@ -71,6 +71,17 @@ export const BILLING_STATUS_FILTERS = ['all', ...BILLING_DOCUMENT_STATUSES] as c
 export type BillingStatusFilter = (typeof BILLING_STATUS_FILTERS)[number];
 
 /**
+ * Narrows a query-string value to a filter this list actually serves.
+ *
+ * `billing_document.status` is a Postgres enum, so an unknown value is not an
+ * empty result -- it is `invalid input value for enum` and a 500. Every entry
+ * point that takes the filter from a URL has to come through here.
+ */
+export function isBillingStatusFilter(value: unknown): value is BillingStatusFilter {
+  return typeof value === 'string' && (BILLING_STATUS_FILTERS as readonly string[]).includes(value);
+}
+
+/**
  * Money the platform is still waiting for.
  *
  * `draft` is deliberately not owed: nothing has been issued, so counting it as
@@ -91,6 +102,17 @@ export function isOutstanding(status: BillingDocumentStatus): boolean {
  */
 export function isCollected(status: BillingDocumentStatus): boolean {
   return status === 'paid' || status === 'refunded';
+}
+
+/**
+ * Whether this kind of document covers a period at all.
+ *
+ * A pack never does: requirement.md 4.3 makes its balance non-expiring and
+ * carried across periods, so a period on one would be a validity window -- the
+ * one thing a quota check must never read.
+ */
+export function hasBillingPeriod(kind: BillingDocumentKind): boolean {
+  return kind === 'subscription';
 }
 
 /* ------------------------------------------------------------------- money */
@@ -189,27 +211,58 @@ export interface ProviderDocumentInput {
   kind: string;
   status: string;
   amountMinor: number;
+  /**
+   * Cumulative refunded to date, not this event's delta. Omit it on an event
+   * that is not about a refund -- the mirror keeps what the row already has.
+   *
+   * State it alongside any change to `amountMinor` on a document that has been
+   * refunded: the table refuses a refund larger than the charge, so lowering
+   * the amount without restating the refund is a write the database rejects.
+   */
   refundedMinor?: number;
   currency: string;
   method?: string | null;
-  issuedAt: Date;
+  /** Absent on a follow-up event that only reports a state change. */
+  issuedAt?: Date | null;
   paidAt?: Date | null;
   periodStart?: Date | null;
   periodEnd?: Date | null;
 }
 
-/** A validated document, ready to write into the mirror. */
+/**
+ * A validated document, ready to write into the mirror.
+ *
+ * Every field a partial event may leave out is nullable, and null means "this
+ * event said nothing about it" rather than "this is empty". The distinction is
+ * the whole point: a provider's later notifications about one document -- a
+ * refund, a failed retry -- routinely carry the id, the status and the money
+ * and nothing else, and a mirror that treated their silence as a value would
+ * blank the fields they did not mention.
+ *
+ * The two nullable fields that are *derived* rather than merely absent --
+ * a pack's period and an uncollected document's payment time -- are decided by
+ * `hasBillingPeriod` and `isCollected`, which the writer applies to the same
+ * draft. Null alone cannot tell those apart, and nothing here pretends it can.
+ */
 export interface BillingDocumentDraft {
   provider: string;
   externalId: string;
-  number: string;
+  /** The provider's own number, or null when this event carried none. */
+  number: string | null;
   kind: BillingDocumentKind;
   status: BillingDocumentStatus;
   amountMinor: number;
-  refundedMinor: number;
+  /**
+   * Cumulative refunded to date, or null when this event did not state it.
+   *
+   * A `refunded` status always states it -- `parseProviderDocument` refuses one
+   * that does not -- so a null here only ever means "this event was about
+   * something else", and the refund already on the row stands.
+   */
+  refundedMinor: number | null;
   currency: string;
   method: string | null;
-  issuedAt: Date;
+  issuedAt: Date | null;
   paidAt: Date | null;
   periodStart: Date | null;
   periodEnd: Date | null;
@@ -269,8 +322,14 @@ export function parseProviderDocument(input: ProviderDocumentInput): BillingDocu
     throw new BillingMirrorRefused('invalid_amount', 'the amount must be whole minor units');
   }
 
-  const refundedMinor = input.refundedMinor ?? 0;
-  if (!Number.isSafeInteger(refundedMinor) || refundedMinor < 0) {
+  /*
+   * Absent is not zero. A follow-up notification about a paid document that
+   * says nothing about refunds must not wipe the refund already recorded
+   * against it, so "not stated" travels as null and the writer keeps the
+   * stored value.
+   */
+  const refundedMinor = input.refundedMinor ?? null;
+  if (refundedMinor !== null && (!Number.isSafeInteger(refundedMinor) || refundedMinor < 0)) {
     throw new BillingMirrorRefused('invalid_refund', 'the refunded amount must be whole minor units');
   }
   /*
@@ -279,7 +338,7 @@ export function parseProviderDocument(input: ProviderDocumentInput): BillingDocu
    * adapter. Either way the net would go negative and the month's revenue with
    * it, which is not a number to publish and then explain.
    */
-  if (refundedMinor > input.amountMinor) {
+  if (refundedMinor !== null && refundedMinor > input.amountMinor) {
     throw new BillingMirrorRefused('invalid_refund', 'more was refunded than was ever charged');
   }
 
@@ -303,40 +362,52 @@ export function parseProviderDocument(input: ProviderDocumentInput): BillingDocu
    * console cannot render honestly -- there is no payment for the money to have
    * come back from.
    */
-  if (refundedMinor > 0 && !isCollected(input.status)) {
+  if (refundedMinor !== null && refundedMinor > 0 && !isCollected(input.status)) {
     throw new BillingMirrorRefused(
       'contradictory_status',
       `a ${input.status} document cannot carry a refund`,
     );
   }
-  if (input.status === 'refunded' && refundedMinor === 0) {
+  /*
+   * Refused whether the amount is stated as zero or not stated at all, and that
+   * is what makes a null refund unambiguous everywhere else: `refunded` is the
+   * one status that cannot be reported without a figure, so a null can only
+   * ever mean an event that was about something other than the refund.
+   */
+  if (input.status === 'refunded' && (refundedMinor === null || refundedMinor === 0)) {
     throw new BillingMirrorRefused(
       'contradictory_status',
       'a refunded document has to say how much came back',
     );
   }
 
-  const subscription = input.kind === 'subscription';
-
   return {
     provider,
     externalId,
     /*
-     * Providers that issue no number still need something to say in the column
-     * an operator searches by, and the external id is the identifier they would
-     * paste into the provider's own console anyway.
+     * Not defaulted to the external id here. A document with no number of its
+     * own does need something in the column an operator searches by, but that
+     * substitution belongs to the insert: applied here it would be
+     * indistinguishable from a provider that really did send a number, and a
+     * later event's silence would overwrite `INV-2026-0472` with `in_3Qk2Zc`.
      */
-    number: trimmed(input.number, MAX_NUMBER_LENGTH) || externalId,
+    number: trimmed(input.number, MAX_NUMBER_LENGTH) || null,
     kind: input.kind,
     status: input.status,
     amountMinor: input.amountMinor,
     refundedMinor,
     currency,
     method: trimmed(input.method, MAX_METHOD_LENGTH) || null,
-    issuedAt: input.issuedAt,
+    issuedAt: input.issuedAt ?? null,
+    /*
+     * A payment time on a document nobody paid is a contradiction, so it is
+     * erased. Otherwise it is passed through untouched, including the null
+     * that means "this event did not repeat it" -- `isCollected` is what tells
+     * the writer which of the two it is looking at.
+     */
     paidAt: isCollected(input.status) ? (input.paidAt ?? null) : null,
-    periodStart: subscription ? (input.periodStart ?? null) : null,
-    periodEnd: subscription ? (input.periodEnd ?? null) : null,
+    periodStart: hasBillingPeriod(input.kind) ? (input.periodStart ?? null) : null,
+    periodEnd: hasBillingPeriod(input.kind) ? (input.periodEnd ?? null) : null,
   };
 }
 

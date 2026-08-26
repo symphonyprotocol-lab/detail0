@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
+import { BillingStatusPill } from '@/components/admin/billing-status';
 import { FilterSelect } from '@/components/admin/list-controls';
 import {
   CONSOLE_PANEL,
@@ -12,7 +13,6 @@ import {
   ListToolbar,
   Pagination,
   Panel,
-  Pill,
   TableScroller,
   TD,
   TH,
@@ -23,7 +23,6 @@ import {
   BILLING_STATUS_FILTERS,
   percentFromBps,
   type BillingDocumentKind,
-  type BillingDocumentStatus,
   type BillingStatusFilter,
 } from '@/lib/domain/billing';
 import { billingSummary, listBillingDocuments } from '@/lib/application/billing';
@@ -239,7 +238,7 @@ export default async function AdminBillingPage({
                   <td className={`${TD} whitespace-nowrap`}>{utcDate(row.issuedAt)}</td>
                   <td className={TD}>{methodLabel(row.method, b)}</td>
                   <td className={TD}>
-                    <Pill tone={STATUS_TONE[row.status]}>{b.statuses[row.status]}</Pill>
+                    <BillingStatusPill status={row.status} label={b.statuses[row.status]} />
                   </td>
                   <td className={TD}>
                     <IconLink label={t.admin.actions.view} href={`/admin/billing/${row.id}`}>
@@ -270,21 +269,6 @@ export default async function AdminBillingPage({
 }
 
 type BillingCopy = Dictionary['admin']['billing'];
-
-/**
- * Colour follows what the operator has to do about it, not what the provider
- * calls it: money owed is amber, money lost is red, money in is green, and a
- * document nobody has to act on is grey.
- */
-const STATUS_TONE: Record<BillingDocumentStatus, 'ok' | 'warn' | 'danger' | 'neutral'> = {
-  draft: 'neutral',
-  open: 'warn',
-  paid: 'ok',
-  failed: 'danger',
-  refunded: 'neutral',
-  void: 'neutral',
-  uncollectible: 'danger',
-};
 
 function planLabel(
   planId: string | null,

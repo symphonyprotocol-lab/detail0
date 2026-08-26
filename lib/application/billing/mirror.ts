@@ -23,7 +23,12 @@
  */
 import { and, eq, lte } from 'drizzle-orm';
 import { uuidv7 } from '@/lib/domain/id';
-import { parseProviderDocument, type ProviderDocumentInput } from '@/lib/domain/billing';
+import {
+  hasBillingPeriod,
+  isCollected,
+  parseProviderDocument,
+  type ProviderDocumentInput,
+} from '@/lib/domain/billing';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
 export interface MirrorProviderDocumentInput extends ProviderDocumentInput {
@@ -118,11 +123,18 @@ export async function mirrorProviderDocument(
         workspaceId: input.workspaceId,
         provider: draft.provider,
         externalId: draft.externalId,
-        number: draft.number,
+        /*
+         * The fallbacks live here rather than in the draft, because they are
+         * only ever right for a row being created. A provider that issues no
+         * number still needs something in the column an operator searches by,
+         * and the external id is what they would paste into the provider's own
+         * console anyway.
+         */
+        number: draft.number ?? draft.externalId,
         kind: draft.kind,
         status: draft.status,
         amountMinor: draft.amountMinor,
-        refundedMinor: draft.refundedMinor,
+        refundedMinor: draft.refundedMinor ?? 0,
         currency: draft.currency,
         method: draft.method,
         subscriptionId: input.subscriptionId ?? null,
@@ -130,7 +142,7 @@ export async function mirrorProviderDocument(
         planVersionId: input.planVersionId ?? null,
         periodStart: draft.periodStart,
         periodEnd: draft.periodEnd,
-        issuedAt: draft.issuedAt,
+        issuedAt: draft.issuedAt ?? observedAt,
         paidAt: draft.paidAt,
         lastEventId,
         observedAt,
@@ -147,23 +159,69 @@ export async function mirrorProviderDocument(
          * with one instant would otherwise never update past the first of them.
          */
         setWhere: lte(schema.billingDocument.observedAt, observedAt),
+        /*
+         * An update writes what this event spoke about and leaves the rest of
+         * the row alone.
+         *
+         * That asymmetry is the whole shape of this clause. A provider's later
+         * notifications about one document -- a refund, a failed retry, a void
+         * -- carry the id, the state and the money, and routinely nothing else.
+         * Treating their silence as a value is how a `charge.refunded` erases
+         * the payment time of the sale it refunds, taking the whole document
+         * out of every revenue figure keyed on `paid_at`, and how it replaces
+         * the invoice number an operator searches by with a machine id.
+         *
+         * The exceptions below are the fields where a null is a *derivation*
+         * rather than a silence, and there the null has to be written.
+         */
         set: {
           /*
-           * `workspaceId` is not here. A document does not change hands, and an
-           * adapter resolving the customer differently on a later notification
-           * would otherwise move a paid invoice onto someone else's account.
+           * `workspaceId` is not here at all. A document does not change hands,
+           * and an adapter resolving the customer differently on a later
+           * notification would otherwise move a paid invoice onto someone
+           * else's account.
            */
-          number: draft.number,
           status: draft.status,
+          /* Always stated by an event, so always written. */
           amountMinor: draft.amountMinor,
-          refundedMinor: draft.refundedMinor,
           currency: draft.currency,
-          method: draft.method,
-          periodStart: draft.periodStart,
-          periodEnd: draft.periodEnd,
-          issuedAt: draft.issuedAt,
-          paidAt: draft.paidAt,
           observedAt,
+          ...(draft.number ? { number: draft.number } : {}),
+          ...(draft.method ? { method: draft.method } : {}),
+          ...(draft.issuedAt ? { issuedAt: draft.issuedAt } : {}),
+          /*
+           * A document that is no longer collected has no payment time, and
+           * that null is a fact this event established rather than a gap in it
+           * -- a voided invoice must not keep the timestamp of a payment that
+           * was reversed. While it is still collected, only a stated time is
+           * written.
+           */
+          ...(isCollected(draft.status)
+            ? draft.paidAt
+              ? { paidAt: draft.paidAt }
+              : {}
+            : { paidAt: null }),
+          /*
+           * And the same for the refund itself. A document that is no longer
+           * collected cannot carry one, so the zero is written; while it is,
+           * only a stated figure is -- otherwise a re-notification of the
+           * original payment would wipe the refund recorded against it.
+           */
+          ...(isCollected(draft.status)
+            ? draft.refundedMinor === null
+              ? {}
+              : { refundedMinor: draft.refundedMinor }
+            : { refundedMinor: 0 }),
+          /*
+           * Same distinction for the period. A pack has none by rule, so the
+           * null is written; a subscription's is only overwritten when this
+           * event carried one.
+           */
+          ...(hasBillingPeriod(draft.kind)
+            ? draft.periodStart || draft.periodEnd
+              ? { periodStart: draft.periodStart, periodEnd: draft.periodEnd }
+              : {}
+            : { periodStart: null, periodEnd: null }),
           /*
            * The link back to source only moves with the state it explains. A
            * backfill with no event must not blank out the event id that told us

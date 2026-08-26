@@ -7,8 +7,10 @@ import {
   BILLING_STATUS_FILTERS,
   BillingMirrorRefused,
   MAX_DOCUMENT_MINOR,
+  hasBillingPeriod,
   isBillingDocumentKind,
   isBillingDocumentStatus,
+  isBillingStatusFilter,
   isCollected,
   isOutstanding,
   netMinor,
@@ -82,6 +84,19 @@ describe('what a billing document can be', () => {
   });
 
   /*
+   * `billing_document.status` is a Postgres enum, so an unrecognised filter is
+   * not an empty extract -- it is `invalid input value for enum` and a 500. The
+   * export route takes the value straight off the query string, so the guard is
+   * what stands between a hand-typed URL and a crash.
+   */
+  it('narrows a query-string filter, and refuses anything else', () => {
+    for (const value of BILLING_STATUS_FILTERS) expect(isBillingStatusFilter(value)).toBe(true);
+    for (const value of ['bogus', '', 'ALL', 'due', 42, null, undefined]) {
+      expect(isBillingStatusFilter(value)).toBe(false);
+    }
+  });
+
+  /*
    * A draft is not owed: nothing has been issued, so counting it as
    * outstanding would put money in the "chase this" figure that nobody has
    * been asked for yet.
@@ -104,9 +119,19 @@ describe('mirroring a provider document', () => {
     const draft = parseProviderDocument(INVOICE);
     expect(draft.number).toBe('INV-2026-0472');
     expect(draft.amountMinor).toBe(500);
-    expect(draft.refundedMinor).toBe(0);
     expect(draft.currency).toBe('USD');
     expect(draft.paidAt).toEqual(PAID);
+  });
+
+  /*
+   * Absent is not zero. A re-notification of a payment that says nothing about
+   * refunds must not wipe the refund already recorded against the document, so
+   * the silence has to survive the parse.
+   */
+  it('reports an unstated refund as null rather than zero', () => {
+    expect(parseProviderDocument(INVOICE).refundedMinor).toBeNull();
+    expect(parseProviderDocument({ ...INVOICE, refundedMinor: 0 }).refundedMinor).toBe(0);
+    expect(parseProviderDocument({ ...INVOICE, refundedMinor: 200 }).refundedMinor).toBe(200);
   });
 
   it('refuses a document with no provider or no external id', () => {
@@ -149,10 +174,17 @@ describe('mirroring a provider document', () => {
     }
   });
 
+  /*
+   * Refused whether the figure is stated as zero or left out entirely. That is
+   * what makes a null refund unambiguous everywhere else: `refunded` is the one
+   * status that cannot be reported without an amount, so a null can only mean
+   * an event that was about something other than the refund.
+   */
   it('refuses a refunded document that says nothing came back', () => {
     expect(refusal({ ...INVOICE, status: 'refunded', refundedMinor: 0 })).toBe(
       'contradictory_status',
     );
+    expect(refusal({ ...INVOICE, status: 'refunded' })).toBe('contradictory_status');
   });
 
   /*
@@ -167,9 +199,33 @@ describe('mirroring a provider document', () => {
     expect(refusal({ ...INVOICE, currency: '' })).toBe('invalid_currency');
   });
 
-  it('falls back to the provider id when no number was issued', () => {
-    expect(parseProviderDocument({ ...INVOICE, number: null }).number).toBe('in_3Qk2ZcJ8x1');
-    expect(parseProviderDocument({ ...INVOICE, number: '   ' }).number).toBe('in_3Qk2ZcJ8x1');
+  /*
+   * The distinction the whole draft is shaped around. A provider's later
+   * notifications about one document carry the id, the state and the money and
+   * routinely nothing else, so "this event said nothing about it" has to be
+   * representable -- otherwise the writer cannot tell it apart from a value and
+   * overwrites the row with the event's silence.
+   */
+  it('reports an absent number rather than inventing one', () => {
+    expect(parseProviderDocument({ ...INVOICE, number: null }).number).toBeNull();
+    expect(parseProviderDocument({ ...INVOICE, number: '   ' }).number).toBeNull();
+    expect(parseProviderDocument(INVOICE).number).toBe('INV-2026-0472');
+  });
+
+  it('reports an absent issue date rather than stamping one', () => {
+    expect(parseProviderDocument({ ...INVOICE, issuedAt: undefined }).issuedAt).toBeNull();
+    expect(parseProviderDocument(INVOICE).issuedAt).toEqual(ISSUED);
+  });
+
+  /*
+   * `paidAt` is null in two different situations and the writer has to tell
+   * them apart: a collected document whose event did not repeat the time keeps
+   * what it had, and an uncollected one has its time erased. `isCollected` is
+   * the discriminator, so both cases have to come back as null here.
+   */
+  it('leaves a collected document with no stated payment time as null', () => {
+    expect(parseProviderDocument({ ...INVOICE, paidAt: undefined }).paidAt).toBeNull();
+    expect(parseProviderDocument({ ...INVOICE, status: 'void', amountMinor: 500 }).paidAt).toBeNull();
   });
 
   /*
@@ -182,6 +238,8 @@ describe('mirroring a provider document', () => {
     expect(pack.periodStart).toBeNull();
     expect(pack.periodEnd).toBeNull();
     expect(parseProviderDocument(INVOICE).periodEnd).not.toBeNull();
+    expect(hasBillingPeriod('subscription')).toBe(true);
+    expect(hasBillingPeriod('pack')).toBe(false);
   });
 
   /** A payment time on a document nobody paid is a contradiction worth erasing. */

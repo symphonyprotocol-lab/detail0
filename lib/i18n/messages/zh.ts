@@ -1454,6 +1454,7 @@ export const zh = {
         packNote: '调用包余额不过期，跨账期结转，也不因降级失效。',
         noPlanVersion: '未关联套餐版本',
         noPeriod: '一次性订单，没有账期',
+        noPeriodRecorded: '支付服务没有同步账期',
         noGrant: '未关联调用包',
       },
       customer: {

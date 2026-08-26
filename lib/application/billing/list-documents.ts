@@ -199,11 +199,12 @@ export interface BillingSummary {
   /** How many of those are still in a trial and have not been charged yet. */
   trialingSubscriptions: number;
   /**
-   * Documents settled in anything but the platform currency.
+   * Documents in another currency that the figures above would otherwise have
+   * counted -- collected or still owed, never drafts and voids.
    *
-   * The figures above deliberately ignore them rather than adding francs to
-   * dollars. This is how many they are not counting, so nobody reads a total
-   * as the whole picture when it is not.
+   * The figures deliberately ignore them rather than adding francs to dollars.
+   * This is how many they are not counting, so nobody reads a total as the
+   * whole picture when it is not.
    */
   foreignCurrencyDocuments: number;
   /** First instant of the month the figures cover, in UTC. */
@@ -258,49 +259,66 @@ export async function billingSummary(now = new Date()): Promise<BillingSummary> 
     return { amount: row?.amount ?? 0, refunded: row?.refunded ?? 0 };
   };
 
-  const month = await collectedBetween(periodStart);
-  const previous = await collectedBetween(previousStart, periodStart);
-
-  const [outstanding] = await database
-    .select({
-      amount: sql<number>`coalesce(sum(${schema.billingDocument.amountMinor}), 0)::int`,
-      documents: count(),
-    })
-    .from(schema.billingDocument)
-    .where(
-      and(
-        inArray(schema.billingDocument.status, owed),
-        eq(schema.billingDocument.currency, PLAN_CURRENCY),
-      ),
-    );
-
-  const [foreign] = await database
-    .select({ n: count() })
-    .from(schema.billingDocument)
-    .where(ne(schema.billingDocument.currency, PLAN_CURRENCY));
-
   /*
-   * Counted from `subscription` rather than from the mirror. A workspace whose
-   * invoice has not been issued yet is still a paying subscription, and a
-   * platform with no payment provider connected still has whatever the seed
-   * and the signup flow created.
+   * Nothing here depends on anything else here, so they go together. Awaited in
+   * turn they were five serial round trips on every render of the screen.
    */
-  const [subscriptions] = await database
-    .select({
-      n: count(),
-      trialing: sql<number>`count(*) filter (where ${schema.subscription.status} = 'trialing')::int`,
-    })
-    .from(schema.subscription)
-    .innerJoin(
-      schema.planVersion,
-      eq(schema.planVersion.id, schema.subscription.planVersionId),
-    )
-    .where(
-      and(
-        inArray(schema.subscription.status, ['active', 'trialing']),
-        sql`${schema.planVersion.priceMinor} > 0`,
+  const [month, previous, [outstanding], [foreign], [subscriptions]] = await Promise.all([
+    collectedBetween(periodStart),
+    collectedBetween(previousStart, periodStart),
+
+    database
+      .select({
+        amount: sql<number>`coalesce(sum(${schema.billingDocument.amountMinor}), 0)::int`,
+        documents: count(),
+      })
+      .from(schema.billingDocument)
+      .where(
+        and(
+          inArray(schema.billingDocument.status, owed),
+          eq(schema.billingDocument.currency, PLAN_CURRENCY),
+        ),
       ),
-    );
+
+    /*
+     * Only the documents that could have been in the figures above. A voided
+     * or still-drafted foreign document was never a candidate for any of them,
+     * so counting it would send an operator looking for money that was never
+     * owed or collected in the first place.
+     */
+    database
+      .select({ n: count() })
+      .from(schema.billingDocument)
+      .where(
+        and(
+          ne(schema.billingDocument.currency, PLAN_CURRENCY),
+          inArray(schema.billingDocument.status, [...collected, ...owed]),
+        ),
+      ),
+
+    /*
+     * Counted from `subscription` rather than from the mirror. A workspace whose
+     * invoice has not been issued yet is still a paying subscription, and a
+     * platform with no payment provider connected still has whatever the seed
+     * and the signup flow created.
+     */
+    database
+      .select({
+        n: count(),
+        trialing: sql<number>`count(*) filter (where ${schema.subscription.status} = 'trialing')::int`,
+      })
+      .from(schema.subscription)
+      .innerJoin(
+        schema.planVersion,
+        eq(schema.planVersion.id, schema.subscription.planVersionId),
+      )
+      .where(
+        and(
+          inArray(schema.subscription.status, ['active', 'trialing']),
+          sql`${schema.planVersion.priceMinor} > 0`,
+        ),
+      ),
+  ]);
 
   const amount = month.amount;
   const refunded = month.refunded;

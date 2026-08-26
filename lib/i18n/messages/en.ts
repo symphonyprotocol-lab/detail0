@@ -1558,6 +1558,7 @@ export const en: Dictionary = {
           'A pack balance never expires, carries across periods, and survives a downgrade.',
         noPlanVersion: 'No plan version linked',
         noPeriod: 'A one-off order, so no period',
+        noPeriodRecorded: 'The provider did not report a period',
         noGrant: 'No call pack linked',
       },
       customer: {
