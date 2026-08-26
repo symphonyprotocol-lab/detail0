@@ -74,6 +74,7 @@ export function ConsoleButton({
   className = '',
   disabled,
   onClick,
+  form,
 }: {
   children: ReactNode;
   variant?: 'primary' | 'outline' | 'ghost';
@@ -83,6 +84,8 @@ export function ConsoleButton({
   disabled?: boolean;
   /** Client components only -- a server component cannot pass a handler. */
   onClick?: () => void;
+  /** Submits a form this button sits outside of, e.g. a dialog footer. */
+  form?: string;
 }) {
   const style =
     variant === 'primary'
@@ -96,7 +99,7 @@ export function ConsoleButton({
       {children}
     </Link>
   ) : (
-    <button type={type} className={merged} disabled={disabled} onClick={onClick}>
+    <button type={type} className={merged} disabled={disabled} onClick={onClick} form={form}>
       {children}
     </button>
   );
@@ -107,11 +110,13 @@ export function IconButton({
   label,
   children,
   onClick,
+  disabled,
 }: {
   label: string;
   children: ReactNode;
   /** Client components only -- a server component cannot pass a handler. */
   onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -119,7 +124,8 @@ export function IconButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-[6px] border-2 border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-steel"
+      disabled={disabled}
+      className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-[6px] border-2 border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-steel disabled:opacity-50 disabled:hover:bg-card"
     >
       {children}
     </button>

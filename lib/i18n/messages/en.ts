@@ -1271,6 +1271,7 @@ export const en: Dictionary = {
         'Creates the account and a one-time enrolment link; they choose their own password and bind their second factor.',
       inviteEmail: 'Email',
       inviteUsername: 'Name',
+      inviteUsernamePlaceholder: 'How they appear in the console',
       inviteRole: 'Role',
       inviteSubmit: 'Create invitation',
       inviteCancel: 'Cancel',

@@ -1175,6 +1175,7 @@ export const zh = {
       inviteDescription: '创建账户并生成一次性入职链接；对方自行设置密码并绑定两步验证。',
       inviteEmail: '邮箱',
       inviteUsername: '姓名',
+      inviteUsernamePlaceholder: '对方的显示名称',
       inviteRole: '角色',
       inviteSubmit: '生成邀请',
       inviteCancel: '取消',
