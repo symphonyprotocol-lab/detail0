@@ -7,7 +7,7 @@
  * treats that as a single acceptance point, so it must not be able to half
  * happen.
  */
-import { and, desc, eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
   AuthFailure,
   firstBillingPeriod,
@@ -25,6 +25,7 @@ import { identityAdapter, type IdentityAdapter } from '@/lib/infrastructure/iden
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { isHandshakeShape, type Handshake } from '@/lib/application/auth/handshake';
 import { sessionTokenHash } from '@/lib/application/auth/session-token';
+import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans';
 
 export interface CompleteOAuthInput {
   provider: IdentityProvider;
@@ -218,11 +219,19 @@ async function ensurePersonalWorkspace(
     createdAt: now,
   });
 
+  /*
+   * The same ordering the console calls "live", imported rather than repeated.
+   * This used to carry its own `created_at DESC` with no tiebreak, which was
+   * harmless while the seed guaranteed exactly one Free version -- but the plan
+   * screen mints them now, and two rows written in one transaction share a
+   * `now()`. A tie would have let signup bind an account to a version the
+   * console does not show as live, quietly selling it a different allowance.
+   */
   const [freePlan] = await tx
     .select({ id: schema.planVersion.id })
     .from(schema.planVersion)
     .where(eq(schema.planVersion.planId, 'free'))
-    .orderBy(desc(schema.planVersion.createdAt))
+    .orderBy(...PLAN_VERSION_NEWEST_FIRST)
     .limit(1);
 
   // The Free plan version is seeded by migration; without it a new account

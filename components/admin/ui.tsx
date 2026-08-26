@@ -64,12 +64,24 @@ export function PanelHead({
   );
 }
 
+/**
+ * Everything but the height, which `size` decides.
+ *
+ * Keeping the height out of the base string is not tidiness. A caller passing
+ * `h-8` through `className` looks like it works and does not: both utilities
+ * end up in the stylesheet, Tailwind orders them by its own rules rather than
+ * by the order of the class attribute, and the arbitrary `h-[37px]` is emitted
+ * after `h-8` -- so the override loses silently.
+ */
 const BUTTON_BASE =
-  'inline-flex h-[37px] shrink-0 items-center justify-center gap-1.5 rounded-[7px] px-3 text-[12px] font-medium tracking-[-0.023em] transition-colors';
+  'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-[7px] px-3 text-[12px] font-medium tracking-[-0.023em] transition-colors';
+
+const BUTTON_SIZE = { md: 'h-[37px]', sm: 'h-8' } as const;
 
 export function ConsoleButton({
   children,
   variant = 'outline',
+  size = 'md',
   href,
   type = 'button',
   className = '',
@@ -79,6 +91,8 @@ export function ConsoleButton({
 }: {
   children: ReactNode;
   variant?: 'primary' | 'outline' | 'ghost';
+  /** `sm` is the 32px control the design draws inside cards. */
+  size?: 'md' | 'sm';
   href?: string;
   type?: 'button' | 'submit';
   className?: string;
@@ -94,7 +108,7 @@ export function ConsoleButton({
       : variant === 'ghost'
         ? 'text-steel hover:bg-subtle'
         : 'border-2 border-line bg-card text-steel hover:bg-subtle';
-  const merged = `${BUTTON_BASE} ${style} disabled:opacity-60 ${className}`;
+  const merged = `${BUTTON_BASE} ${BUTTON_SIZE[size]} ${style} disabled:opacity-60 ${className}`;
   return href ? (
     <Link href={href} className={merged}>
       {children}
@@ -328,7 +342,7 @@ export function ExportLink({
     <a
       href={`/admin/export/${resource}${suffix}`}
       download
-      className={`${BUTTON_BASE} border-2 border-line bg-card text-steel hover:bg-subtle`}
+      className={`${BUTTON_BASE} ${BUTTON_SIZE.md} border-2 border-line bg-card text-steel hover:bg-subtle`}
     >
       <DownloadIcon size={14} />
       {label}
