@@ -7,6 +7,7 @@
  */
 import { and, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { ref } from './column-ref';
 import { likePattern } from './like-pattern';
 
 export type UserStatusFilter = 'all' | 'active' | 'suspended';
@@ -77,42 +78,48 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
    * account with two memberships would occupy two of the page's rows and
    * render twice, while `total` -- which counts `user` -- still counts it once,
    * so the last page would silently drop accounts.
+   *
+   * Every column in them is reached through `ref` rather than embedded
+   * directly, so each subquery keeps referring to the outer account row.
    */
+  const userId = ref(schema.user.id);
+  const libraryWorkspace = ref(schema.library.ownerWorkspaceId);
+
   const planName = sql<string | null>`(
     select p.name from ${schema.subscription} s
     join ${schema.planVersion} pv on pv.id = s.plan_version_id
     join ${schema.plan} p on p.id = pv.plan_id
     join ${schema.workspaceMember} wm on wm.workspace_id = s.workspace_id
-    where wm.user_id = ${schema.user.id} and s.status = 'active'
+    where wm.user_id = ${userId} and s.status = 'active'
     order by s.period_end desc
     limit 1
   )`;
   const libraryCount = sql<number>`(
     select count(*)::int from ${schema.library}
-    join ${schema.workspaceMember} wm on wm.workspace_id = ${schema.library.ownerWorkspaceId}
-    where wm.user_id = ${schema.user.id}
+    join ${schema.workspaceMember} wm on wm.workspace_id = ${libraryWorkspace}
+    where wm.user_id = ${userId}
   )`;
   const callsThisMonth = sql<number>`(
-    select coalesce(sum(${schema.usageSummary.calls}), 0)::int from ${schema.usageSummary}
-    join ${schema.workspaceMember} wm on wm.workspace_id = ${schema.usageSummary.workspaceId}
-    where wm.user_id = ${schema.user.id} and ${schema.usageSummary.bucketDate} >= ${monthStart}
+    select coalesce(sum(${ref(schema.usageSummary.calls)}), 0)::int from ${schema.usageSummary}
+    join ${schema.workspaceMember} wm on wm.workspace_id = ${ref(schema.usageSummary.workspaceId)}
+    where wm.user_id = ${userId} and ${ref(schema.usageSummary.bucketDate)} >= ${monthStart}
   )`;
   const zero = sql<number>`0`;
   const liveSessions = !input.suspensionScope ? zero : sql<number>`(
     select count(*)::int from ${schema.userSession}
-    where ${schema.userSession.userId} = ${schema.user.id}
-      and ${schema.userSession.revokedAt} is null
-      and ${schema.userSession.expiresAt} > ${now}
+    where ${ref(schema.userSession.userId)} = ${userId}
+      and ${ref(schema.userSession.revokedAt)} is null
+      and ${ref(schema.userSession.expiresAt)} > ${now}
   )`;
   const liveApiKeys = !input.suspensionScope ? zero : sql<number>`(
     select count(*)::int from ${schema.apiKey}
-    join ${schema.workspaceMember} wm on wm.workspace_id = ${schema.apiKey.workspaceId}
-    where wm.user_id = ${schema.user.id} and ${schema.apiKey.revokedAt} is null
+    join ${schema.workspaceMember} wm on wm.workspace_id = ${ref(schema.apiKey.workspaceId)}
+    where wm.user_id = ${userId} and ${ref(schema.apiKey.revokedAt)} is null
   )`;
   const publishedLibraries = !input.suspensionScope ? zero : sql<number>`(
     select count(*)::int from ${schema.library}
-    join ${schema.workspaceMember} wm on wm.workspace_id = ${schema.library.ownerWorkspaceId}
-    where wm.user_id = ${schema.user.id} and ${schema.library.lifecycleStatus} = 'published'
+    join ${schema.workspaceMember} wm on wm.workspace_id = ${libraryWorkspace}
+    where wm.user_id = ${userId} and ${ref(schema.library.lifecycleStatus)} = 'published'
   )`;
 
   const rows = await database
