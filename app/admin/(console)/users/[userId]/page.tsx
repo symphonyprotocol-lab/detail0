@@ -6,6 +6,8 @@ import {
   ConsoleButton,
   ConsolePageHeader,
   EmptyRow,
+  Fact,
+  Metric,
   Monogram,
   Panel,
   PanelHead,
@@ -323,25 +325,6 @@ export default async function AdminUserDetailPage({
           ))}
         </DetailTable>
       </Panel>
-    </div>
-  );
-}
-
-function Metric({ label, value, note }: { label: string; value: string; note: string }) {
-  return (
-    <Panel className="flex flex-col gap-1.5 px-4 py-3.5">
-      <p className="text-[11px] font-bold tracking-[0.02em] text-faint">{label}</p>
-      <p className="text-[22px] leading-[1.2] font-[650] tracking-[-0.04em] text-ink">{value}</p>
-      <p className="text-[11px] tracking-[-0.023em] text-muted">{note}</p>
-    </Panel>
-  );
-}
-
-function Fact({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5 border-b border-line/70 py-3 last:border-b-0 sm:[&:nth-last-child(-n+2)]:border-b-0">
-      <dt className="text-[11px] font-bold tracking-[0.02em] text-faint">{label}</dt>
-      <dd className="text-[12px] tracking-[-0.023em] break-all text-steel">{value}</dd>
     </div>
   );
 }

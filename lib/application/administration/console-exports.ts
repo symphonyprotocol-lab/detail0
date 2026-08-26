@@ -15,6 +15,8 @@
  * than no export at all -- it looks like a record.
  */
 import type { AdminCapability } from '@/lib/domain/admin';
+import type { BillingStatusFilter } from '@/lib/domain/billing';
+import { listBillingDocuments } from '@/lib/application/billing';
 import { toCsv } from './csv';
 import { listAuditEntries, type AuditResultFilter } from './list-audit';
 import { listClaims, listUserLibraries, type ClaimFilter, type LibraryReviewFilter } from './list-libraries';
@@ -80,6 +82,27 @@ export const CONSOLE_EXPORTS: Record<string, ConsoleExport> = {
       return toCsv(
         ['library_id', 'library', 'claimant', 'method', 'opened', 'current_owner', 'status'],
         rows.map((r) => [r.libraryPublicId, r.libraryTitle, r.claimantName, r.method, r.openedAt, r.currentOwner, r.status]),
+      );
+    },
+  },
+  billing: {
+    capability: 'billing',
+    filename: 'billing-documents',
+    async build(input) {
+      const { rows } = await listBillingDocuments({
+        query: input.query,
+        status: (input.status as BillingStatusFilter) ?? 'all',
+        limit: EXPORT_LIMIT,
+      });
+      /*
+       * The amount goes out in minor units beside its currency rather than as
+       * a formatted `$5.00`. A spreadsheet that has to parse a symbol back off
+       * a string is a spreadsheet that will eventually add dollars to euros,
+       * and this file exists to be reconciled against the provider's own.
+       */
+      return toCsv(
+        ['number', 'provider', 'provider_id', 'workspace', 'customer_email', 'plan', 'kind', 'amount_minor', 'refunded_minor', 'currency', 'method', 'issued_at', 'paid_at', 'status'],
+        rows.map((r) => [r.number, r.provider, r.externalId, r.workspaceName, r.customerEmail, r.planId, r.kind, r.amountMinor, r.refundedMinor, r.currency, r.method, r.issuedAt, r.paidAt, r.status]),
       );
     },
   },
