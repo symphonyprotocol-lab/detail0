@@ -5,6 +5,7 @@ import {
   ConsoleButton,
   ConsoleNotice,
   ConsolePageHeader,
+  ExportLink,
   ListToolbar,
   Panel,
   PanelHead,
@@ -12,7 +13,7 @@ import {
   TD,
   TH,
 } from '@/components/admin/ui';
-import { CheckIcon, DownloadIcon, ShieldCheckIcon } from '@/components/ui/icons';
+import { CheckIcon, ShieldCheckIcon } from '@/components/ui/icons';
 import { listAdministrators } from '@/lib/application/administration';
 import {
   ADMIN_CAPABILITIES,
@@ -122,10 +123,7 @@ export default async function AdminAdministratorsPage({
         <form method="get">
           <ListToolbar placeholder={a.searchPlaceholder} name="q" defaultValue={query}>
             <ConsoleButton type="submit">{a.searchSubmit}</ConsoleButton>
-            <ConsoleButton>
-              <DownloadIcon size={14} />
-              {t.admin.actions.export}
-            </ConsoleButton>
+            <ExportLink resource="administrators" query={query} label={t.admin.actions.export} />
           </ListToolbar>
         </form>
 

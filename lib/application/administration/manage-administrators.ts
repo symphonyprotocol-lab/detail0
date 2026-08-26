@@ -27,6 +27,7 @@ import { base32Encode, totpProvisioningUri, verifyTotpCounter } from '@/lib/doma
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { seal } from '@/lib/infrastructure/crypto/sealed';
 import { hmacSha256, hmacSha256Bytes, randomToken } from '@/lib/infrastructure/crypto/tokens';
+import { likePattern } from './like-pattern';
 import { hashAdminPassword } from './password';
 import { recordAudit } from './audit';
 
@@ -72,14 +73,6 @@ export interface AdministratorRow {
   /** Live console sessions, so an operator can see what revoking would end. */
   activeSessions: number;
   inviteExpiresAt: Date | null;
-}
-
-/**
- * `%` and `_` are wildcards to `LIKE`, so a search for either would quietly
- * match every administrator rather than the character the operator typed.
- */
-function likePattern(term: string): string {
-  return `%${term.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`;
 }
 
 export async function listAdministrators(query?: string): Promise<AdministratorRow[]> {

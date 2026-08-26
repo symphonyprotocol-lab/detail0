@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { EnrolmentForm } from '@/components/admin/enrolment-form';
 import { CircleXIcon, LockKeyholeIcon, Recall0Mark } from '@/components/ui/icons';
-import { offerEnrolment } from '@/lib/application/administration';
+import { offerEnrolment, qrCodeSvg } from '@/lib/application/administration';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
 
@@ -32,6 +32,11 @@ export default async function AdminEnrolPage({
   const token = typeof params.token === 'string' ? params.token : '';
 
   const offer = token ? await offerEnrolment(token).catch(() => null) : null;
+  /*
+   * Generated from the same `otpauth://` string the page prints, so the code
+   * and the typed fallback can never disagree.
+   */
+  const qr = offer ? await qrCodeSvg(offer.provisioningUri) : null;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-subtle px-6 py-14">
@@ -65,9 +70,12 @@ export default async function AdminEnrolPage({
               token={token}
               secret={offer.secret}
               provisioningUri={offer.provisioningUri}
+              qrSvg={qr}
               copy={{
                 secretLabel: e.secretLabel,
                 secretHelp: e.secretHelp,
+                qrAlt: e.qrAlt,
+                secretManual: e.secretManual,
                 passwordLabel: e.passwordLabel,
                 passwordHelp: e.passwordHelp,
                 confirmLabel: e.confirmLabel,

@@ -16,6 +16,18 @@ export { resolveAdminSession, type AdminSession } from './resolve-admin-session'
 export { recordAudit, originDigest, auditHash, type AuditEntry } from './audit';
 export { hashAdminPassword, verifyAdminPassword } from './password';
 export { adminSessionTokenHash } from './admin-session-token';
+export { CONSOLE_EXPORTS, isExportableResource, type ExportRequest } from './console-exports';
+export { toCsv, csvCell } from './csv';
+export { qrCodeSvg } from './qr-code';
+export { listConsoleUsers, type ConsoleUserRow, type UserStatusFilter } from './list-users';
+export {
+  listUserLibraries,
+  listClaims,
+  type ConsoleLibraryRow,
+  type ConsoleClaimRow,
+  type LibraryReviewFilter,
+  type ClaimFilter,
+} from './list-libraries';
 export {
   listAdministrators,
   inviteAdministrator,

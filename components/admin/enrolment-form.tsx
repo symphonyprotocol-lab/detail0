@@ -8,6 +8,8 @@ import { completeEnrolmentAction, type EnrolResult } from '@/app/admin/enroll/ac
 export interface EnrolCopy {
   secretLabel: string;
   secretHelp: string;
+  qrAlt: string;
+  secretManual: string;
   passwordLabel: string;
   passwordHelp: string;
   confirmLabel: string;
@@ -34,11 +36,14 @@ export function EnrolmentForm({
   token,
   secret,
   provisioningUri,
+  qrSvg,
   copy,
 }: {
   token: string;
   secret: string;
   provisioningUri: string;
+  /** Inline SVG built on the server from `provisioningUri`; null if it failed. */
+  qrSvg: string | null;
   copy: EnrolCopy;
 }) {
   const [state, submit, pending] = useActionState<EnrolResult | null, FormData>(
@@ -72,8 +77,27 @@ export function EnrolmentForm({
         <p className="text-[11px] font-semibold tracking-[-0.023em] text-steel">
           {copy.secretLabel}
         </p>
-        <code className="mt-1.5 block font-mono text-[13px] break-all text-ink">{secret}</code>
-        <p className="mt-2 text-[10px] leading-[1.6] text-muted">{copy.secretHelp}</p>
+        <p className="mt-1 text-[10px] leading-[1.6] text-muted">{copy.secretHelp}</p>
+
+        {qrSvg ? (
+          <div className="mt-3 flex justify-center">
+            {/*
+              The markup is generated on the server from `provisioningUri` by the
+              QR encoder, never from anything a request supplies.
+            */}
+            <span
+              role="img"
+              aria-label={copy.qrAlt}
+              className="block w-[160px] rounded-[6px] bg-card p-2.5 [&>svg]:h-auto [&>svg]:w-full"
+              dangerouslySetInnerHTML={{ __html: qrSvg }}
+            />
+          </div>
+        ) : null}
+
+        <p className="mt-3 text-[10px] font-semibold tracking-[-0.023em] text-steel">
+          {copy.secretManual}
+        </p>
+        <code className="mt-1 block font-mono text-[13px] break-all text-ink">{secret}</code>
         <a
           href={provisioningUri}
           className="mt-2 inline-block font-mono text-[10px] break-all text-brandink hover:underline"

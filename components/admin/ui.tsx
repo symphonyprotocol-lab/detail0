@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { ChevronLeftIcon, ChevronRightIcon, SearchIcon } from '@/components/ui/icons';
+import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, SearchIcon } from '@/components/ui/icons';
 
 /**
  * Panel chrome shared by every card in the admin design frames.
@@ -279,6 +279,67 @@ export function TitleCell({
 export const TH =
   'bg-subtle px-[15px] py-[11px] text-left text-[11px] font-bold tracking-[0.02em] whitespace-nowrap text-faint';
 export const TD = 'px-[15px] py-3.5 text-[12px] tracking-[-0.023em] text-steel align-middle';
+
+/**
+ * Download control for a console list.
+ *
+ * A link, not a button: it carries the list's own filters so the file matches
+ * what is on screen, and `/admin/export` re-checks the capability rather than
+ * trusting that a screen rendered the link.
+ */
+export function ExportLink({
+  resource,
+  query,
+  status,
+  label,
+}: {
+  resource: string;
+  query?: string;
+  status?: string;
+  label: string;
+}) {
+  const params = new URLSearchParams();
+  if (query) params.set('q', query);
+  if (status && status !== 'all') params.set('status', status);
+  const suffix = params.size > 0 ? `?${params.toString()}` : '';
+
+  return (
+    <a
+      href={`/admin/export/${resource}${suffix}`}
+      download
+      className={`${BUTTON_BASE} border-2 border-line bg-card text-steel hover:bg-subtle`}
+    >
+      <DownloadIcon size={14} />
+      {label}
+    </a>
+  );
+}
+
+/**
+ * What a list says when it has nothing to show.
+ *
+ * `note` is for the lists whose subsystem is not built yet: an operator seeing
+ * an empty review queue needs to know whether that means "nothing to do" or
+ * "this does not work yet", and only one of those is a reason to go looking.
+ */
+export function EmptyRow({
+  columns,
+  message,
+  note,
+}: {
+  columns: number;
+  message: string;
+  note?: string;
+}) {
+  return (
+    <tr className="border-t-2 border-line">
+      <td colSpan={columns} className="px-[15px] py-9 text-center">
+        <p className="text-[13px] tracking-[-0.023em] text-steel">{message}</p>
+        {note ? <p className="mt-1.5 text-[11px] text-muted">{note}</p> : null}
+      </td>
+    </tr>
+  );
+}
 
 /** Horizontal scroller so wide tables never widen the page. */
 export function TableScroller({ children }: { children: ReactNode }) {

@@ -554,6 +554,3 @@ export function adminCopy(t: Dictionary) {
     auditEntries,
   };
 }
-
-/** Badge on the console rail: public libraries waiting for a decision. */
-export const PENDING_REVIEWS = 2;

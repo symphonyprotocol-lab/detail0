@@ -1,10 +1,12 @@
 import type { Metadata } from 'next';
+import { FilterSelect } from '@/components/admin/list-controls';
 import {
   ConsoleButton,
   ConsolePageHeader,
+  EmptyRow,
+  ExportLink,
   IconButton,
   ListToolbar,
-  Pagination,
   Panel,
   Pill,
   TabBar,
@@ -13,47 +15,93 @@ import {
   TH,
   TitleCell,
 } from '@/components/admin/ui';
-import { DownloadIcon, EllipsisIcon, EyeIcon, FilterIcon } from '@/components/ui/icons';
-import { adminCopy, LIBRARY_TOTAL, type LibraryReviewStatus } from '@/lib/admin/demo-data';
+import { EllipsisIcon, EyeIcon } from '@/components/ui/icons';
+import { listUserLibraries, type LibraryReviewFilter } from '@/lib/application/administration';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
+import { bytes, oneOf, PAGE_SIZE, searchTerm, utcStamp } from '../list-params';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).admin.libraries.title };
 }
 
-const REVIEW_TONE: Record<LibraryReviewStatus, 'warn' | 'ok' | 'danger' | 'neutral'> = {
-  pending: 'warn',
-  approved: 'ok',
-  rejected: 'danger',
-  exempt: 'neutral',
+const REVIEWS: LibraryReviewFilter[] = ['all', 'pending', 'approved', 'rejected'];
+
+/** How the lifecycle enum reads on screen. requirement.md 5.3, 6.1. */
+const LIFECYCLE_TONE: Record<string, 'warn' | 'ok' | 'danger' | 'neutral'> = {
+  draft: 'neutral',
+  submitted: 'warn',
+  reviewing: 'warn',
+  changes_requested: 'danger',
+  published: 'ok',
+  suspended: 'danger',
+  archived: 'neutral',
 };
 
-/** User libraries and the public review queue -- design source frame `zcHnx`. */
-export default async function AdminLibrariesPage() {
-  await requireAdminCapability('libraries');
-  const t = await getMessages();
+/**
+ * User libraries and the public review queue -- design source frame `zcHnx`.
+ *
+ * Reads the real `library` table. Ingestion is not built yet
+ * (architecture.md 21), so this list is legitimately empty and says why.
+ */
+export default async function AdminLibrariesPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [, params, t] = await Promise.all([
+    requireAdminCapability('libraries'),
+    searchParams,
+    getMessages(),
+  ]);
   const l = t.admin.libraries;
-  const { libraries, libraryTabs } = adminCopy(t);
+  const f = t.admin.filters;
+  const query = searchTerm(params.q);
+  const review = oneOf(params.status, REVIEWS, 'all');
+
+  const { rows, total, counts } = await listUserLibraries({ query, review, limit: PAGE_SIZE });
+
+  const href = (status: LibraryReviewFilter) => {
+    const next = new URLSearchParams();
+    if (query) next.set('q', query);
+    if (status !== 'all') next.set('status', status);
+    return `/admin/libraries${next.size > 0 ? `?${next.toString()}` : ''}`;
+  };
 
   return (
     <div className="flex flex-col gap-[18px]">
       <ConsolePageHeader eyebrow={t.admin.eyebrow} title={l.title} description={l.description} />
 
-      <TabBar tabs={libraryTabs} activeId="all" />
+      <TabBar
+        activeId={review}
+        tabs={[
+          { id: 'all', label: l.tabs.all, count: counts.all, href: href('all') },
+          { id: 'pending', label: l.tabs.pending, count: counts.pending, href: href('pending') },
+          { id: 'approved', label: l.tabs.approved, count: counts.approved, href: href('approved') },
+          { id: 'rejected', label: l.tabs.rejected, count: counts.rejected, href: href('rejected') },
+          { id: 'claims', label: l.tabs.claims, count: counts.claims, href: '/admin/claims' },
+        ]}
+      />
 
       <Panel>
-        <ListToolbar placeholder={l.searchPlaceholder}>
-          <ConsoleButton>
-            <FilterIcon size={14} />
-            {t.admin.actions.filter}
-          </ConsoleButton>
-          <ConsoleButton>
-            <DownloadIcon size={14} />
-            {t.admin.actions.export}
-          </ConsoleButton>
-        </ListToolbar>
+        <form method="get">
+          <ListToolbar placeholder={l.searchPlaceholder} name="q" defaultValue={query}>
+            <FilterSelect
+              name="status"
+              label={f.label}
+              value={review}
+              options={[
+                { id: 'all', label: f.all },
+                { id: 'pending', label: f.reviewPending },
+                { id: 'approved', label: f.reviewApproved },
+                { id: 'rejected', label: f.reviewRejected },
+              ]}
+            />
+            <ConsoleButton type="submit">{t.admin.administrators.searchSubmit}</ConsoleButton>
+            <ExportLink resource="libraries" query={query} status={review} label={t.admin.actions.export} />
+          </ListToolbar>
+        </form>
 
         <TableScroller>
           <table className="w-full min-w-[760px] border-collapse text-left">
@@ -70,33 +118,39 @@ export default async function AdminLibrariesPage() {
               </tr>
             </thead>
             <tbody>
-              {libraries.map((library) => (
-                <tr key={library.meta} className="border-t-2 border-line">
+              {rows.length === 0 ? (
+                <EmptyRow
+                  columns={l.columns.length + 1}
+                  message={l.empty}
+                  note={counts.all === 0 ? t.admin.notReady.libraries : undefined}
+                />
+              ) : null}
+              {rows.map((library) => (
+                <tr key={library.id} className="border-t-2 border-line">
                   <td className={TD}>
-                    <TitleCell title={library.title} meta={library.meta} />
+                    <TitleCell
+                      title={library.title}
+                      meta={`${library.publicId} · ${utcStamp(library.createdAt)}`}
+                    />
                   </td>
-                  <td className={TD}>{library.owner}</td>
-                  <td className={TD}>{library.source}</td>
-                  <td className={TD}>{library.size}</td>
+                  <td className={TD}>{library.ownerName ?? '—'}</td>
+                  <td className={TD}>{library.sourceType ?? '—'}</td>
+                  <td className={`${TD} whitespace-nowrap`}>{bytes(library.storageBytes)}</td>
                   <td className={TD}>
-                    <Pill tone={library.scope === 'public' ? 'brand' : 'info'}>
-                      {library.scopeLabel}
+                    <Pill tone={library.visibility === 'public' ? 'brand' : 'info'}>
+                      {library.visibility === 'public' ? t.adminDemo.scope.public : t.adminDemo.scope.private}
                     </Pill>
                   </td>
                   <td className={TD}>
-                    <Pill tone={REVIEW_TONE[library.status]}>{library.statusLabel}</Pill>
+                    <Pill tone={LIFECYCLE_TONE[library.lifecycleStatus] ?? 'neutral'}>
+                      {library.lifecycleStatus}
+                    </Pill>
                   </td>
                   <td className={TD}>
                     <span className="flex items-center gap-1.5">
-                      {library.status === 'pending' ? (
-                        <ConsoleButton className="h-[30px] border-publine text-brandink">
-                          {t.admin.actions.review}
-                        </ConsoleButton>
-                      ) : (
-                        <IconButton label={t.admin.actions.view}>
-                          <EyeIcon size={14} />
-                        </IconButton>
-                      )}
+                      <IconButton label={t.admin.actions.view}>
+                        <EyeIcon size={14} />
+                      </IconButton>
                       <IconButton label={t.admin.actions.more}>
                         <EllipsisIcon size={14} />
                       </IconButton>
@@ -108,12 +162,11 @@ export default async function AdminLibrariesPage() {
           </table>
         </TableScroller>
 
-        <Pagination
-          summary={fill(l.showing, { from: 1, to: libraries.length, total: LIBRARY_TOTAL })}
-          pages={[1]}
-          activePage={1}
-          labels={t.admin.actions}
-        />
+        <div className="border-t-2 border-line px-4 py-[11px]">
+          <p className="text-[12px] tracking-[-0.023em] text-muted">
+            {fill(l.showing, { from: rows.length === 0 ? 0 : 1, to: rows.length, total })}
+          </p>
+        </div>
       </Panel>
     </div>
   );
