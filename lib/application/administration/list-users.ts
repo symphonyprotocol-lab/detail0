@@ -20,12 +20,30 @@ export interface ConsoleUserRow {
   callsThisMonth: number;
   joinedAt: Date;
   status: string;
+  /**
+   * What suspending this account would reach, present only when the caller
+   * asked for it (`suspensionScope`).
+   *
+   * The screen asks, because the confirmation happens in the row: an operator
+   * told they are about to end "their sessions" is being asked to confirm
+   * something they cannot check, and fetching the numbers after the click
+   * would put a spinner in front of the one dialog that has to be exact. The
+   * CSV export does not ask, because three more correlated counts across a
+   * ten-thousand-row extract buy nothing a spreadsheet wanted.
+   */
+  liveSessions?: number;
+  liveApiKeys?: number;
+  publishedLibraries?: number;
 }
 
 export interface UserListInput {
   query?: string;
   status?: UserStatusFilter;
   limit?: number;
+  /** Rows to skip, so the console's page controls are real navigation. */
+  offset?: number;
+  /** Also count what a suspension would reach. See `ConsoleUserRow`. */
+  suspensionScope?: boolean;
 }
 
 export async function listConsoleUsers(input: UserListInput = {}): Promise<{
@@ -34,7 +52,8 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
 }> {
   const database = db();
   const term = input.query?.trim();
-  const monthStart = startOfMonth(new Date());
+  const now = new Date();
+  const monthStart = startOfMonth(now);
 
   const conditions = [
     term
@@ -52,10 +71,22 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
     .where(where);
 
   /*
-   * The per-account counts are correlated subqueries rather than joins: a join
-   * to `library` and one to `usage_summary` at once would multiply rows against
-   * each other and inflate both numbers.
+   * Everything per-account is a correlated subquery rather than a join. Two
+   * joins at once would multiply rows against each other and inflate both
+   * counts, and even a single join to `workspace_member` breaks the page: an
+   * account with two memberships would occupy two of the page's rows and
+   * render twice, while `total` -- which counts `user` -- still counts it once,
+   * so the last page would silently drop accounts.
    */
+  const planName = sql<string | null>`(
+    select p.name from ${schema.subscription} s
+    join ${schema.planVersion} pv on pv.id = s.plan_version_id
+    join ${schema.plan} p on p.id = pv.plan_id
+    join ${schema.workspaceMember} wm on wm.workspace_id = s.workspace_id
+    where wm.user_id = ${schema.user.id} and s.status = 'active'
+    order by s.period_end desc
+    limit 1
+  )`;
   const libraryCount = sql<number>`(
     select count(*)::int from ${schema.library}
     join ${schema.workspaceMember} wm on wm.workspace_id = ${schema.library.ownerWorkspaceId}
@@ -66,6 +97,23 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
     join ${schema.workspaceMember} wm on wm.workspace_id = ${schema.usageSummary.workspaceId}
     where wm.user_id = ${schema.user.id} and ${schema.usageSummary.bucketDate} >= ${monthStart}
   )`;
+  const zero = sql<number>`0`;
+  const liveSessions = !input.suspensionScope ? zero : sql<number>`(
+    select count(*)::int from ${schema.userSession}
+    where ${schema.userSession.userId} = ${schema.user.id}
+      and ${schema.userSession.revokedAt} is null
+      and ${schema.userSession.expiresAt} > ${now}
+  )`;
+  const liveApiKeys = !input.suspensionScope ? zero : sql<number>`(
+    select count(*)::int from ${schema.apiKey}
+    join ${schema.workspaceMember} wm on wm.workspace_id = ${schema.apiKey.workspaceId}
+    where wm.user_id = ${schema.user.id} and ${schema.apiKey.revokedAt} is null
+  )`;
+  const publishedLibraries = !input.suspensionScope ? zero : sql<number>`(
+    select count(*)::int from ${schema.library}
+    join ${schema.workspaceMember} wm on wm.workspace_id = ${schema.library.ownerWorkspaceId}
+    where wm.user_id = ${schema.user.id} and ${schema.library.lifecycleStatus} = 'published'
+  )`;
 
   const rows = await database
     .select({
@@ -74,24 +122,24 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
       email: schema.user.email,
       status: schema.user.status,
       joinedAt: schema.user.createdAt,
-      planName: schema.plan.name,
+      planName,
       libraries: libraryCount,
       callsThisMonth,
+      liveSessions,
+      liveApiKeys,
+      publishedLibraries,
     })
     .from(schema.user)
-    .leftJoin(schema.workspaceMember, eq(schema.workspaceMember.userId, schema.user.id))
-    .leftJoin(
-      schema.subscription,
-      and(
-        eq(schema.subscription.workspaceId, schema.workspaceMember.workspaceId),
-        eq(schema.subscription.status, 'active'),
-      ),
-    )
-    .leftJoin(schema.planVersion, eq(schema.planVersion.id, schema.subscription.planVersionId))
-    .leftJoin(schema.plan, eq(schema.plan.id, schema.planVersion.planId))
     .where(where)
-    .orderBy(desc(schema.user.createdAt))
-    .limit(input.limit ?? 50);
+    /*
+     * `created_at` alone is not a total order -- two accounts made in the same
+     * transaction share it, and Postgres is then free to return them in either
+     * order on either page, which loses one row and repeats another. The id
+     * breaks the tie, so paging is stable.
+     */
+    .orderBy(desc(schema.user.createdAt), desc(schema.user.id))
+    .limit(input.limit ?? 50)
+    .offset(input.offset ?? 0);
 
   return {
     total: totalRow?.n ?? 0,
@@ -105,6 +153,13 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
       callsThisMonth: row.callsThisMonth ?? 0,
       joinedAt: row.joinedAt,
       status: row.status,
+      ...(input.suspensionScope
+        ? {
+            liveSessions: row.liveSessions ?? 0,
+            liveApiKeys: row.liveApiKeys ?? 0,
+            publishedLibraries: row.publishedLibraries ?? 0,
+          }
+        : {}),
     })),
   };
 }

@@ -1,13 +1,15 @@
 import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 import { FilterSelect } from '@/components/admin/list-controls';
 import {
   ConsoleButton,
   ConsolePageHeader,
   EmptyRow,
   ExportLink,
-  IconButton,
+  IconLink,
   ListToolbar,
   Monogram,
+  Pagination,
   Panel,
   Pill,
   TableScroller,
@@ -15,12 +17,22 @@ import {
   TH,
   TitleCell,
 } from '@/components/admin/ui';
-import { EllipsisIcon, EyeIcon } from '@/components/ui/icons';
+import { UserStatusControl } from '@/components/admin/user-status-dialog';
+import { EyeIcon } from '@/components/ui/icons';
 import { listConsoleUsers, type UserStatusFilter } from '@/lib/application/administration';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
-import { initialsOf, oneOf, PAGE_SIZE, searchTerm, utcDate } from '../list-params';
+import {
+  initialsOf,
+  oneOf,
+  PAGE_SIZE,
+  pageNumber,
+  pageWindow,
+  searchTerm,
+  utcDate,
+} from '../list-params';
+import { setUserStatusAction } from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).admin.users.title };
@@ -35,6 +47,9 @@ const STATUSES: UserStatusFilter[] = ['all', 'active', 'suspended'];
  * that own them, so an account with no activity reads zero; call metering is
  * not live yet (architecture.md 21), which is why that column is all zeroes
  * rather than invented traffic.
+ *
+ * The two row controls are the two things requirement.md 5.3 asks for beyond
+ * the list itself: open the account, and enable or suspend it.
  */
 export default async function AdminUsersPage({
   searchParams,
@@ -50,8 +65,37 @@ export default async function AdminUsersPage({
   const f = t.admin.filters;
   const query = searchTerm(params.q);
   const status = oneOf(params.status, STATUSES, 'all');
+  const page = pageNumber(params.page);
 
-  const { rows, total } = await listConsoleUsers({ query, status, limit: PAGE_SIZE });
+  const { rows, total } = await listConsoleUsers({
+    query,
+    status,
+    limit: PAGE_SIZE,
+    offset: (page - 1) * PAGE_SIZE,
+    suspensionScope: true,
+  });
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  /** Keeps the search and filter on the URL when the page changes. */
+  const hrefFor = (target: number) => {
+    const next = new URLSearchParams();
+    if (query) next.set('q', query);
+    if (status !== 'all') next.set('status', status);
+    const clamped = Math.min(Math.max(1, target), totalPages);
+    if (clamped > 1) next.set('page', String(clamped));
+    return next.size > 0 ? `/admin/users?${next.toString()}` : '/admin/users';
+  };
+
+  /*
+   * A page past the end is sent to the last real one rather than rendered.
+   * Clamping only the arithmetic would leave the footer claiming a range the
+   * empty table below it does not have -- "showing 4901-4900 of 300" -- and a
+   * stale bookmark deserves the list, not a contradiction.
+   */
+  if (page > totalPages) redirect(hrefFor(totalPages));
+
+  const first = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -123,12 +167,22 @@ export default async function AdminUsersPage({
                   </td>
                   <td className={TD}>
                     <span className="flex items-center gap-1.5">
-                      <IconButton label={t.admin.actions.view}>
+                      <IconLink label={t.admin.actions.view} href={`/admin/users/${user.id}`}>
                         <EyeIcon size={14} />
-                      </IconButton>
-                      <IconButton label={t.admin.actions.more}>
-                        <EllipsisIcon size={14} />
-                      </IconButton>
+                      </IconLink>
+                      <UserStatusControl
+                        action={setUserStatusAction}
+                        target={{
+                          id: user.id,
+                          displayName: user.displayName,
+                          email: user.email,
+                          initial: initialsOf(user.displayName),
+                          status: user.status,
+                          liveSessions: user.liveSessions ?? 0,
+                          liveApiKeys: user.liveApiKeys ?? 0,
+                          publishedLibraries: user.publishedLibraries ?? 0,
+                        }}
+                      />
                     </span>
                   </td>
                 </tr>
@@ -137,15 +191,18 @@ export default async function AdminUsersPage({
           </table>
         </TableScroller>
 
-        <div className="border-t-2 border-line px-4 py-[11px]">
-          <p className="text-[12px] tracking-[-0.023em] text-muted">
-            {fill(u.showing, {
-              from: rows.length === 0 ? 0 : 1,
-              to: rows.length,
-              total: total.toLocaleString('en-US'),
-            })}
-          </p>
-        </div>
+        <Pagination
+          summary={fill(u.showing, {
+            from: first,
+            to: first === 0 ? 0 : first + rows.length - 1,
+            total: total.toLocaleString('en-US'),
+          })}
+          pages={pageWindow(page, totalPages)}
+          activePage={page}
+          totalPages={totalPages}
+          hrefFor={hrefFor}
+          labels={t.admin.actions}
+        />
       </Panel>
     </div>
   );
