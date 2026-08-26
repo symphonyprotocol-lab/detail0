@@ -237,25 +237,6 @@ export interface RoleRow {
   allowed: Record<Capability, boolean>;
 }
 
-/* -------------------------------------------------------------- audit log */
-
-export interface AuditRow {
-  time: string;
-  admin: string;
-  action: string;
-  target: string;
-  /**
-   * A digest, never the address itself: plain IPs must not reach product
-   * storage (requirement.md 12, architecture.md 11.2), and `audit_log` keeps
-   * `ip_digest` for exactly that reason.
-   */
-  originDigest: string;
-  result: 'success' | 'failure';
-  resultLabel: string;
-}
-
-export const AUDIT_TOTAL = 3_182;
-
 /* ------------------------------------------------------------------------ */
 
 /** Every string-bearing fixture, resolved for one language. */
@@ -508,24 +489,6 @@ export function adminCopy(t: Dictionary) {
     ) as Record<Capability, boolean>,
   }));
 
-  const auditFacts: [string, AuditRow['result']][] = [
-    ['9f21…c4a1', 'success'],
-    ['3ba7…10de', 'success'],
-    ['3ba7…77c2', 'success'],
-    ['9f21…c4a1', 'success'],
-    ['e408…5b93', 'failure'],
-  ];
-
-  const auditEntries: AuditRow[] = d.auditEntries.map((entry, index) => {
-    const [originDigest, result] = auditFacts[index] ?? auditFacts[0]!;
-    return {
-      ...entry,
-      originDigest,
-      result,
-      resultLabel: result === 'success' ? d.auditResult.success : d.auditResult.failure,
-    };
-  });
-
   return {
     stats,
     growth,
@@ -550,7 +513,5 @@ export function adminCopy(t: Dictionary) {
     administrators,
     roleMatrix,
     capabilityLabels: t.admin.capabilities,
-    anchorDigest: d.anchorDigest,
-    auditEntries,
   };
 }

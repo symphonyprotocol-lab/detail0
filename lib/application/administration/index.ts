@@ -21,6 +21,13 @@ export { toCsv, csvCell } from './csv';
 export { qrCodeSvg } from './qr-code';
 export { listConsoleUsers, type ConsoleUserRow, type UserStatusFilter } from './list-users';
 export {
+  listAuditEntries,
+  type AuditList,
+  type AuditListInput,
+  type AuditResultFilter,
+  type ConsoleAuditRow,
+} from './list-audit';
+export {
   listUserLibraries,
   listClaims,
   type ConsoleLibraryRow,

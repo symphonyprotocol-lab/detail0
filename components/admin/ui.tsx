@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, SearchIcon } from '@/components/ui/icons';
+import { fill } from '@/lib/i18n/format';
 
 /**
  * Panel chrome shared by every card in the admin design frames.
@@ -349,49 +350,88 @@ export function TableScroller({ children }: { children: ReactNode }) {
 /**
  * List footer: the range readout on the left, page controls on the right.
  *
- * The controls are inert until the list endpoints exist; they are rendered as
- * disabled buttons rather than links so nothing suggests a working page 2.
+ * A list whose pages are served passes `href`, and the controls become links --
+ * so a page of the list is a URL an operator can keep, share or reload. Without
+ * it they stay disabled buttons rather than links, so nothing on a screen that
+ * still renders fixtures suggests a working page 2.
  */
 export function Pagination({
   summary,
   pages,
   activePage,
   labels,
+  href,
+  pageCount,
 }: {
   summary: string;
   pages: number[];
   activePage: number;
   labels: { prev: string; next: string; page: string };
+  href?: (page: number) => string;
+  /** Needed with `href`, to know whether there is a next page at all. */
+  pageCount?: number;
 }) {
   const step =
     'inline-flex h-[30px] items-center justify-center rounded-[5px] border-2 border-line bg-card px-2.5 text-[11px] tracking-[-0.023em] text-steel disabled:opacity-50';
+  const cell = (page: number) =>
+    `inline-flex size-[30px] items-center justify-center rounded-[5px] border-2 text-[11px] tracking-[-0.023em] ${
+      page === activePage
+        ? 'border-brand bg-brand text-white'
+        : 'border-line bg-card text-steel opacity-70'
+    }`;
+
+  const last = pageCount ?? activePage;
+  const prev = href && activePage > 1 ? href(activePage - 1) : undefined;
+  const next = href && activePage < last ? href(activePage + 1) : undefined;
+
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-line px-4 py-[11px]">
       <p className="text-[12px] tracking-[-0.023em] text-muted">{summary}</p>
       <div className="flex items-center gap-1">
-        <button type="button" disabled className={step}>
-          <ChevronLeftIcon size={13} />
-          {labels.prev}
-        </button>
-        {pages.map((page) => (
-          <button
-            key={page}
-            type="button"
-            disabled
-            aria-current={page === activePage ? 'page' : undefined}
-            className={`inline-flex size-[30px] items-center justify-center rounded-[5px] border-2 text-[11px] tracking-[-0.023em] ${
-              page === activePage
-                ? 'border-brand bg-brand text-white'
-                : 'border-line bg-card text-steel opacity-70'
-            }`}
-          >
-            {page}
+        {prev ? (
+          <Link href={prev} rel="prev" className={`${step} hover:bg-subtle`}>
+            <ChevronLeftIcon size={13} />
+            {labels.prev}
+          </Link>
+        ) : (
+          <button type="button" disabled className={step}>
+            <ChevronLeftIcon size={13} />
+            {labels.prev}
           </button>
-        ))}
-        <button type="button" disabled className={step}>
-          {labels.next}
-          <ChevronRightIcon size={13} />
-        </button>
+        )}
+        {pages.map((page) =>
+          href && page !== activePage ? (
+            <Link
+              key={page}
+              href={href(page)}
+              aria-label={fill(labels.page, { page })}
+              className={`${cell(page)} hover:bg-subtle`}
+            >
+              {page}
+            </Link>
+          ) : (
+            <button
+              key={page}
+              type="button"
+              disabled
+              aria-current={page === activePage ? 'page' : undefined}
+              className={cell(page)}
+            >
+              {page}
+            </button>
+          ),
+        )}
+        {next ? (
+          <Link href={next} rel="next" className={`${step} hover:bg-subtle`}>
+            {labels.next}
+            <ChevronRightIcon size={13} />
+          </Link>
+        ) : (
+          <button type="button" disabled className={step}>
+            {labels.next}
+            <ChevronRightIcon size={13} />
+          </button>
+        )}
       </div>
     </div>
   );

@@ -761,5 +761,13 @@ export const auditLog = pgTable(
   (t) => [
     uniqueIndex('audit_log_hash_uq').on(t.hash),
     index('audit_log_time_idx').on(t.createdAt),
+    /*
+     * Declared because `seq DESC` is a read path, not just a write one: the
+     * chain head is read under the writer's advisory lock on every append, and
+     * the console lists the log in this order a page at a time. It exists in
+     * the database from 0004; leaving it out here would let the next generated
+     * migration drop it and turn both into a sort of the whole table.
+     */
+    index('audit_log_seq_idx').on(t.seq.desc()),
   ],
 );

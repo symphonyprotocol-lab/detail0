@@ -31,11 +31,23 @@ export function utcDate(value: Date | null): string {
   return value ? value.toISOString().slice(0, 10) : '';
 }
 
-/** `YYYY-MM-DD HH:mm` in UTC, the shape the audit log prints. */
+/** `YYYY-MM-DD HH:mm` in UTC, for a list where the minute is the useful unit. */
 export function utcStamp(value: Date | null): string {
   if (!value) return '';
   const iso = value.toISOString();
   return `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
+}
+
+/**
+ * `YYYY-MM-DD HH:mm:ss` in UTC, the shape the audit log prints.
+ *
+ * The seconds are not decoration. Console actions arrive in bursts -- an invite
+ * and the enrolment it triggers land inside the same minute -- and a log whose
+ * whole point is to show what happened in what order must not render two
+ * chained entries with the same timestamp.
+ */
+export function utcInstant(value: Date | null): string {
+  return value ? value.toISOString().slice(0, 19).replace('T', ' ') : '';
 }
 
 export function initialsOf(name: string): string {
@@ -67,4 +79,57 @@ export function money(minor: number, currency = 'USD'): string {
   const symbol = currency === 'USD' ? '$' : `${currency} `;
   const sign = minor < 0 ? '−' : '';
   return `${sign}${symbol}${(Math.abs(minor) / 100).toFixed(2)}`;
+}
+
+/**
+ * A hand-edited `?page=` is bounded here rather than at the query.
+ *
+ * The page number becomes an `OFFSET`, and Postgres will happily walk billions
+ * of rows to satisfy one; the cap keeps a typed URL from turning into a scan.
+ */
+const MAX_PAGE = 10_000;
+
+export function pageNumber(value: string | string[] | undefined): number {
+  if (typeof value !== 'string') return 1;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return 1;
+  return Math.min(parsed, MAX_PAGE);
+}
+
+export interface PageWindow {
+  pageCount: number;
+  /** 1-based range of the rows actually on screen; `0`–`0` when there are none. */
+  from: number;
+  to: number;
+  /** The page numbers the footer offers, a window around the active one. */
+  pages: number[];
+}
+
+/**
+ * The footer's view of one page, derived after the query rather than before it.
+ *
+ * `rows` is what came back, not what was asked for, so a page past the end
+ * reads `0`–`0` instead of claiming a range that holds nothing.
+ */
+export function pageWindow(input: {
+  page: number;
+  total: number;
+  rows: number;
+  size?: number;
+  span?: number;
+}): PageWindow {
+  const size = input.size ?? PAGE_SIZE;
+  const span = input.span ?? 5;
+  const pageCount = Math.max(1, Math.ceil(input.total / size));
+  const offset = (input.page - 1) * size;
+
+  const width = Math.min(span, pageCount);
+  const first = Math.min(Math.max(1, input.page - Math.floor(width / 2)), pageCount - width + 1);
+
+  return {
+    pageCount,
+    from: input.rows === 0 ? 0 : offset + 1,
+    to: input.rows === 0 ? 0 : offset + input.rows,
+    pages: Array.from({ length: width }, (_, index) => first + index),
+  };
 }
