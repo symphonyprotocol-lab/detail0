@@ -11,6 +11,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import {
   AuthFailure,
   firstBillingPeriod,
+  isAccountUsable,
   personalWorkspaceName,
   sessionExpiryFrom,
   type IdentityProfile,
@@ -140,7 +141,7 @@ async function resolveUser(tx: Tx, profile: IdentityProfile, now: Date): Promise
       .limit(1);
 
     // requirement.md 3.2: a suspended account cannot come back through a login.
-    if (!account || account.status !== 'active') {
+    if (!account || !isAccountUsable(account.status)) {
       throw new AuthFailure('account_disabled', 'account is not active');
     }
 

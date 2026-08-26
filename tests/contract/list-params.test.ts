@@ -19,6 +19,10 @@ describe('pageNumber', () => {
   it('caps the offset a typed URL can ask Postgres to walk', () => {
     expect(pageNumber('99999999')).toBe(10_000);
   });
+
+  it('reads the leading number of a page with junk after it', () => {
+    expect(pageNumber('4abc')).toBe(4);
+  });
 });
 
 /**

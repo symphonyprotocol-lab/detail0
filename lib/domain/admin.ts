@@ -272,3 +272,20 @@ export function refuseLastSuperAdmin(input: {
     );
   }
 }
+
+/* --------------------------------------------- registered user accounts */
+
+/**
+ * What the console may set a registered account to.
+ *
+ * Deliberately narrower than the `user.status` column: the column is text and
+ * could hold anything a future flow invents, but the two values an operator
+ * decides between are enable and suspend (requirement.md 5.3).
+ */
+export const USER_ACCOUNT_STATUSES = ['active', 'suspended'] as const;
+
+export type UserAccountStatus = (typeof USER_ACCOUNT_STATUSES)[number];
+
+export function isUserAccountStatus(value: unknown): value is UserAccountStatus {
+  return typeof value === 'string' && (USER_ACCOUNT_STATUSES as readonly string[]).includes(value);
+}

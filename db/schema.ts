@@ -153,7 +153,11 @@ export const userSession = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('user_session_token_hash_uq').on(t.tokenHash)],
+  (t) => [
+    uniqueIndex('user_session_token_hash_uq').on(t.tokenHash),
+    /** Suspending an account and counting its live sessions both read by user. */
+    index('user_session_user_idx').on(t.userId),
+  ],
 );
 
 export const workspace = pgTable('workspace', {
@@ -172,7 +176,14 @@ export const workspaceMember = pgTable(
     role: workspaceRoleEnum('role').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.workspaceId, t.userId] })],
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.userId] }),
+    /**
+     * The primary key leads with `workspace_id`, so "which workspaces is this
+     * user in" -- the direction every console screen asks -- cannot use it.
+     */
+    index('workspace_member_user_idx').on(t.userId),
+  ],
 );
 
 export const apiKey = pgTable(
@@ -191,7 +202,11 @@ export const apiKey = pgTable(
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('api_key_hash_uq').on(t.keyHash)],
+  (t) => [
+    uniqueIndex('api_key_hash_uq').on(t.keyHash),
+    /** Listing or counting a workspace's keys, which authentication never does. */
+    index('api_key_workspace_idx').on(t.workspaceId),
+  ],
 );
 
 export const plan = pgTable('plan', {
@@ -769,5 +784,7 @@ export const auditLog = pgTable(
      * migration drop it and turn both into a sort of the whole table.
      */
     index('audit_log_seq_idx').on(t.seq.desc()),
+    /** One target's history, newest first -- how the console reads the log. */
+    index('audit_log_target_idx').on(t.targetType, t.targetId, t.seq.desc()),
   ],
 );

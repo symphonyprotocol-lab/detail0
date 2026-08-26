@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   firstBillingPeriod,
+  isAccountUsable,
   isSessionLive,
   personalWorkspaceName,
   SESSION_ABSOLUTE_MS,
@@ -10,6 +11,7 @@ import {
   workspaceInitial,
   type IdentityProfile,
 } from '@/lib/domain/auth';
+import { isUserAccountStatus, USER_ACCOUNT_STATUSES } from '@/lib/domain/admin';
 import { uuidv7 } from '@/lib/domain/id';
 
 const now = new Date('2026-08-25T10:00:00.000Z');
@@ -45,6 +47,37 @@ describe('session lifetime', () => {
 
   it('expires 30 days out', () => {
     expect(sessionExpiryFrom(now).toISOString()).toBe('2026-09-24T10:00:00.000Z');
+  });
+});
+
+/**
+ * requirement.md 3.2: suspension has to stop every way an account reaches the
+ * platform, and each of those resolves the caller somewhere different. One
+ * predicate is what keeps them agreeing.
+ */
+describe('account state', () => {
+  it('lets an active account authenticate', () => {
+    expect(isAccountUsable('active')).toBe(true);
+  });
+
+  it('fails closed on anything else, including states nobody has invented yet', () => {
+    for (const status of ['suspended', 'deleted', 'pending_review', '', 'ACTIVE', 'Active']) {
+      expect(isAccountUsable(status)).toBe(false);
+    }
+  });
+});
+
+describe('what the console may set an account to', () => {
+  it('accepts only the two states an operator decides between', () => {
+    expect(USER_ACCOUNT_STATUSES).toEqual(['active', 'suspended']);
+    expect(isUserAccountStatus('active')).toBe(true);
+    expect(isUserAccountStatus('suspended')).toBe(true);
+  });
+
+  it('refuses anything else a form could post', () => {
+    for (const value of ['disabled', 'deleted', '', 'ACTIVE', 1, null, undefined]) {
+      expect(isUserAccountStatus(value)).toBe(false);
+    }
   });
 });
 

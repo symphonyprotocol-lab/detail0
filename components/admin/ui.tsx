@@ -106,6 +106,9 @@ export function ConsoleButton({
   );
 }
 
+const ICON_CONTROL =
+  'inline-flex size-[30px] shrink-0 items-center justify-center rounded-[6px] border-2 border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-steel disabled:opacity-50 disabled:hover:bg-card';
+
 /** 30px square action button, the per-row control the design puts in tables. */
 export function IconButton({
   label,
@@ -126,10 +129,27 @@ export function IconButton({
       title={label}
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-[6px] border-2 border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-steel disabled:opacity-50 disabled:hover:bg-card"
+      className={ICON_CONTROL}
     >
       {children}
     </button>
+  );
+}
+
+/** The same 30px control as a link, for a row action that is a navigation. */
+export function IconLink({
+  label,
+  href,
+  children,
+}: {
+  label: string;
+  href: string;
+  children: ReactNode;
+}) {
+  return (
+    <Link href={href} aria-label={label} title={label} className={ICON_CONTROL}>
+      {children}
+    </Link>
   );
 }
 
