@@ -6,7 +6,12 @@
  * permission state must not come from a replica (architecture.md 16).
  */
 import { and, eq } from 'drizzle-orm';
-import { isSessionLive, shouldTouchSession, workspaceInitial } from '@/lib/domain/auth';
+import {
+  isAccountUsable,
+  isSessionLive,
+  shouldTouchSession,
+  workspaceInitial,
+} from '@/lib/domain/auth';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { sessionTokenHash } from '@/lib/application/auth/session-token';
 
@@ -62,7 +67,7 @@ export async function resolveSession(
   if (!row) return null;
   if (!isSessionLive(row, now)) return null;
   // requirement.md 3.2: suspending an account kills its web sessions at once.
-  if (row.status !== 'active') return null;
+  if (!isAccountUsable(row.status)) return null;
 
   const [workspace] = await database
     .select({

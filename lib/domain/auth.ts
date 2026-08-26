@@ -62,6 +62,22 @@ export function safeReturnTo(input: unknown): string {
   return allowed ? input : DEFAULT_RETURN_TO;
 }
 
+/**
+ * Whether an account's state still lets it authenticate.
+ *
+ * The single gate for requirement.md 3.2: suspending an account has to stop
+ * *every* way it reaches the platform at once -- the web session, the API key,
+ * and the answers its libraries give. Each of those resolves the caller in a
+ * different place, so the rule lives here rather than being re-typed as
+ * `status !== 'active'` in each of them, and every new principal resolver has
+ * one obvious thing to call.
+ *
+ * Written as an allow list, so a status nobody has invented yet fails closed.
+ */
+export function isAccountUsable(status: string): boolean {
+  return status === 'active';
+}
+
 export interface SessionRow {
   expiresAt: Date;
   lastSeenAt: Date;

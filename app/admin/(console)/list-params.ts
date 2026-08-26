@@ -15,6 +15,20 @@ export function searchTerm(value: string | string[] | undefined): string | undef
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/**
+ * The page a list is on, 1-based.
+ *
+ * Clamped rather than validated: `?page=0`, `?page=-3` and `?page=banana` are
+ * all a request for the first page, and an upper bound stops a hand-typed
+ * `?page=99999999` turning into an offset Postgres has to count past.
+ */
+export function pageNumber(value: string | string[] | undefined, max = 10_000): number {
+  if (typeof value !== 'string') return 1;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return 1;
+  return Math.min(parsed, max);
+}
+
 /** Falls back rather than throwing: a hand-edited URL should not 500. */
 export function oneOf<T extends string>(
   value: string | string[] | undefined,
@@ -67,4 +81,18 @@ export function money(minor: number, currency = 'USD'): string {
   const symbol = currency === 'USD' ? '$' : `${currency} `;
   const sign = minor < 0 ? '−' : '';
   return `${sign}${symbol}${(Math.abs(minor) / 100).toFixed(2)}`;
+}
+
+/**
+ * The page numbers to draw around the current one.
+ *
+ * A console list can run to hundreds of pages, and a footer that prints every
+ * one of them is unusable; a fixed window keeps the control the same size
+ * whatever the total, and stays anchored at both ends rather than sliding off.
+ */
+export function pageWindow(activePage: number, totalPages: number, size = 5): number[] {
+  if (totalPages <= 0) return [1];
+  const span = Math.min(size, totalPages);
+  const start = Math.min(Math.max(1, activePage - Math.floor(span / 2)), totalPages - span + 1);
+  return Array.from({ length: span }, (_, index) => start + index);
 }
