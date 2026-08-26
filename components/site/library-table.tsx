@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ArrowUpRightIcon, BadgeCheckIcon, ShieldCheckIcon } from '@/components/ui/icons';
 import type { CatalogEntry } from '@/lib/site/demo-data';
+import { getMessages } from '@/lib/i18n/server';
 
 /**
  * Column track widths and paddings are taken from the design source table
@@ -9,13 +10,15 @@ import type { CatalogEntry } from '@/lib/site/demo-data';
 const COLS =
   'grid-cols-[minmax(0,1fr)_212px_80px_80px_93px_71px] gap-[18px] px-[15px]';
 
-export function LibraryTable({
+export async function LibraryTable({
   entries,
   showAnchor = true,
 }: {
   entries: CatalogEntry[];
   showAnchor?: boolean;
 }) {
+  const { table } = (await getMessages()).catalog;
+
   return (
     <div className="overflow-hidden rounded-[9px] border-2 border-line bg-card p-0.5">
       <div className="overflow-x-auto">
@@ -23,12 +26,12 @@ export function LibraryTable({
           <div
             className={`grid ${COLS} h-10 items-center border-b-2 border-line bg-subtle text-[10px] font-[650] tracking-[0.04em] text-muted`}
           >
-            <span>名称</span>
-            <span>LIBRARY ID</span>
-            <span>TRUST</span>
-            <span>CHUNKS</span>
-            <span>更新</span>
-            <span>{showAnchor ? '存证' : 'ACCESS'}</span>
+            <span>{table.name}</span>
+            <span>{table.libraryId}</span>
+            <span>{table.trust}</span>
+            <span>{table.chunks}</span>
+            <span>{table.updated}</span>
+            <span>{showAnchor ? table.anchor : table.access}</span>
           </div>
           {entries.map((entry, i) => (
             <Link
@@ -60,11 +63,11 @@ export function LibraryTable({
                     entry.anchored ? 'text-good' : 'text-warn'
                   }`}
                 >
-                  {entry.anchored ? '已存证' : '待存证'}
+                  {entry.anchored ? table.anchored : table.unanchored}
                 </span>
               ) : (
                 <span className="flex items-center gap-[5px] font-semibold text-brand">
-                  公开
+                  {table.public}
                   <ArrowUpRightIcon size={14} />
                 </span>
               )}

@@ -5,6 +5,7 @@ import {
   uuid,
   integer,
   bigint,
+  bigserial,
   boolean,
   timestamp,
   jsonb,
@@ -105,12 +106,19 @@ export const policyModeEnum = pgEnum('policy_mode', ['quality', 'select']);
 
 // ---------------------------------------------------------------- identity & commerce
 
+/**
+ * `email` is deliberately not unique: requirement.md 3.2 forbids merging
+ * accounts that happen to share an address, so two providers reporting the
+ * same mailbox stay two accounts until the user links them from a session.
+ */
 export const user = pgTable('user', {
   id: uuid('id').primaryKey(),
   email: text('email').notNull(),
   displayName: text('display_name'),
+  avatarUrl: text('avatar_url'),
   status: text('status').notNull().default('active'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const oauthAccount = pgTable(
@@ -120,22 +128,39 @@ export const oauthAccount = pgTable(
     userId: uuid('user_id').notNull().references(() => user.id),
     provider: text('provider').notNull(),
     providerSubject: text('provider_subject').notNull(),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('oauth_provider_subject_uq').on(t.provider, t.providerSubject)],
 );
 
-export const userSession = pgTable('user_session', {
-  id: uuid('id').primaryKey(),
-  userId: uuid('user_id').notNull().references(() => user.id),
-  revokedAt: timestamp('revoked_at', { withTimezone: true }),
-  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+/**
+ * Session digest. The cookie carries a random token; only its HMAC is stored,
+ * the same "never keep the secret itself" rule the API keys follow.
+ *
+ * `client_summary` is a coarse fingerprint (user agent family only). Plain IPs
+ * must not be written to product storage -- architecture.md 11.2.
+ */
+export const userSession = pgTable(
+  'user_session',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id').notNull().references(() => user.id),
+    tokenHash: text('token_hash').notNull(),
+    clientSummary: jsonb('client_summary').$type<Record<string, string>>().notNull().default({}),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('user_session_token_hash_uq').on(t.tokenHash)],
+);
 
 export const workspace = pgTable('workspace', {
   id: uuid('id').primaryKey(),
   name: text('name').notNull(),
+  /** `personal` is the only kind in the MVP; team workspaces reuse the table. */
+  kind: text('kind').notNull().default('personal'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -620,11 +645,53 @@ export const administrator = pgTable(
     email: text('email').notNull(),
     /** Argon2id. Admin identity is separate from user OAuth. requirement.md 3.2 */
     passwordHash: text('password_hash').notNull(),
+    /**
+     * TOTP shared secret, sealed with `CREDENTIAL_ENCRYPTION_KEY` -- a plain
+     * secret here would make the second factor worth exactly as much as the
+     * password hash it sits next to.
+     */
+    mfaSecret: text('mfa_secret'),
+    /**
+     * Highest TOTP step already spent on a successful sign-in. A code is only
+     * accepted strictly above it, so an observed code cannot be replayed inside
+     * its own validity window (RFC 6238 5.2).
+     */
+    mfaLastCounter: bigint('mfa_last_counter', { mode: 'number' }),
     mfaEnrolledAt: timestamp('mfa_enrolled_at', { withTimezone: true }),
     status: text('status').notNull().default('invited'),
+    /** Reset on a successful sign-in; drives the lockout in lib/domain/admin. */
+    failedAttempts: integer('failed_attempts').notNull().default(0),
+    lockedUntil: timestamp('locked_until', { withTimezone: true }),
     lastActiveAt: timestamp('last_active_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('administrator_username_uq').on(t.username)],
+  (t) => [
+    uniqueIndex('administrator_username_uq').on(t.username),
+    uniqueIndex('administrator_email_uq').on(t.email),
+  ],
+);
+
+/**
+ * Console session digest, deliberately a different table from `user_session`.
+ *
+ * Two authorities, two stores: a product session can never be presented as an
+ * admin one and vice versa, whatever a cookie says (requirement.md 3.2).
+ */
+export const adminSession = pgTable(
+  'admin_session',
+  {
+    id: uuid('id').primaryKey(),
+    administratorId: uuid('administrator_id')
+      .notNull()
+      .references(() => administrator.id),
+    tokenHash: text('token_hash').notNull(),
+    clientSummary: jsonb('client_summary').$type<Record<string, string>>().notNull().default({}),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('admin_session_token_hash_uq').on(t.tokenHash)],
 );
 
 export const adminRole = pgTable('admin_role', {
@@ -659,6 +726,12 @@ export const auditLog = pgTable(
   'audit_log',
   {
     id: uuid('id').primaryKey(),
+    /**
+     * Insertion order, and the only unambiguous way to find the chain head:
+     * two entries can share `created_at` to the microsecond, and random uuids
+     * give no tie-break.
+     */
+    seq: bigserial('seq', { mode: 'number' }).notNull(),
     administratorId: uuid('administrator_id').references(() => administrator.id),
     action: text('action').notNull(),
     targetType: text('target_type'),

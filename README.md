@@ -117,6 +117,67 @@
 
 完整环境变量清单见 [architecture.md](./architecture.md) 第 19.1 节。Secret 不得进入前端 Bundle，只允许在 Server Component、Route Handler 和 Workflow 中读取。Anchor Signer 私钥不出现在任何环境变量里。
 
+## 本地开发与登录
+
+```bash
+npm install
+cp .env.example .env.local   # 填入下面几项，其余可留空
+npm run db:migrate           # 需要 DATABASE_URL_UNPOOLED
+npm run dev
+```
+
+跑通登录最少需要这几个变量：
+
+| 变量 | 说明 |
+| --- | --- |
+| `DATABASE_URL` / `DATABASE_URL_UNPOOLED` | Neon 分支的连接池端点与直连端点，后者用于迁移 |
+| `APP_BASE_URL` | 本地固定 `http://localhost:3000`，回调 URL 由它拼出 |
+| `SESSION_SIGNING_SECRET` | 至少 32 字符，用于会话摘要和 OAuth 状态 Cookie 的加密 |
+| `GITHUB_OAUTH_CLIENT_ID` / `_SECRET` | GitHub OAuth App |
+| `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` | Google OAuth Client |
+
+两个 Provider 需要登记的回调地址：
+
+```text
+http://localhost:3000/api/auth/github/callback
+http://localhost:3000/api/auth/google/callback
+```
+
+`0002_seed_plans.sql` 会写入 Free 和 Pro 的 Plan Version——首次登录要在同一个事务里创建 Free 订阅，因此迁移必须先于任何流量执行。
+
+测试：
+
+```bash
+npm test                                                   # 域与安全用例，不需要数据库
+TEST_DATABASE_URL='postgres://...' npx vitest run tests/integration   # 会写库，只指向可丢弃的分支
+```
+
+## 界面语言
+
+站点、Dashboard 和演示数据都有中英两套文案，URL 不变，语言由请求决定：
+
+1. `r0_locale` Cookie —— 用户在页眉切换过语言时写入，优先级最高；
+2. 浏览器的 `Accept-Language` —— `zh-*` 归中文，其余归英文（`DEFAULT_LOCALE`）。
+
+规则集中在 `lib/i18n/locale.ts`（纯函数，可单测），Server Component 用
+`lib/i18n/server.ts` 的 `getMessages()`，Client Component 用
+`lib/i18n/client.tsx` 的 `useI18n()` —— 后者由 `app/(public)/layout.tsx` 和
+`app/dashboard/layout.tsx` 各自注入本次请求解析出的字典。
+
+**`lib/i18n/messages/zh.ts` 是字典形状的权威来源**：`Dictionary = typeof zh`，
+所以 `en.ts` 少一个键、拼错一个键都会编译失败。带运行时值的文案写成 `{name}`
+占位符，用 `fill()` 填充——整份字典要跨 Server/Client 边界序列化，不能放函数。
+
+约定：
+
+- **新增文案先写进 `zh.ts`，再补 `en.ts`**，不要在组件里硬编码字符串；
+- **筛选器、图标映射一律按 id 或下标匹配，不要按显示文案匹配**——文案会随语言变；
+- **存下来的文本（如首次登录生成的工作空间名）在写入时定语言**，见
+  `personalWorkspaceName` 与 `CompleteOAuthInput.workspaceNaming`；
+- `tests/contract/locale.test.ts` 会检查协商规则、英文文案里的漏译，以及两份字典的占位符是否一致。
+
+`content/docs/**` 的 MDX 正文还只有中文，需要按 Fumadocs 的 i18n 单独接。
+
 ## 实现顺序
 
 见 [architecture.md](./architecture.md) 第 21 节，共 14 步。前四步是地基：

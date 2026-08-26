@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react';
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
+import { messagesFor } from '@/lib/i18n/dictionary';
+import { HTML_LANG } from '@/lib/i18n/locale';
+import { currentLocale } from '@/lib/i18n/server';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
@@ -10,15 +13,21 @@ const jetbrains = JetBrains_Mono({
   display: 'swap',
 });
 
-export const metadata: Metadata = {
-  title: { default: 'Recall0', template: '%s · Recall0' },
-  description:
-    '可信知识，为每一个 AI Agent 而生。搜索公开知识库，把带版本、来源与引用的最新上下文接入你的 Agent。',
-};
+/**
+ * Title and description follow the visitor's language, so a shared link and a
+ * search result read the same way the page does.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const t = messagesFor(await currentLocale());
+  return {
+    title: { default: t.meta.siteName, template: t.meta.titleTemplate },
+    description: t.meta.description,
+  };
+}
 
 /**
- * The root layout sets typography only -- deliberately no background or text
- * colour.
+ * The root layout sets typography and the document language -- deliberately no
+ * background or text colour.
  *
  * Two different colour regimes live in this app and each must own its own:
  * - the product surfaces (public site, dashboard, admin) commit to the single
@@ -28,9 +37,14 @@ export const metadata: Metadata = {
  * Forcing a colour here breaks the second one: anything that inherits from body
  * renders near-black on Fumadocs' dark background.
  */
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const locale = await currentLocale();
   return (
-    <html lang="zh-CN" suppressHydrationWarning className={`${inter.variable} ${jetbrains.variable}`}>
+    <html
+      lang={HTML_LANG[locale]}
+      suppressHydrationWarning
+      className={`${inter.variable} ${jetbrains.variable}`}
+    >
       <body className="font-sans antialiased">{children}</body>
     </html>
   );

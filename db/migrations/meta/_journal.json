@@ -8,6 +8,34 @@
       "when": 1787584296879,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787629267559,
+      "tag": "0001_session_and_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787629268559,
+      "tag": "0002_seed_plans",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787629269559,
+      "tag": "0003_admin_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787629270559,
+      "tag": "0004_admin_hardening",
+      "breakpoints": true
     }
   ]
 }

@@ -2,6 +2,9 @@
 
 import { useState, type FormEvent } from 'react';
 
+import { useI18n } from '@/lib/i18n/client';
+import type { Dictionary } from '@/lib/i18n/dictionary';
+
 /**
  * Playground transcript.
  *
@@ -14,8 +17,6 @@ import { useState, type FormEvent } from 'react';
  * - rule 5: every factual statement carries a footnote resolving to a chunk,
  *   with source, version and anchor status shown alongside.
  */
-
-const SEED_QUESTION = 'Next.js App Router 中如何安全地实现服务端鉴权？';
 
 const TOOL_CALLS = [
   {
@@ -76,12 +77,12 @@ function ToolCall({ name, params }: { name: string; params: readonly (readonly [
   );
 }
 
-function SeedAnswer() {
+function SeedAnswer({ t }: { t: Dictionary['playground'] }) {
   return (
     <>
       <div className="flex justify-start">
         <p className="max-w-[78%] rounded-[13px] rounded-bl-[4px] bg-[#f2f4f3] px-3.5 py-2.5 text-[13px] leading-[1.6] text-ink">
-          我会查找最新的 Next.js 官方文档。
+          {t.thinking}
         </p>
       </div>
 
@@ -92,22 +93,21 @@ function SeedAnswer() {
       </div>
 
       <p className="text-[11.5px] leading-[1.7] text-faint">
-        以下回答基于检索到的 Next.js 官方文档片段生成，并保留版本与引用信息。
+        {t.groundingNote}
       </p>
 
       <article className="rounded-[12px] rounded-bl-[4px] bg-[#f2f4f3] p-3.5">
         <h3 className="text-[14px] font-semibold tracking-[-0.02em] text-ink">
-          推荐的服务端鉴权方式
+          {t.answerTitle}
         </h3>
         <p className="mt-2 text-[12.5px] leading-[1.75] text-muted">
-          将会话校验放在服务端数据访问层。Middleware 适合做乐观重定向，但 Server Component、Route
-          Handler 和 Server Action 在读取敏感数据前仍应再次验证身份与权限。
+          {t.answerBody}
           <sup className="ml-0.5 rounded bg-[#087c6a]/12 px-1 text-[9px] font-semibold text-[#087c6a]">
             1
           </sup>
         </p>
 
-        <p className="mt-3.5 text-[12.5px] font-semibold text-ink">基础示例</p>
+        <p className="mt-3.5 text-[12.5px] font-semibold text-ink">{t.exampleLabel}</p>
         <pre className="mt-2 overflow-x-auto rounded-lg bg-[#242a2f] p-3.5">
           <code className="font-mono text-[11px] leading-[1.75] text-[#dbe4e4]">{SAMPLE_CODE}</code>
         </pre>
@@ -116,13 +116,13 @@ function SeedAnswer() {
           <p className="flex items-center gap-1.5 text-[10.5px] text-[#087c6a]">
             <span className="rounded bg-[#087c6a]/12 px-1 font-semibold">1</span>
             <span className="font-semibold text-ink">Next.js</span>
-            官方文档 · 查看原始引用
+            {t.citationSource}
           </p>
           <p className="flex items-center gap-2 text-[10.5px] text-muted">
             <span className="rounded-full bg-goodsoft px-2 py-0.5 font-semibold text-good">
-              已存证
+              {t.anchored}
             </span>
-            版本 v16.1.0 · Aptos 主网
+            {t.citationVersion}
             <span className="font-mono">0x7f3c…a91b</span>
           </p>
         </div>
@@ -132,20 +132,18 @@ function SeedAnswer() {
 }
 
 /** Rule 2 made visible: no retrieved chunks means the model is not called at all. */
-function NoContextAnswer() {
+function NoContextAnswer({ t }: { t: Dictionary['playground'] }) {
   return (
     <article className="rounded-[12px] rounded-bl-[4px] border border-warnsoft bg-warnsoft/50 p-3.5">
-      <p className="text-[12.5px] font-semibold text-warn">未找到相关内容</p>
-      <p className="mt-1.5 text-[12px] leading-[1.75] text-muted">
-        检索链路尚未接入（architecture.md 第 21 节第 3–6 步）。Playground
-        在检索返回零结果时不会调用模型，因此这里不会生成回答 ——
-        宁可什么都不答，也不用模型的自有知识补一段看起来合理的内容。
-      </p>
+      <p className="text-[12.5px] font-semibold text-warn">{t.noContextTitle}</p>
+      <p className="mt-1.5 text-[12px] leading-[1.75] text-muted">{t.noContextBody}</p>
     </article>
   );
 }
 
 export function Playground() {
+  const { t: messages } = useI18n();
+  const t = messages.playground;
   const [question, setQuestion] = useState('');
   const [asked, setAsked] = useState<string[]>([]);
 
@@ -161,13 +159,13 @@ export function Playground() {
     <div className="mx-auto w-full">
       <div className="overflow-hidden rounded-[14px] border-2 border-line bg-card">
         <div className="flex flex-col gap-3.5 p-4">
-          <UserBubble text={SEED_QUESTION} />
-          <SeedAnswer />
+          <UserBubble text={t.seedQuestion} />
+          <SeedAnswer t={t} />
 
           {asked.map((q, i) => (
             <div key={`${q}-${i}`} className="flex flex-col gap-3.5">
               <UserBubble text={q} />
-              <NoContextAnswer />
+              <NoContextAnswer t={t} />
             </div>
           ))}
         </div>
@@ -176,23 +174,23 @@ export function Playground() {
           <input
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="输入你的问题…"
-            aria-label="输入你的问题"
+            placeholder={t.inputPlaceholder}
+            aria-label={t.inputPlaceholder}
             className="h-[42px] min-w-0 flex-1 rounded-[9px] border-2 border-line bg-[#fdfefe] px-3.5 text-[13px] text-ink outline-none placeholder:text-muted/70 focus:border-brand"
           />
           <button
             type="submit"
             className="h-[42px] shrink-0 rounded-[9px] bg-brand px-5 text-[13px] font-medium text-white transition-colors hover:bg-brand/90"
           >
-            发送
+            {t.send}
           </button>
         </form>
       </div>
 
       <p className="mt-3.5 text-center text-[11.5px] leading-[1.7] text-faint">
-        匿名试用受 IP 速率限制；登录后每次问答计 1 API Call，答案生成成本由平台承担。
+        {t.footnoteLine1}
         <br />
-        回答中的每条事实都必须绑定到本次检索返回的 Chunk，无法绑定的内容不会作为事实展示。
+        {t.footnoteLine2}
       </p>
     </div>
   );

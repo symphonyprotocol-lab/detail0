@@ -25,6 +25,33 @@
   --color-goodsoft: #e7f7ef;
   --color-warn: #9a6320;
   --color-warnsoft: #fbe9e2;
+  /* Usage bars: the lighter segment is document fetches, the darker retrieval. */
+  --color-bar: #62ddbd;
+  --color-barstrong: #00ad8d;
+  --color-terminal: #171d20;
+  /* Library scope + review-status palette, from the dashboard design frames. */
+  --color-pubsoft: #e9f8f4;
+  --color-pubink: #087c6a;
+  --color-publine: #9dd8d3;
+  --color-privsoft: #f0ecfb;
+  --color-privink: #6450aa;
+  --color-priv: #8067cf;
+  --color-amber: #e9a23b;
+  --color-rose: #e05858;
+  --color-err: #bd3e3e;
+  --color-errsoft: #fdeceb;
+  /* Admin console: dark rail, work-area wash and the status tints of its tables. */
+  --color-console: #102b31;
+  --color-consoledeep: #17343a;
+  --color-consolewash: #f4f8f7;
+  --color-consoletext: #adc1c4;
+  --color-consolemuted: #67858b;
+  --color-mint: #4cdbc0;
+  --color-ambersoft: #fff4e4;
+  --color-amberink: #b66b13;
+  --color-rosesoft: #fff0f0;
+  --color-infosoft: #e8eef6;
+  --color-infoink: #3f5f92;
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, monospace;
@@ -53,4 +80,25 @@
   background-color: var(--color-surface);
   color: var(--color-ink);
   color-scheme: light;
+}
+
+/* Work area of the admin console, as in the design source. */
+.console-wash {
+  background-color: var(--color-consolewash);
+}
+
+/* Split panel behind the administrator sign-in, as in the design source. */
+.console-signin-wash {
+  background-image:
+    radial-gradient(ellipse 50% 50% at 15% 85%, rgba(35, 199, 172, 0.22) 0%, transparent 34%),
+    linear-gradient(173.757deg, #102b31 9.249%, #163a40 59.78%, #0c262c 90.751%);
+  background-repeat: no-repeat, no-repeat;
+  background-size: 100% 100%, 100% 100%;
+}
+
+/* Mint fade at the top of the dashboard work area, as in the design source. */
+.dashboard-wash {
+  background-color: #f8fbfb;
+  background-image: linear-gradient(180deg, #eefaf6 0%, rgba(238, 250, 246, 0) 220px);
+  background-repeat: no-repeat;
 }

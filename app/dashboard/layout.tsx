@@ -1,6 +1,45 @@
 import type { ReactNode } from 'react';
+import { DashboardHeader } from '@/components/dashboard/header';
+import { DashboardSidebar } from '@/components/dashboard/sidebar';
+import { requireSession } from '@/lib/http/session';
+import { LocaleProvider } from '@/lib/i18n/client';
+import { fill } from '@/lib/i18n/format';
+import { translations } from '@/lib/i18n/server';
 
-/** Light-committed product surface. See app/layout.tsx for why this lives here. */
-export default function DashboardLayout({ children }: { children: ReactNode }) {
-  return <div className="product-surface min-h-screen">{children}</div>;
+/**
+ * Dashboard shell -- design source frame `E4GWD`.
+ *
+ * Header and workspace rail are chrome shared by every dashboard screen, so
+ * they live here; each page renders only the 680px content column.
+ *
+ * This is also the real authorization boundary. `middleware.ts` only glances at
+ * the cookie; here the session is resolved against the primary database, so a
+ * revoked session or a suspended account cannot render a dashboard
+ * (architecture.md 5.2, requirement.md 3.2).
+ *
+ * Light-committed product surface. See app/layout.tsx for why this lives here.
+ */
+export default async function DashboardLayout({ children }: { children: ReactNode }) {
+  const [{ workspace }, { locale, t }] = await Promise.all([
+    requireSession('/dashboard'),
+    translations(),
+  ]);
+
+  return (
+    <LocaleProvider locale={locale} messages={t}>
+      <div className="product-surface flex min-h-screen flex-col">
+        <DashboardHeader workspaceName={workspace.name} workspaceInitial={workspace.initial} />
+        <div className="dashboard-wash flex-1">
+          <div className="mx-auto flex w-full max-w-[918px] flex-col items-start gap-7 px-5 pt-[34px] pb-16 lg:flex-row">
+            <DashboardSidebar
+              workspaceName={workspace.name}
+              workspaceInitial={workspace.initial}
+              planName={fill(t.dashboard.shell.planLine, { plan: workspace.planName })}
+            />
+            <main className="w-full min-w-0 flex-1">{children}</main>
+          </div>
+        </div>
+      </div>
+    </LocaleProvider>
+  );
 }

@@ -1,0 +1,349 @@
+import Link from 'next/link';
+import type { ReactNode } from 'react';
+import { ChevronLeftIcon, ChevronRightIcon, SearchIcon } from '@/components/ui/icons';
+
+/**
+ * Panel chrome shared by every card in the admin design frames.
+ *
+ * The console draws a flatter card than the dashboard -- 10px corners, no
+ * shadow -- so it gets its own constant rather than reusing the dashboard one.
+ */
+export const CONSOLE_PANEL = 'rounded-[10px] border-2 border-line bg-card';
+
+export function Panel({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <section className={`${CONSOLE_PANEL} ${className}`}>{children}</section>;
+}
+
+/** Eyebrow + title + description, the page header every console screen opens with. */
+export function ConsolePageHeader({
+  eyebrow,
+  title,
+  description,
+  action,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  action?: ReactNode;
+}) {
+  return (
+    <header className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex max-w-[520px] flex-col gap-[4.5px]">
+        <p className="text-[11px] font-bold tracking-[0.05em] text-brand">{eyebrow}</p>
+        <h1 className="text-[25px] leading-[1.4] font-[650] tracking-[-0.045em] text-ink">
+          {title}
+        </h1>
+        <p className="text-[13px] leading-[1.5] tracking-[-0.023em] text-muted">{description}</p>
+      </div>
+      {action}
+    </header>
+  );
+}
+
+/** Title row that sits above a panel's body, separated by the design's 2px rule. */
+export function PanelHead({
+  title,
+  description,
+  action,
+}: {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3.5 border-b-2 border-line px-[19px] py-4">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-[16px] leading-[1.4] tracking-[-0.025em] text-ink">{title}</h2>
+        {description ? (
+          <p className="text-[12px] leading-[1.5] tracking-[-0.023em] text-muted">{description}</p>
+        ) : null}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+const BUTTON_BASE =
+  'inline-flex h-[37px] shrink-0 items-center justify-center gap-1.5 rounded-[7px] px-3 text-[12px] font-medium tracking-[-0.023em] transition-colors';
+
+export function ConsoleButton({
+  children,
+  variant = 'outline',
+  href,
+  type = 'button',
+  className = '',
+}: {
+  children: ReactNode;
+  variant?: 'primary' | 'outline' | 'ghost';
+  href?: string;
+  type?: 'button' | 'submit';
+  className?: string;
+}) {
+  const style =
+    variant === 'primary'
+      ? 'bg-brand text-white hover:bg-brand/90'
+      : variant === 'ghost'
+        ? 'text-steel hover:bg-subtle'
+        : 'border-2 border-line bg-card text-steel hover:bg-subtle';
+  const merged = `${BUTTON_BASE} ${style} ${className}`;
+  return href ? (
+    <Link href={href} className={merged}>
+      {children}
+    </Link>
+  ) : (
+    <button type={type} className={merged}>
+      {children}
+    </button>
+  );
+}
+
+/** 30px square action button, the per-row control the design puts in tables. */
+export function IconButton({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-[6px] border-2 border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-steel"
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Toolbar above a list: search on the left, filters and exports on the right.
+ *
+ * Presentational until the administration use cases exist (architecture.md 21),
+ * so the field is uncontrolled and the buttons carry no handler.
+ */
+export function ListToolbar({
+  placeholder,
+  children,
+}: {
+  placeholder: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b-2 border-line px-[15px] py-3">
+      <label className="flex h-[37px] min-w-[220px] flex-1 items-center gap-2 rounded-[7px] border-2 border-line bg-[#fbfefe] px-3">
+        <SearchIcon size={15} className="text-muted" />
+        <input
+          type="search"
+          placeholder={placeholder}
+          className="min-w-0 flex-1 bg-transparent text-[13px] tracking-[-0.023em] text-ink placeholder:text-ink/50 focus:outline-none"
+        />
+      </label>
+      {children}
+    </div>
+  );
+}
+
+export interface ConsoleTab {
+  id: string;
+  label: string;
+  count?: number;
+  /** Tabs without an href are filters the list endpoint does not serve yet. */
+  href?: string;
+}
+
+/** Underlined filter tabs above a list -- design source `zcHnx`, `z9DJOF`. */
+export function TabBar({ tabs, activeId }: { tabs: ConsoleTab[]; activeId: string }) {
+  return (
+    <nav className="flex flex-wrap items-end gap-1 border-b-2 border-line">
+      {tabs.map((tab) => {
+        const active = tab.id === activeId;
+        const body = (
+          <>
+            {tab.label}
+            {tab.count === undefined ? null : (
+              <span className="text-[11px] text-muted">{tab.count}</span>
+            )}
+          </>
+        );
+        const className = `-mb-0.5 inline-flex h-[35px] items-center gap-1.5 border-b-2 px-[11px] text-[12px] tracking-[-0.023em] transition-colors ${
+          active
+            ? 'border-brand text-brandink'
+            : 'border-transparent text-muted hover:text-steel'
+        }`;
+        return tab.href && !active ? (
+          <Link key={tab.id} href={tab.href} className={className}>
+            {body}
+          </Link>
+        ) : (
+          <span key={tab.id} aria-current={active ? 'page' : undefined} className={className}>
+            {body}
+          </span>
+        );
+      })}
+    </nav>
+  );
+}
+
+type PillTone = 'ok' | 'warn' | 'danger' | 'neutral' | 'brand' | 'info';
+
+const PILL_TONE: Record<PillTone, string> = {
+  ok: 'bg-pubsoft text-pubink',
+  warn: 'bg-ambersoft text-amberink',
+  danger: 'bg-rosesoft text-err',
+  neutral: 'bg-mutedbg text-steel',
+  brand: 'bg-brandsoft text-brandink',
+  info: 'bg-infosoft text-infoink',
+};
+
+export function Pill({ tone = 'neutral', children }: { tone?: PillTone; children: ReactNode }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-[7px] py-1 text-[11px] font-semibold whitespace-nowrap ${PILL_TONE[tone]}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** Monogram tile beside a person or library name in the console tables. */
+export function Monogram({
+  initial,
+  tone = 'mint',
+}: {
+  initial: string;
+  tone?: 'mint' | 'ink';
+}) {
+  return (
+    <span
+      aria-hidden
+      className={`flex size-[34px] shrink-0 items-center justify-center rounded-[8px] text-[12px] font-semibold ${
+        tone === 'ink' ? 'bg-console text-white' : 'bg-brandsoft text-brandink'
+      }`}
+    >
+      {initial}
+    </span>
+  );
+}
+
+/** Two-line cell: a name over its identifier, as every console table draws it. */
+export function TitleCell({
+  title,
+  meta,
+  leading,
+}: {
+  title: string;
+  meta: string;
+  leading?: ReactNode;
+}) {
+  return (
+    <span className="flex items-center gap-2.5">
+      {leading}
+      <span className="flex min-w-0 flex-col gap-[3px]">
+        <span className="truncate text-[12px] leading-[1.4] font-medium tracking-[-0.023em] text-ink">
+          {title}
+        </span>
+        <span className="truncate text-[11px] leading-[1.4] tracking-[-0.023em] text-muted">
+          {meta}
+        </span>
+      </span>
+    </span>
+  );
+}
+
+/** Column head and body cell classes, so every console table lines up. */
+export const TH =
+  'bg-subtle px-[15px] py-[11px] text-left text-[11px] font-bold tracking-[0.02em] whitespace-nowrap text-faint';
+export const TD = 'px-[15px] py-3.5 text-[12px] tracking-[-0.023em] text-steel align-middle';
+
+/** Horizontal scroller so wide tables never widen the page. */
+export function TableScroller({ children }: { children: ReactNode }) {
+  return <div className="overflow-x-auto">{children}</div>;
+}
+
+/**
+ * List footer: the range readout on the left, page controls on the right.
+ *
+ * The controls are inert until the list endpoints exist; they are rendered as
+ * disabled buttons rather than links so nothing suggests a working page 2.
+ */
+export function Pagination({
+  summary,
+  pages,
+  activePage,
+  labels,
+}: {
+  summary: string;
+  pages: number[];
+  activePage: number;
+  labels: { prev: string; next: string; page: string };
+}) {
+  const step =
+    'inline-flex h-[30px] items-center justify-center rounded-[5px] border-2 border-line bg-card px-2.5 text-[11px] tracking-[-0.023em] text-steel disabled:opacity-50';
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-line px-4 py-[11px]">
+      <p className="text-[12px] tracking-[-0.023em] text-muted">{summary}</p>
+      <div className="flex items-center gap-1">
+        <button type="button" disabled className={step}>
+          <ChevronLeftIcon size={13} />
+          {labels.prev}
+        </button>
+        {pages.map((page) => (
+          <button
+            key={page}
+            type="button"
+            disabled
+            aria-current={page === activePage ? 'page' : undefined}
+            className={`inline-flex size-[30px] items-center justify-center rounded-[5px] border-2 text-[11px] tracking-[-0.023em] ${
+              page === activePage
+                ? 'border-brand bg-brand text-white'
+                : 'border-line bg-card text-steel opacity-70'
+            }`}
+          >
+            {page}
+          </button>
+        ))}
+        <button type="button" disabled className={step}>
+          {labels.next}
+          <ChevronRightIcon size={13} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Tinted banner for a rule the operator has to know about -- design source
+ * `RubCg` and `Uko79`.
+ */
+export function ConsoleNotice({
+  icon,
+  title,
+  body,
+  action,
+}: {
+  icon: ReactNode;
+  title: string;
+  body: string;
+  action?: ReactNode;
+}) {
+  return (
+    <section className="flex flex-wrap items-center gap-3.5 rounded-[9px] border-2 border-publine bg-[#f1faf8] px-[17px] py-3.5">
+      <span className="flex size-[38px] shrink-0 items-center justify-center rounded-[8px] bg-card text-brand">
+        {icon}
+      </span>
+      <div className="flex min-w-[220px] flex-1 flex-col gap-1">
+        <p className="text-[13px] leading-[1.4] font-bold tracking-[-0.023em] text-ink">{title}</p>
+        <p className="text-[11px] leading-[1.5] tracking-[-0.023em] text-muted">{body}</p>
+      </div>
+      {action}
+    </section>
+  );
+}
+
+/** Progress bar used by the health readouts. */
+export function Meter({ value }: { value: number }) {
+  return (
+    <div className="h-1 overflow-hidden rounded-full bg-mutedbg">
+      <div
+        className="h-full rounded-full bg-brand"
+        style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
+      />
+    </div>
+  );
+}

@@ -5,19 +5,59 @@
  * repository, website or document -- ownership goes through the claim flow.
  * requirement.md 3.2 and 7.3.
  */
-export type IdentityProvider = 'github' | 'google';
+import type { IdentityProfile, IdentityProvider } from '@/lib/domain/auth';
+import * as github from '@/lib/infrastructure/identity/github';
+import * as google from '@/lib/infrastructure/identity/google';
+
+export type { IdentityProvider };
+
+export interface AuthorizeInput {
+  provider: IdentityProvider;
+  state: string;
+  nonce: string;
+  codeChallenge: string;
+  redirectUri: string;
+}
+
+export interface ExchangeInput {
+  provider: IdentityProvider;
+  code: string;
+  codeVerifier: string;
+  nonce: string;
+  redirectUri: string;
+}
 
 export interface IdentityAdapter {
-  authorizeUrl(input: { provider: IdentityProvider; state: string; codeChallenge: string }): string;
-  exchange(input: { provider: IdentityProvider; code: string; codeVerifier: string }): Promise<{
-    subject: string;
-    email: string;
-    displayName: string | null;
-  }>;
+  /** GitHub's web flow has no `code_challenge`; see github.ts. */
+  supportsPkce(provider: IdentityProvider): boolean;
+  authorizeUrl(input: AuthorizeInput): string;
+  exchange(input: ExchangeInput): Promise<IdentityProfile>;
 }
 
 export function identityAdapter(): IdentityAdapter {
-  throw new Error('not implemented: identityAdapter');
+  return {
+    supportsPkce: (provider) => provider === 'google',
+
+    authorizeUrl: (input) =>
+      input.provider === 'github'
+        ? github.authorizeUrl({ state: input.state, redirectUri: input.redirectUri })
+        : google.authorizeUrl({
+            state: input.state,
+            nonce: input.nonce,
+            codeChallenge: input.codeChallenge,
+            redirectUri: input.redirectUri,
+          }),
+
+    exchange: (input) =>
+      input.provider === 'github'
+        ? github.exchange({ code: input.code, redirectUri: input.redirectUri })
+        : google.exchange({
+            code: input.code,
+            codeVerifier: input.codeVerifier,
+            nonce: input.nonce,
+            redirectUri: input.redirectUri,
+          }),
+  };
 }
 
 /** Reads the caller's own permission level on a repository. Used only by claim verification. */
