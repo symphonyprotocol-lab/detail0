@@ -150,28 +150,6 @@ export interface PlatformLibraryRow {
 
 export const PLATFORM_TOTAL = 126;
 
-/* ------------------------------------------------------------------ plans */
-
-export interface PlanCard {
-  id: 'free' | 'pro' | 'addon';
-  name: string;
-  tagline: string;
-  price: string;
-  /** Free and Pro are monthly; the call pack is a one-off purchase. */
-  period?: string;
-  perks: string[];
-  featured?: boolean;
-  /** Rendered on the console's dark card, as the design draws the pack. */
-  dark?: boolean;
-}
-
-export interface QuotaRow {
-  label: string;
-  free: string;
-  pro: string;
-  addon: string;
-}
-
 /* ---------------------------------------------------------------- billing */
 
 export type InvoiceStatus = 'due' | 'paid' | 'refunded';
@@ -374,41 +352,6 @@ export function adminCopy(t: Dictionary) {
     };
   });
 
-  const plans: PlanCard[] = [
-    {
-      id: 'free',
-      name: 'Free',
-      tagline: d.plans.free.tagline,
-      price: '$0',
-      period: d.plans.perMonth,
-      perks: [...d.plans.free.perks],
-    },
-    {
-      id: 'pro',
-      name: 'Pro',
-      tagline: d.plans.pro.tagline,
-      price: '$5',
-      period: d.plans.perMonth,
-      perks: [...d.plans.pro.perks],
-      featured: true,
-    },
-    {
-      id: 'addon',
-      name: 'Additional Calls',
-      tagline: d.plans.addon.tagline,
-      price: d.plans.addon.price,
-      perks: [...d.plans.addon.perks],
-      dark: true,
-    },
-  ];
-
-  const quotaRows: QuotaRow[] = d.quotaRows.map((row) => ({
-    label: row.label,
-    free: row.free,
-    pro: row.pro,
-    addon: 'addon' in row && row.addon ? row.addon : d.plans.inherit,
-  }));
-
   const billingStats: AdminStat[] = [
     { label: d.billingStats.revenue, value: '$19,240', caption: d.billingStats.revenueCaption },
     { label: d.billingStats.active, value: '1,864', caption: d.billingStats.activeCaption },
@@ -504,8 +447,6 @@ export function adminCopy(t: Dictionary) {
     claimTabs,
     platformStats,
     platformLibraries,
-    plans,
-    quotaRows,
     billingStats,
     invoices,
     settlementStats,

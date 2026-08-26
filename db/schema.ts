@@ -210,7 +210,13 @@ export const apiKey = pgTable(
 );
 
 export const plan = pgTable('plan', {
-  /** Free and Pro only. Additional Calls is a pack, not a tier. requirement.md 4.1 */
+  /**
+   * `free`, `pro` and `addon`, and nothing else. requirement.md 4.1, 4.3.
+   *
+   * Additional Calls is a pack, not a subscription tier: it has a Plan Version
+   * so its price and calls-per-pack are versioned and frozen like the others,
+   * but no `subscription` row may point at that version. See lib/domain/plans.
+   */
   id: text('id').primaryKey(),
   name: text('name').notNull(),
 });
