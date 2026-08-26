@@ -370,52 +370,46 @@ export function TableScroller({ children }: { children: ReactNode }) {
 /**
  * List footer: the range readout on the left, page controls on the right.
  *
- * Without `hrefFor` the controls are disabled buttons -- the screens whose list
- * endpoints do not exist yet get the design's footer without anything that
- * suggests a working page 2. A list that can actually page passes `hrefFor`
- * and gets links, which keeps the page in the URL: an operator can bookmark
- * page 3 of a filtered list, and the back button does what it looks like.
+ * A list whose pages are served passes `href`, and the controls become links --
+ * so a page of the list is a URL an operator can keep, share or reload. Without
+ * it they stay disabled buttons rather than links, so nothing on a screen that
+ * still renders fixtures suggests a working page 2.
  */
 export function Pagination({
   summary,
   pages,
   activePage,
   labels,
-  hrefFor,
-  totalPages,
+  href,
+  pageCount,
 }: {
   summary: string;
   pages: number[];
   activePage: number;
   labels: { prev: string; next: string; page: string };
-  /** Set on lists that really paginate; left off the controls stay inert. */
-  hrefFor?: (page: number) => string;
-  totalPages?: number;
+  href?: (page: number) => string;
+  /** Needed with `href`, to know whether there is a next page at all. */
+  pageCount?: number;
 }) {
   const step =
-    'inline-flex h-[30px] items-center justify-center gap-1 rounded-[5px] border-2 border-line bg-card px-2.5 text-[11px] tracking-[-0.023em] text-steel disabled:opacity-50 aria-disabled:opacity-50 aria-disabled:pointer-events-none';
-  const numbered = (page: number) =>
+    'inline-flex h-[30px] items-center justify-center rounded-[5px] border-2 border-line bg-card px-2.5 text-[11px] tracking-[-0.023em] text-steel disabled:opacity-50';
+  const cell = (page: number) =>
     `inline-flex size-[30px] items-center justify-center rounded-[5px] border-2 text-[11px] tracking-[-0.023em] ${
       page === activePage
         ? 'border-brand bg-brand text-white'
         : 'border-line bg-card text-steel opacity-70'
     }`;
 
-  const last = totalPages ?? Math.max(...pages, activePage);
-  const atStart = activePage <= 1;
-  const atEnd = activePage >= last;
+  const last = pageCount ?? activePage;
+  const prev = href && activePage > 1 ? href(activePage - 1) : undefined;
+  const next = href && activePage < last ? href(activePage + 1) : undefined;
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-line px-4 py-[11px]">
       <p className="text-[12px] tracking-[-0.023em] text-muted">{summary}</p>
       <div className="flex items-center gap-1">
-        {hrefFor ? (
-          <Link
-            href={hrefFor(activePage - 1)}
-            aria-disabled={atStart}
-            tabIndex={atStart ? -1 : undefined}
-            className={step}
-          >
+        {prev ? (
+          <Link href={prev} rel="prev" className={`${step} hover:bg-subtle`}>
             <ChevronLeftIcon size={13} />
             {labels.prev}
           </Link>
@@ -425,14 +419,13 @@ export function Pagination({
             {labels.prev}
           </button>
         )}
-
         {pages.map((page) =>
-          hrefFor && page !== activePage ? (
+          href && page !== activePage ? (
             <Link
               key={page}
-              href={hrefFor(page)}
+              href={href(page)}
               aria-label={fill(labels.page, { page })}
-              className={numbered(page)}
+              className={`${cell(page)} hover:bg-subtle`}
             >
               {page}
             </Link>
@@ -442,20 +435,14 @@ export function Pagination({
               type="button"
               disabled
               aria-current={page === activePage ? 'page' : undefined}
-              className={numbered(page)}
+              className={cell(page)}
             >
               {page}
             </button>
           ),
         )}
-
-        {hrefFor ? (
-          <Link
-            href={hrefFor(activePage + 1)}
-            aria-disabled={atEnd}
-            tabIndex={atEnd ? -1 : undefined}
-            className={step}
-          >
+        {next ? (
+          <Link href={next} rel="next" className={`${step} hover:bg-subtle`}>
             {labels.next}
             <ChevronRightIcon size={13} />
           </Link>

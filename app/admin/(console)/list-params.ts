@@ -15,20 +15,6 @@ export function searchTerm(value: string | string[] | undefined): string | undef
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-/**
- * The page a list is on, 1-based.
- *
- * Clamped rather than validated: `?page=0`, `?page=-3` and `?page=banana` are
- * all a request for the first page, and an upper bound stops a hand-typed
- * `?page=99999999` turning into an offset Postgres has to count past.
- */
-export function pageNumber(value: string | string[] | undefined, max = 10_000): number {
-  if (typeof value !== 'string') return 1;
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) return 1;
-  return Math.min(parsed, max);
-}
-
 /** Falls back rather than throwing: a hand-edited URL should not 500. */
 export function oneOf<T extends string>(
   value: string | string[] | undefined,
@@ -45,11 +31,23 @@ export function utcDate(value: Date | null): string {
   return value ? value.toISOString().slice(0, 10) : '';
 }
 
-/** `YYYY-MM-DD HH:mm` in UTC, the shape the audit log prints. */
+/** `YYYY-MM-DD HH:mm` in UTC, for a list where the minute is the useful unit. */
 export function utcStamp(value: Date | null): string {
   if (!value) return '';
   const iso = value.toISOString();
   return `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
+}
+
+/**
+ * `YYYY-MM-DD HH:mm:ss` in UTC, the shape the audit log prints.
+ *
+ * The seconds are not decoration. Console actions arrive in bursts -- an invite
+ * and the enrolment it triggers land inside the same minute -- and a log whose
+ * whole point is to show what happened in what order must not render two
+ * chained entries with the same timestamp.
+ */
+export function utcInstant(value: Date | null): string {
+  return value ? value.toISOString().slice(0, 19).replace('T', ' ') : '';
 }
 
 export function initialsOf(name: string): string {
@@ -84,15 +82,54 @@ export function money(minor: number, currency = 'USD'): string {
 }
 
 /**
- * The page numbers to draw around the current one.
+ * A hand-edited `?page=` is bounded here rather than at the query.
  *
- * A console list can run to hundreds of pages, and a footer that prints every
- * one of them is unusable; a fixed window keeps the control the same size
- * whatever the total, and stays anchored at both ends rather than sliding off.
+ * The page number becomes an `OFFSET`, and Postgres will happily walk billions
+ * of rows to satisfy one; the cap keeps a typed URL from turning into a scan.
  */
-export function pageWindow(activePage: number, totalPages: number, size = 5): number[] {
-  if (totalPages <= 0) return [1];
-  const span = Math.min(size, totalPages);
-  const start = Math.min(Math.max(1, activePage - Math.floor(span / 2)), totalPages - span + 1);
-  return Array.from({ length: span }, (_, index) => start + index);
+const MAX_PAGE = 10_000;
+
+export function pageNumber(value: string | string[] | undefined): number {
+  if (typeof value !== 'string') return 1;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return 1;
+  return Math.min(parsed, MAX_PAGE);
+}
+
+export interface PageWindow {
+  pageCount: number;
+  /** 1-based range of the rows actually on screen; `0`–`0` when there are none. */
+  from: number;
+  to: number;
+  /** The page numbers the footer offers, a window around the active one. */
+  pages: number[];
+}
+
+/**
+ * The footer's view of one page, derived after the query rather than before it.
+ *
+ * `rows` is what came back, not what was asked for, so a page past the end
+ * reads `0`–`0` instead of claiming a range that holds nothing.
+ */
+export function pageWindow(input: {
+  page: number;
+  total: number;
+  rows: number;
+  size?: number;
+  span?: number;
+}): PageWindow {
+  const size = input.size ?? PAGE_SIZE;
+  const span = input.span ?? 5;
+  const pageCount = Math.max(1, Math.ceil(input.total / size));
+  const offset = (input.page - 1) * size;
+
+  const width = Math.min(span, pageCount);
+  const first = Math.min(Math.max(1, input.page - Math.floor(width / 2)), pageCount - width + 1);
+
+  return {
+    pageCount,
+    from: input.rows === 0 ? 0 : offset + 1,
+    to: input.rows === 0 ? 0 : offset + input.rows,
+    pages: Array.from({ length: width }, (_, index) => first + index),
+  };
 }

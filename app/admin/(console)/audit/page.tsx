@@ -1,9 +1,11 @@
 import type { Metadata } from 'next';
+import { FilterSelect } from '@/components/admin/list-controls';
 import {
   ConsoleButton,
   ConsoleNotice,
   ConsolePageHeader,
-  IconButton,
+  EmptyRow,
+  ExportLink,
   ListToolbar,
   Pagination,
   Panel,
@@ -12,35 +14,72 @@ import {
   TD,
   TH,
 } from '@/components/admin/ui';
-import {
-  BadgeCheckIcon,
-  DownloadIcon,
-  EyeIcon,
-  FilterIcon,
-  ScrollTextIcon,
-} from '@/components/ui/icons';
-import { adminCopy, AUDIT_TOTAL } from '@/lib/admin/demo-data';
+import { BadgeCheckIcon, ScrollTextIcon } from '@/components/ui/icons';
+import { listAuditEntries, type AuditResultFilter } from '@/lib/application/administration';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
+import { oneOf, PAGE_SIZE, pageNumber, pageWindow, searchTerm, utcInstant } from '../list-params';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).admin.audit.title };
 }
 
+const RESULTS: AuditResultFilter[] = ['all', 'success', 'failure'];
+
+/** Nothing recorded, e.g. an action with no target or a request with no origin. */
+const NONE = '—';
+
 /**
  * Audit log -- design source frame `Uko79`.
  *
- * Append only, kept 365 days, and chained so the daily head can be anchored
- * (requirement.md 5.3, architecture.md 14). The origin column shows a digest
- * rather than an address: plain IPs must not reach product storage
- * (requirement.md 12), which is why `audit_log` stores `ip_digest`.
+ * Reads the real `audit_log`: append only, kept 365 days, and chained so the
+ * daily head can be anchored (requirement.md 5.3, architecture.md 14). The
+ * anchor card shows that head rather than an anchoring transaction, because
+ * anchoring itself is not live yet (architecture.md 21) and a transaction hash
+ * that nothing wrote would be the one lie a tamper-evident log cannot afford.
+ *
+ * The origin column is a digest, not the address the design frame draws: plain
+ * IPs must not reach product storage (requirement.md 12), which is why
+ * `audit_log` stores `ip_digest` and there is nothing else to show.
  */
-export default async function AdminAuditPage() {
-  await requireAdminCapability('audit');
-  const t = await getMessages();
+export default async function AdminAuditPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [, params, t] = await Promise.all([
+    requireAdminCapability('audit'),
+    searchParams,
+    getMessages(),
+  ]);
   const a = t.admin.audit;
-  const { auditEntries, anchorDigest } = adminCopy(t);
+  const f = t.admin.filters;
+  const query = searchTerm(params.q);
+  const result = oneOf(params.result, RESULTS, 'all');
+  const page = pageNumber(params.page);
+
+  const { rows, total, chainHead } = await listAuditEntries({
+    query,
+    result,
+    limit: PAGE_SIZE,
+    offset: (page - 1) * PAGE_SIZE,
+  });
+  const view = pageWindow({ page, total, rows: rows.length });
+
+  /*
+   * `action` is a machine code, so an action this build has no label for still
+   * has to appear -- printing the code beats hiding the row.
+   */
+  const actionLabels: Record<string, string> = a.actions;
+
+  const link = (target: number) => {
+    const next = new URLSearchParams();
+    if (query) next.set('q', query);
+    if (result !== 'all') next.set('result', result);
+    if (target > 1) next.set('page', String(target));
+    return next.size > 0 ? `/admin/audit?${next.toString()}` : '/admin/audit';
+  };
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -51,10 +90,7 @@ export default async function AdminAuditPage() {
         title={a.retentionTitle}
         body={a.retentionBody}
         action={
-          <ConsoleButton variant="primary">
-            <DownloadIcon size={14} />
-            {a.exportLog}
-          </ConsoleButton>
+          <ExportLink resource="audit" query={query} status={result} label={a.exportLog} />
         }
       />
 
@@ -63,23 +99,38 @@ export default async function AdminAuditPage() {
         title={a.anchorTitle}
         body={a.anchorBody}
         action={
-          <code className="rounded-[6px] bg-card px-2 py-1.5 font-mono text-[11px] text-brandink">
-            {anchorDigest}
-          </code>
+          <span className="flex flex-col gap-1">
+            <span className="text-[11px] tracking-[-0.023em] text-muted">{a.chainHead}</span>
+            <code className="rounded-[6px] bg-card px-2 py-1.5 font-mono text-[11px] text-brandink">
+              {chainHead ? `${chainHead.slice(0, 8)}…${chainHead.slice(-4)}` : a.chainHeadNone}
+            </code>
+          </span>
         }
       />
 
       <Panel>
-        <ListToolbar placeholder={a.searchPlaceholder}>
-          <ConsoleButton>
-            <FilterIcon size={14} />
-            {t.admin.actions.filter}
-          </ConsoleButton>
-          <ConsoleButton>
-            <DownloadIcon size={14} />
-            {t.admin.actions.export}
-          </ConsoleButton>
-        </ListToolbar>
+        {/* GET, so a filtered page of the log is a URL an operator can keep. */}
+        <form method="get">
+          <ListToolbar placeholder={a.searchPlaceholder} name="q" defaultValue={query}>
+            <FilterSelect
+              name="result"
+              label={a.resultFilter}
+              value={result}
+              options={[
+                { id: 'all', label: f.all },
+                { id: 'success', label: f.auditSuccess },
+                { id: 'failure', label: f.auditFailure },
+              ]}
+            />
+            <ConsoleButton type="submit">{t.admin.administrators.searchSubmit}</ConsoleButton>
+            <ExportLink
+              resource="audit"
+              query={query}
+              status={result}
+              label={t.admin.actions.export}
+            />
+          </ListToolbar>
+        </form>
 
         <TableScroller>
           <table className="w-full min-w-[820px] border-collapse text-left">
@@ -90,36 +141,41 @@ export default async function AdminAuditPage() {
                     {column}
                   </th>
                 ))}
-                <th scope="col" className={`${TH} w-[56px]`}>
-                  <span className="sr-only">{t.admin.actions.view}</span>
-                </th>
               </tr>
             </thead>
             <tbody>
-              {auditEntries.map((entry) => (
-                <tr key={entry.time} className="border-t-2 border-line">
+              {rows.length === 0 ? (
+                <EmptyRow columns={a.columns.length} message={a.empty} />
+              ) : null}
+              {rows.map((entry) => (
+                <tr key={entry.id} className="border-t-2 border-line">
                   <td className={TD}>
                     <code className="font-mono text-[11px] tracking-[-0.01em] whitespace-nowrap text-steel">
-                      {entry.time}
+                      {utcInstant(entry.createdAt)}
                     </code>
                   </td>
-                  <td className={TD}>{entry.admin}</td>
-                  <td className={`${TD} font-medium text-ink`}>{entry.action}</td>
-                  <td className={TD}>{entry.target}</td>
+                  <td className={TD}>{entry.administratorName ?? a.unknownAdmin}</td>
+                  <td className={TD}>
+                    <span className="flex flex-col gap-0.5">
+                      <span className="font-medium text-ink">
+                        {actionLabels[entry.action] ?? entry.action}
+                      </span>
+                      {/* requirement.md 5.3 records a reason; it belongs beside the action. */}
+                      {entry.reason ? (
+                        <span className="text-[11px] text-muted">{entry.reason}</span>
+                      ) : null}
+                    </span>
+                  </td>
+                  <td className={TD}>{entry.targetId ?? NONE}</td>
                   <td className={TD}>
                     <code className="font-mono text-[11px] tracking-[-0.01em] text-muted">
-                      {entry.originDigest}
+                      {entry.originDigest ?? NONE}
                     </code>
                   </td>
                   <td className={TD}>
                     <Pill tone={entry.result === 'success' ? 'ok' : 'danger'}>
-                      {entry.resultLabel}
+                      {entry.result === 'success' ? f.auditSuccess : f.auditFailure}
                     </Pill>
-                  </td>
-                  <td className={TD}>
-                    <IconButton label={t.admin.actions.view}>
-                      <EyeIcon size={14} />
-                    </IconButton>
                   </td>
                 </tr>
               ))}
@@ -129,12 +185,14 @@ export default async function AdminAuditPage() {
 
         <Pagination
           summary={fill(a.showing, {
-            from: 1,
-            to: auditEntries.length,
-            total: AUDIT_TOTAL.toLocaleString('en-US'),
+            from: view.from,
+            to: view.to,
+            total: total.toLocaleString('en-US'),
           })}
-          pages={[1, 2, 3]}
-          activePage={1}
+          pages={view.pages}
+          activePage={page}
+          pageCount={view.pageCount}
+          href={link}
           labels={t.admin.actions}
         />
       </Panel>

@@ -16,6 +16,7 @@
  */
 import type { AdminCapability } from '@/lib/domain/admin';
 import { toCsv } from './csv';
+import { listAuditEntries, type AuditResultFilter } from './list-audit';
 import { listClaims, listUserLibraries, type ClaimFilter, type LibraryReviewFilter } from './list-libraries';
 import { listConsoleUsers, type UserStatusFilter } from './list-users';
 import { listAdministrators } from './manage-administrators';
@@ -79,6 +80,21 @@ export const CONSOLE_EXPORTS: Record<string, ConsoleExport> = {
       return toCsv(
         ['library_id', 'library', 'claimant', 'method', 'opened', 'current_owner', 'status'],
         rows.map((r) => [r.libraryPublicId, r.libraryTitle, r.claimantName, r.method, r.openedAt, r.currentOwner, r.status]),
+      );
+    },
+  },
+  audit: {
+    capability: 'audit',
+    filename: 'audit-log',
+    async build(input) {
+      const { rows } = await listAuditEntries({
+        query: input.query,
+        result: (input.status as AuditResultFilter) ?? 'all',
+        limit: EXPORT_LIMIT,
+      });
+      return toCsv(
+        ['time', 'administrator', 'administrator_email', 'action', 'target', 'reason', 'origin_digest', 'result'],
+        rows.map((r) => [r.createdAt, r.administratorName, r.administratorEmail, r.action, r.targetId, r.reason, r.originDigest, r.result]),
       );
     },
   },

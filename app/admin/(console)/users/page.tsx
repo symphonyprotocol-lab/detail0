@@ -75,27 +75,23 @@ export default async function AdminUsersPage({
     suspensionScope: true,
   });
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const view = pageWindow({ page, total, rows: rows.length });
 
   /** Keeps the search and filter on the URL when the page changes. */
-  const hrefFor = (target: number) => {
+  const link = (target: number) => {
     const next = new URLSearchParams();
     if (query) next.set('q', query);
     if (status !== 'all') next.set('status', status);
-    const clamped = Math.min(Math.max(1, target), totalPages);
-    if (clamped > 1) next.set('page', String(clamped));
+    if (target > 1) next.set('page', String(target));
     return next.size > 0 ? `/admin/users?${next.toString()}` : '/admin/users';
   };
 
   /*
-   * A page past the end is sent to the last real one rather than rendered.
-   * Clamping only the arithmetic would leave the footer claiming a range the
-   * empty table below it does not have -- "showing 4901-4900 of 300" -- and a
-   * stale bookmark deserves the list, not a contradiction.
+   * A page past the end is sent to the last real one rather than rendered. The
+   * footer would read `0`-`0` over an empty table on its own, which is honest
+   * but useless: a stale bookmark deserves the list, not an empty page.
    */
-  if (page > totalPages) redirect(hrefFor(totalPages));
-
-  const first = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  if (total > 0 && page > view.pageCount) redirect(link(view.pageCount));
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -193,14 +189,14 @@ export default async function AdminUsersPage({
 
         <Pagination
           summary={fill(u.showing, {
-            from: first,
-            to: first === 0 ? 0 : first + rows.length - 1,
+            from: view.from,
+            to: view.to,
             total: total.toLocaleString('en-US'),
           })}
-          pages={pageWindow(page, totalPages)}
+          pages={view.pages}
           activePage={page}
-          totalPages={totalPages}
-          hrefFor={hrefFor}
+          pageCount={view.pageCount}
+          href={link}
           labels={t.admin.actions}
         />
       </Panel>
