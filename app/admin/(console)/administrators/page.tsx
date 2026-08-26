@@ -1,54 +1,106 @@
 import type { Metadata } from 'next';
+import { AdministratorTable, type AdministratorView } from '@/components/admin/administrator-table';
+import { InviteAdministrator } from '@/components/admin/invite-administrator';
 import {
   ConsoleButton,
   ConsoleNotice,
   ConsolePageHeader,
-  IconButton,
   ListToolbar,
-  Monogram,
   Panel,
   PanelHead,
-  Pill,
   TableScroller,
   TD,
   TH,
-  TitleCell,
 } from '@/components/admin/ui';
+import { CheckIcon, DownloadIcon, ShieldCheckIcon } from '@/components/ui/icons';
+import { listAdministrators } from '@/lib/application/administration';
 import {
-  CheckIcon,
-  DownloadIcon,
-  EllipsisIcon,
-  FilterIcon,
-  PlusIcon,
-  ShieldCheckIcon,
-} from '@/components/ui/icons';
-import { adminCopy, CAPABILITIES, type AdminAccountStatus } from '@/lib/admin/demo-data';
+  ADMIN_CAPABILITIES,
+  ADMIN_INVITE_TTL_MS,
+  ADMIN_ROLE_IDS,
+  capabilitiesForRoles,
+  roleAllows,
+  type AdminRoleId,
+} from '@/lib/domain/admin';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
+import {
+  changeRoleAction,
+  inviteAdministratorAction,
+  revokeSessionsAction,
+  setStatusAction,
+} from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).admin.administrators.title };
 }
 
-const ADMIN_TONE: Record<AdminAccountStatus, 'ok' | 'warn' | 'neutral'> = {
-  active: 'ok',
-  invited: 'warn',
-  disabled: 'neutral',
-};
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length > 1) {
+    return parts
+      .slice(0, 2)
+      .map((part) => (Array.from(part)[0] ?? '').toUpperCase())
+      .join('');
+  }
+  return Array.from(name).slice(0, 2).join('').toUpperCase() || 'A';
+}
+
+/** `YYYY-MM-DD HH:mm` in UTC, the same shape the audit log prints. */
+function timestamp(value: Date | null, fallback: string): string {
+  if (!value) return fallback;
+  return `${value.toISOString().slice(0, 10)} ${value.toISOString().slice(11, 16)}`;
+}
 
 /**
  * Console members and role permissions -- design source frame `RubCg`.
  *
- * The matrix is the least-privilege model in requirement.md 3.1 and 5.3 drawn
- * out: only the super administrator reaches every capability, and each other
- * preset role reaches exactly what its job needs.
+ * Reads the real `administrator` table. The matrix below it is the
+ * least-privilege model of requirement.md 3.1 and 5.3 drawn out, rendered from
+ * `lib/domain/admin` -- the same module the route guards consult, so the table
+ * cannot claim a permission the console does not enforce.
  */
-export default async function AdminAdministratorsPage() {
-  await requireAdminCapability('administrators');
-  const t = await getMessages();
+export default async function AdminAdministratorsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [session, params, t] = await Promise.all([
+    requireAdminCapability('administrators'),
+    searchParams,
+    getMessages(),
+  ]);
   const a = t.admin.administrators;
-  const { administrators, roleMatrix, capabilityLabels } = adminCopy(t);
+  const query = typeof params.q === 'string' ? params.q : undefined;
+
+  const roles = ADMIN_ROLE_IDS.map((id) => ({ id, label: t.admin.roles[id] }));
+  const roleLabel = (id: AdminRoleId | null) => (id ? t.admin.roles[id] : a.matrixNone);
+
+  const administrators: AdministratorView[] = (await listAdministrators(query)).map((row) => {
+    // Only the presets are assignable, so the first is the effective role.
+    const roleId = row.roles[0] ?? null;
+    const capabilities = capabilitiesForRoles(row.roles);
+    return {
+      id: row.id,
+      username: row.username,
+      email: row.email,
+      initial: initials(row.username),
+      roleId,
+      roleLabel: roleLabel(roleId),
+      scopeLabel:
+        capabilities.length === ADMIN_CAPABILITIES.length
+          ? a.scopeAll
+          : capabilities.map((capability) => t.adminDemo.capabilities[capability]).join('、') ||
+            a.scopeNone,
+      status: row.status,
+      statusLabel: t.adminDemo.adminStatus[row.status],
+      lastActive: timestamp(row.lastActiveAt, a.neverActive),
+      activeSessions: row.activeSessions,
+      mfaEnrolled: row.mfaEnrolled,
+      isSelf: row.id === session.administratorId,
+    };
+  });
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -59,71 +111,35 @@ export default async function AdminAdministratorsPage() {
         title={a.noticeTitle}
         body={a.noticeBody}
         action={
-          <ConsoleButton variant="primary">
-            <PlusIcon size={14} />
-            {a.invite}
-          </ConsoleButton>
+          <InviteAdministrator
+            action={inviteAdministratorAction}
+            inviteTtlDays={Math.round(ADMIN_INVITE_TTL_MS / 86_400_000)}
+            roles={roles}
+          />
         }
       />
 
       <Panel>
-        <ListToolbar placeholder={a.searchPlaceholder}>
-          <ConsoleButton>
-            <FilterIcon size={14} />
-            {t.admin.actions.filter}
-          </ConsoleButton>
-          <ConsoleButton>
-            <DownloadIcon size={14} />
-            {t.admin.actions.export}
-          </ConsoleButton>
-        </ListToolbar>
+        {/* GET, so a filtered list is a URL an operator can keep or share. */}
+        <form method="get">
+          <ListToolbar placeholder={a.searchPlaceholder} name="q" defaultValue={query}>
+            <ConsoleButton type="submit">{a.searchSubmit}</ConsoleButton>
+            <ConsoleButton>
+              <DownloadIcon size={14} />
+              {t.admin.actions.export}
+            </ConsoleButton>
+          </ListToolbar>
+        </form>
 
-        <TableScroller>
-          <table className="w-full min-w-[720px] border-collapse text-left">
-            <thead>
-              <tr>
-                {a.columns.map((column) => (
-                  <th key={column} scope="col" className={TH}>
-                    {column}
-                  </th>
-                ))}
-                <th scope="col" className={`${TH} w-[56px]`}>
-                  <span className="sr-only">{t.admin.actions.more}</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {administrators.map((administrator) => (
-                <tr key={administrator.email} className="border-t-2 border-line">
-                  <td className={TD}>
-                    <TitleCell
-                      title={administrator.name}
-                      meta={administrator.email}
-                      leading={<Monogram initial={administrator.initial} tone="ink" />}
-                    />
-                  </td>
-                  <td className={TD}>
-                    <Pill tone={administrator.role === roleMatrix[0]?.role ? 'brand' : 'neutral'}>
-                      {administrator.role}
-                    </Pill>
-                  </td>
-                  <td className={TD}>{administrator.scope}</td>
-                  <td className={TD}>{administrator.lastActive}</td>
-                  <td className={TD}>
-                    <Pill tone={ADMIN_TONE[administrator.status]}>
-                      {administrator.statusLabel}
-                    </Pill>
-                  </td>
-                  <td className={TD}>
-                    <IconButton label={t.admin.actions.more}>
-                      <EllipsisIcon size={14} />
-                    </IconButton>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableScroller>
+        <AdministratorTable
+          administrators={administrators}
+          roles={roles}
+          actions={{
+            changeRole: changeRoleAction,
+            setStatus: setStatusAction,
+            revokeSessions: revokeSessionsAction,
+          }}
+        />
       </Panel>
 
       <Panel>
@@ -144,21 +160,21 @@ export default async function AdminAdministratorsPage() {
               </tr>
             </thead>
             <tbody>
-              {roleMatrix.map((row) => (
-                <tr key={row.role} className="border-t-2 border-line">
+              {ADMIN_ROLE_IDS.map((role) => (
+                <tr key={role} className="border-t-2 border-line">
                   <th scope="row" className={`${TD} font-semibold whitespace-nowrap text-ink`}>
-                    {row.role}
+                    {t.admin.roles[role]}
                   </th>
-                  {CAPABILITIES.map((capability) => (
+                  {ADMIN_CAPABILITIES.map((capability) => (
                     <td key={capability} className={`${TD} text-center`}>
                       {/* The glyph is decorative; the sentence is what a screen reader gets. */}
                       <span className="sr-only">
-                        {fill(row.allowed[capability] ? a.matrixAllowed : a.matrixDenied, {
-                          role: row.role,
-                          capability: capabilityLabels[capability],
+                        {fill(roleAllows(role, capability) ? a.matrixAllowed : a.matrixDenied, {
+                          role: t.admin.roles[role],
+                          capability: t.adminDemo.capabilities[capability],
                         })}
                       </span>
-                      {row.allowed[capability] ? (
+                      {roleAllows(role, capability) ? (
                         <CheckIcon size={15} className="mx-auto text-brand" />
                       ) : (
                         <span aria-hidden className="text-faint">

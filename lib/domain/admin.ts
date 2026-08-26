@@ -165,3 +165,97 @@ export function safeAdminReturnTo(input: unknown): string {
   if (path === '/admin/login') return ADMIN_DEFAULT_RETURN_TO;
   return input;
 }
+
+/* ------------------------------------------------- managing administrators */
+
+export const ADMIN_STATUSES = ['invited', 'active', 'disabled'] as const;
+
+export type AdminStatus = (typeof ADMIN_STATUSES)[number];
+
+export function isAdminStatus(value: unknown): value is AdminStatus {
+  return typeof value === 'string' && (ADMIN_STATUSES as readonly string[]).includes(value);
+}
+
+/** How long an invitation stays usable before it stops being a way in. */
+export const ADMIN_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function inviteExpiryFrom(now: Date): Date {
+  return new Date(now.getTime() + ADMIN_INVITE_TTL_MS);
+}
+
+export function isInviteLive(expiresAt: Date | null, now: Date): boolean {
+  return expiresAt !== null && expiresAt.getTime() > now.getTime();
+}
+
+/** Minimum length for a chosen administrator password. */
+export const ADMIN_PASSWORD_MIN_LENGTH = 12;
+export const ADMIN_PASSWORD_MAX_LENGTH = 256;
+
+export function isAcceptableAdminPassword(password: string): boolean {
+  return (
+    password.length >= ADMIN_PASSWORD_MIN_LENGTH && password.length <= ADMIN_PASSWORD_MAX_LENGTH
+  );
+}
+
+/**
+ * Why a change to an administrator was refused.
+ *
+ * Unlike the sign-in codes these are shown to a signed-in super administrator
+ * who is entitled to know exactly what went wrong, so they are specific.
+ */
+export const ADMIN_CHANGE_ERRORS = [
+  'not_found',
+  'self_change',
+  'last_super_admin',
+  'email_taken',
+  'invalid_input',
+  'invite_invalid',
+  'weak_password',
+] as const;
+
+export type AdminChangeError = (typeof ADMIN_CHANGE_ERRORS)[number];
+
+export function isAdminChangeError(value: unknown): value is AdminChangeError {
+  return typeof value === 'string' && (ADMIN_CHANGE_ERRORS as readonly string[]).includes(value);
+}
+
+export class AdminChangeRefused extends Error {
+  constructor(
+    readonly code: AdminChangeError,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'AdminChangeRefused';
+  }
+}
+
+/**
+ * Whether an administrator may act on a target.
+ *
+ * Two rules, and both exist to stop the console being locked shut:
+ *
+ * - nobody edits their own role or status, because the mistake is unrecoverable
+ *   from inside the console -- there would be no one entitled to undo it;
+ * - the last active super administrator cannot be demoted or disabled, for the
+ *   same reason. Adding a second one first is the way past this.
+ */
+export function refuseSelfChange(actorId: string, targetId: string): void {
+  if (actorId === targetId) {
+    throw new AdminChangeRefused(
+      'self_change',
+      'an administrator cannot change their own role or status',
+    );
+  }
+}
+
+export function refuseLastSuperAdmin(input: {
+  targetIsSuper: boolean;
+  otherActiveSuperAdmins: number;
+}): void {
+  if (input.targetIsSuper && input.otherActiveSuperAdmins === 0) {
+    throw new AdminChangeRefused(
+      'last_super_admin',
+      'the last active super administrator cannot be demoted or disabled',
+    );
+  }
+}

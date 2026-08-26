@@ -37,10 +37,11 @@ export function middleware(request: NextRequest): NextResponse {
 
 export const config = {
   /*
-   * Two console paths are excluded, both anchored so the exclusion cannot widen
-   * to a future `/admin/login-history`: the sign-in, which would otherwise
-   * redirect to itself, and the sign-out, which has to answer a POST rather
-   * than be bounced to the sign-in once the cookie is already gone.
+   * Three console paths are excluded, each anchored so the exclusion cannot
+   * widen to a future `/admin/login-history`: the sign-in, which would
+   * otherwise redirect to itself; the sign-out, which has to answer a POST
+   * rather than be bounced once the cookie is already gone; and enrolment,
+   * which an invited administrator reaches before they have any session at all.
    */
-  matcher: ['/dashboard/:path*', '/admin/((?!login$|login/|sign-out$).*)'],
+  matcher: ['/dashboard/:path*', '/admin/((?!login$|login/|sign-out$|enroll$).*)'],
 };

@@ -643,8 +643,12 @@ export const administrator = pgTable(
     id: uuid('id').primaryKey(),
     username: text('username').notNull(),
     email: text('email').notNull(),
-    /** Argon2id. Admin identity is separate from user OAuth. requirement.md 3.2 */
-    passwordHash: text('password_hash').notNull(),
+    /**
+     * Argon2id. Admin identity is separate from user OAuth (requirement.md 3.2).
+     * Null until an invited administrator finishes enrolment -- a placeholder
+     * hash would be a credential that exists but nobody chose.
+     */
+    passwordHash: text('password_hash'),
     /**
      * TOTP shared secret, sealed with `CREDENTIAL_ENCRYPTION_KEY` -- a plain
      * secret here would make the second factor worth exactly as much as the
@@ -658,7 +662,15 @@ export const administrator = pgTable(
      */
     mfaLastCounter: bigint('mfa_last_counter', { mode: 'number' }),
     mfaEnrolledAt: timestamp('mfa_enrolled_at', { withTimezone: true }),
+    /** `invited` until enrolment completes, then `active`, or `disabled`. */
     status: text('status').notNull().default('invited'),
+    /**
+     * Single-use enrolment secret, stored as a keyed digest like every other
+     * token here, with a deadline so a forgotten invitation stops being a way in.
+     */
+    inviteTokenHash: text('invite_token_hash'),
+    inviteExpiresAt: timestamp('invite_expires_at', { withTimezone: true }),
+    invitedBy: uuid('invited_by'),
     /** Reset on a successful sign-in; drives the lockout in lib/domain/admin. */
     failedAttempts: integer('failed_attempts').notNull().default(0),
     lockedUntil: timestamp('locked_until', { withTimezone: true }),
@@ -668,6 +680,7 @@ export const administrator = pgTable(
   (t) => [
     uniqueIndex('administrator_username_uq').on(t.username),
     uniqueIndex('administrator_email_uq').on(t.email),
+    uniqueIndex('administrator_invite_token_uq').on(t.inviteTokenHash),
   ],
 );
 

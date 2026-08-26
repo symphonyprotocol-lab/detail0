@@ -36,6 +36,13 @@
       "when": 1787629270559,
       "tag": "0004_admin_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787629271559,
+      "tag": "0005_admin_invites",
+      "breakpoints": true
     }
   ]
 }

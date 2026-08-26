@@ -72,12 +72,17 @@ export function ConsoleButton({
   href,
   type = 'button',
   className = '',
+  disabled,
+  onClick,
 }: {
   children: ReactNode;
   variant?: 'primary' | 'outline' | 'ghost';
   href?: string;
   type?: 'button' | 'submit';
   className?: string;
+  disabled?: boolean;
+  /** Client components only -- a server component cannot pass a handler. */
+  onClick?: () => void;
 }) {
   const style =
     variant === 'primary'
@@ -85,25 +90,35 @@ export function ConsoleButton({
       : variant === 'ghost'
         ? 'text-steel hover:bg-subtle'
         : 'border-2 border-line bg-card text-steel hover:bg-subtle';
-  const merged = `${BUTTON_BASE} ${style} ${className}`;
+  const merged = `${BUTTON_BASE} ${style} disabled:opacity-60 ${className}`;
   return href ? (
     <Link href={href} className={merged}>
       {children}
     </Link>
   ) : (
-    <button type={type} className={merged}>
+    <button type={type} className={merged} disabled={disabled} onClick={onClick}>
       {children}
     </button>
   );
 }
 
 /** 30px square action button, the per-row control the design puts in tables. */
-export function IconButton({ label, children }: { label: string; children: ReactNode }) {
+export function IconButton({
+  label,
+  children,
+  onClick,
+}: {
+  label: string;
+  children: ReactNode;
+  /** Client components only -- a server component cannot pass a handler. */
+  onClick?: () => void;
+}) {
   return (
     <button
       type="button"
       aria-label={label}
       title={label}
+      onClick={onClick}
       className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-[6px] border-2 border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-steel"
     >
       {children}
@@ -114,15 +129,21 @@ export function IconButton({ label, children }: { label: string; children: React
 /**
  * Toolbar above a list: search on the left, filters and exports on the right.
  *
- * Presentational until the administration use cases exist (architecture.md 21),
- * so the field is uncontrolled and the buttons carry no handler.
+ * With `name`, the field is a real query parameter and the surrounding form
+ * submits it; without one it stays presentational, which is still the case for
+ * the lists whose endpoints do not exist yet (architecture.md 21).
  */
 export function ListToolbar({
   placeholder,
   children,
+  name,
+  defaultValue,
 }: {
   placeholder: string;
   children?: ReactNode;
+  /** Set on lists whose search is served; left off it stays presentational. */
+  name?: string;
+  defaultValue?: string;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2 border-b-2 border-line px-[15px] py-3">
@@ -130,6 +151,8 @@ export function ListToolbar({
         <SearchIcon size={15} className="text-muted" />
         <input
           type="search"
+          name={name}
+          defaultValue={defaultValue}
           placeholder={placeholder}
           className="min-w-0 flex-1 bg-transparent text-[13px] tracking-[-0.023em] text-ink placeholder:text-ink/50 focus:outline-none"
         />

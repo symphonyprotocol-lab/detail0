@@ -16,3 +16,15 @@ export { resolveAdminSession, type AdminSession } from './resolve-admin-session'
 export { recordAudit, originDigest, auditHash, type AuditEntry } from './audit';
 export { hashAdminPassword, verifyAdminPassword } from './password';
 export { adminSessionTokenHash } from './admin-session-token';
+export {
+  listAdministrators,
+  inviteAdministrator,
+  changeAdministratorRole,
+  setAdministratorStatus,
+  revokeAdministratorSessions,
+  offerEnrolment,
+  completeEnrolment,
+  type AdministratorRow,
+  type InviteResult,
+  type EnrolmentOffer,
+} from './manage-administrators';

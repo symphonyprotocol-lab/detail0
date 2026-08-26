@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AdminChangeRefused,
   ADMIN_CAPABILITIES,
   ADMIN_LOGIN_ERRORS,
   ADMIN_LOCKOUT_MS,
@@ -12,6 +13,8 @@ import {
   isAdminSessionLive,
   isLockedOut,
   lockoutUntil,
+  refuseLastSuperAdmin,
+  refuseSelfChange,
   roleAllows,
   safeAdminReturnTo,
   shouldTouchAdminSession,
@@ -166,5 +169,45 @@ describe('admin login errors', () => {
     // undoing the decoy-hash work in sign-in-admin.
     expect(isAdminLoginError('locked')).toBe(false);
     expect(ADMIN_LOGIN_ERRORS).toEqual(['invalid_credentials', 'rate_limited', 'unavailable']);
+  });
+});
+
+/**
+ * The two guards that keep the console from being locked shut. Both are pure,
+ * so the awkward states -- "you are the last super administrator" -- are
+ * reachable here in a way they are not against a shared database.
+ */
+describe('administrator change guards', () => {
+  it('refuses to let anyone edit their own role or status', () => {
+    expect(() => refuseSelfChange('same-id', 'same-id')).toThrow(AdminChangeRefused);
+    try {
+      refuseSelfChange('same-id', 'same-id');
+    } catch (error) {
+      expect((error as AdminChangeRefused).code).toBe('self_change');
+    }
+    expect(() => refuseSelfChange('actor', 'target')).not.toThrow();
+  });
+
+  it('refuses to demote or disable the last active super administrator', () => {
+    expect(() =>
+      refuseLastSuperAdmin({ targetIsSuper: true, otherActiveSuperAdmins: 0 }),
+    ).toThrow(AdminChangeRefused);
+    try {
+      refuseLastSuperAdmin({ targetIsSuper: true, otherActiveSuperAdmins: 0 });
+    } catch (error) {
+      expect((error as AdminChangeRefused).code).toBe('last_super_admin');
+    }
+  });
+
+  it('allows the change once another active super administrator exists', () => {
+    expect(() =>
+      refuseLastSuperAdmin({ targetIsSuper: true, otherActiveSuperAdmins: 1 }),
+    ).not.toThrow();
+  });
+
+  it('does not stand in the way of changing anyone who is not a super admin', () => {
+    expect(() =>
+      refuseLastSuperAdmin({ targetIsSuper: false, otherActiveSuperAdmins: 0 }),
+    ).not.toThrow();
   });
 });

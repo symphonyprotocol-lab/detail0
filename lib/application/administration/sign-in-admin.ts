@@ -109,9 +109,19 @@ export async function signInAdmin(input: SignInAdminInput): Promise<SignInAdminR
     return fail(email, clientAddress, account.id, 'account locked out');
   }
 
-  if (account.status !== 'active') {
-    await verifyAdminPassword(input.password, account.passwordHash);
-    return fail(email, clientAddress, account.id, `account status ${account.status}`);
+  /*
+   * An invited account has no password yet, and a disabled one must not be able
+   * to use the password it still has. Both still pay for a verification against
+   * the decoy so their timing matches an active account's.
+   */
+  if (account.status !== 'active' || account.passwordHash === null) {
+    await verifyAdminPassword(input.password, account.passwordHash ?? (await decoyPasswordHash()));
+    return fail(
+      email,
+      clientAddress,
+      account.id,
+      account.passwordHash === null ? 'enrolment not completed' : `account status ${account.status}`,
+    );
   }
 
   const passwordOk = await verifyAdminPassword(input.password, account.passwordHash);
