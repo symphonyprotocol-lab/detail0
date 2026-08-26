@@ -24,15 +24,19 @@ export function Button({
   href,
   children,
   variant = 'primary',
+  size = 'sm',
   className = '',
 }: {
   href: string;
   children: ReactNode;
   variant?: 'primary' | 'outline';
+  /** `sm` is the 36px section action, `md` the 40px call-to-action. */
+  size?: 'sm' | 'md';
   className?: string;
 }) {
-  const base =
-    'inline-flex h-9 items-center justify-center gap-2 rounded-full px-4 text-sm font-medium tracking-[-0.01em] transition-colors';
+  const base = `inline-flex items-center justify-center gap-2 rounded-full text-[14px] font-medium tracking-[-0.029em] transition-colors ${
+    size === 'md' ? 'h-10 px-[18px]' : 'h-9 px-4'
+  }`;
   const style =
     variant === 'primary'
       ? 'bg-brand text-white hover:bg-brand/90'
@@ -63,11 +67,11 @@ export function SectionHeading({
   return (
     <div className="flex flex-wrap items-center justify-between gap-6">
       <div className="flex gap-3.5">
-        <span aria-hidden className="w-[3px] shrink-0 rounded-sm bg-brand" />
-        <div className="flex flex-col gap-1.5">
-          <p className="text-[10px] font-extrabold tracking-[0.1em] text-brand">{eyebrow}</p>
+        <span aria-hidden className="w-[3px] shrink-0 rounded bg-brand" />
+        <div className="flex flex-col gap-[5px]">
+          <p className="text-[10px] font-[750] tracking-[0.1em] text-brand">{eyebrow}</p>
           <Heading
-            className={`${titleSize} leading-tight font-semibold tracking-[-0.04em] text-ink`}
+            className={`${titleSize} leading-[1.3] font-[650] tracking-[-0.04em] text-ink`}
           >
             {title}
           </Heading>

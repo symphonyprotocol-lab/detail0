@@ -1,59 +1,76 @@
 import Link from 'next/link';
-import { Chip } from '@/components/ui/primitives';
+import { ArrowUpRightIcon, BadgeCheckIcon, ShieldCheckIcon } from '@/components/ui/icons';
 import type { CatalogEntry } from '@/lib/site/demo-data';
+import { getMessages } from '@/lib/i18n/server';
 
-const COLS = 'grid-cols-[minmax(0,1fr)_170px_58px_66px_78px_74px]';
+/**
+ * Column track widths and paddings are taken from the design source table
+ * (frame `m5xZ2r`): a flexible name column followed by five fixed ones.
+ */
+const COLS =
+  'grid-cols-[minmax(0,1fr)_212px_80px_80px_93px_71px] gap-[18px] px-[15px]';
 
-export function LibraryTable({
+export async function LibraryTable({
   entries,
   showAnchor = true,
 }: {
   entries: CatalogEntry[];
   showAnchor?: boolean;
 }) {
+  const { table } = (await getMessages()).catalog;
+
   return (
-    <div className="overflow-hidden rounded-lg border-2 border-line bg-card">
+    <div className="overflow-hidden rounded-[9px] border-2 border-line bg-card p-0.5">
       <div className="overflow-x-auto">
-        <div className="min-w-[820px]">
+        <div className="min-w-[884px]">
           <div
-            className={`grid ${COLS} items-center gap-4 border-b-2 border-line bg-subtle px-4 py-3 text-[10px] font-semibold tracking-[0.04em] text-muted`}
+            className={`grid ${COLS} h-10 items-center border-b-2 border-line bg-subtle text-[10px] font-[650] tracking-[0.04em] text-muted`}
           >
-            <span>名称</span>
-            <span>LIBRARY ID</span>
-            <span>TRUST</span>
-            <span>CHUNKS</span>
-            <span>更新</span>
-            <span>{showAnchor ? '存证' : 'ACCESS'}</span>
+            <span>{table.name}</span>
+            <span>{table.libraryId}</span>
+            <span>{table.trust}</span>
+            <span>{table.chunks}</span>
+            <span>{table.updated}</span>
+            <span>{showAnchor ? table.anchor : table.access}</span>
           </div>
           {entries.map((entry, i) => (
             <Link
               key={entry.libraryId}
               href={`/libraries${entry.libraryId}`}
-              className={`grid ${COLS} items-center gap-4 px-4 py-3.5 transition-colors hover:bg-subtle ${
+              className={`grid ${COLS} h-[66px] items-center text-[12px] tracking-[-0.015em] text-steel transition-colors hover:bg-subtle ${
                 i === entries.length - 1 ? '' : 'border-b-2 border-line'
               }`}
             >
-              <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="truncate text-[13.5px] font-semibold tracking-[-0.02em] text-ink">
-                  {entry.title}
+              <span className="flex min-w-0 items-center gap-2.5">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-[7px] border-2 border-[#a3d9d5] bg-brandsoft text-brand">
+                  <ShieldCheckIcon size={17} />
                 </span>
-                <span className="truncate text-[11px] text-muted">{entry.domain}</span>
+                <span className="flex min-w-0 flex-col gap-[3px]">
+                  <span className="truncate font-[650] text-ink">{entry.title}</span>
+                  <span className="truncate text-[10px] text-muted">{entry.domain}</span>
+                </span>
               </span>
-              <span className="truncate font-mono text-[11px] text-muted">{entry.libraryId}</span>
-              <span className="text-[13px] font-semibold text-ink">{entry.trustScore}</span>
-              <span className="font-mono text-[12.5px] text-muted">{entry.chunks}</span>
-              <span className="text-[12px] text-muted">{entry.updated}</span>
-              <span>
-                {showAnchor ? (
-                  entry.anchored ? (
-                    <Chip tone="good">已存证</Chip>
-                  ) : (
-                    <Chip tone="warn">待存证</Chip>
-                  )
-                ) : (
-                  <Chip tone="brand">公开</Chip>
-                )}
+              <span className="truncate">{entry.libraryId}</span>
+              <span className="flex items-center gap-[5px] font-[650] text-brandink">
+                <BadgeCheckIcon size={15} />
+                {entry.trustScore}
               </span>
+              <span>{entry.chunks}</span>
+              <span>{entry.updated}</span>
+              {showAnchor ? (
+                <span
+                  className={`text-[11px] font-semibold tracking-[-0.018em] ${
+                    entry.anchored ? 'text-good' : 'text-warn'
+                  }`}
+                >
+                  {entry.anchored ? table.anchored : table.unanchored}
+                </span>
+              ) : (
+                <span className="flex items-center gap-[5px] font-semibold text-brand">
+                  {table.public}
+                  <ArrowUpRightIcon size={14} />
+                </span>
+              )}
             </Link>
           ))}
         </div>

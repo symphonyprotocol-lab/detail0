@@ -2,18 +2,20 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Button, Card, Chip } from '@/components/ui/primitives';
-import { CATALOG, findLibrary, type CatalogEntry } from '@/lib/site/demo-data';
+import { CATALOG_IDS, findLibrary, type CatalogEntry } from '@/lib/site/demo-data';
+import { fill } from '@/lib/i18n/format';
+import { getMessages } from '@/lib/i18n/server';
 
 type Params = { params: Promise<{ libraryId: string[] }> };
 
 export function generateStaticParams() {
-  return CATALOG.map((entry) => ({ libraryId: entry.libraryId.slice(1).split('/') }));
+  return CATALOG_IDS.map((libraryId) => ({ libraryId: libraryId.slice(1).split('/') }));
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
-  const { libraryId } = await params;
-  const entry = findLibrary(`/${libraryId.join('/')}`);
-  if (!entry) return { title: '知识库' };
+  const [{ libraryId }, t] = await Promise.all([params, getMessages()]);
+  const entry = findLibrary(t, `/${libraryId.join('/')}`);
+  if (!entry) return { title: t.library.fallbackTitle };
   return { title: entry.title, description: entry.description };
 }
 
@@ -51,15 +53,17 @@ function Panel({ title, right, children }: { title: string; right?: string; chil
 }
 
 export default async function LibraryDetailPage({ params }: Params) {
-  const { libraryId } = await params;
-  const entry: CatalogEntry | undefined = findLibrary(`/${libraryId.join('/')}`);
+  const [{ libraryId }, t] = await Promise.all([params, getMessages()]);
+  const entry: CatalogEntry | undefined = findLibrary(t, `/${libraryId.join('/')}`);
   if (!entry) notFound();
+
+  const l = t.library;
 
   return (
     <section className="mx-auto w-full max-w-[918px] px-5 pt-7 pb-14">
       <nav className="flex items-center gap-2 text-[12px] text-muted">
         <Link href="/libraries" className="hover:text-ink">
-          知识库目录
+          {l.breadcrumb}
         </Link>
         <span aria-hidden className="text-line">/</span>
         <span>{entry.domain}</span>
@@ -73,8 +77,12 @@ export default async function LibraryDetailPage({ params }: Params) {
             <h1 className="text-[28px] leading-tight font-bold tracking-[-0.04em] text-ink">
               {entry.title}
             </h1>
-            <Chip tone="brand">公开</Chip>
-            {entry.claimedBy ? <Chip tone="good">已认领</Chip> : <Chip tone="warn">待认领</Chip>}
+            <Chip tone="brand">{l.public}</Chip>
+            {entry.claimedBy ? (
+              <Chip tone="good">{l.claimed}</Chip>
+            ) : (
+              <Chip tone="warn">{l.unclaimed}</Chip>
+            )}
           </div>
 
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
@@ -82,7 +90,8 @@ export default async function LibraryDetailPage({ params }: Params) {
               {entry.libraryId}
             </code>
             <span className="text-[12px] text-faint">
-              指定版本：{entry.libraryId}/{entry.version}
+              {l.pinnedVersion}
+              {entry.libraryId}/{entry.version}
             </span>
           </div>
 
@@ -98,32 +107,42 @@ export default async function LibraryDetailPage({ params }: Params) {
         </div>
 
         <div className="flex flex-col gap-2">
-          <Button href="/playground">在 Playground 试用</Button>
+          <Button href="/playground">{l.tryInPlayground}</Button>
           <Button href="/docs" variant="outline">
-            查看接入示例
+            {l.viewExamples}
           </Button>
         </div>
       </div>
 
       <div className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <Stat label="TRUST SCORE" value={String(entry.trustScore)} note="来源可信度" />
-        <Stat label="BENCHMARK" value={String(entry.benchmarkScore)} note="检索质量评分" />
-        <Stat label="CHUNKS" value={entry.chunks} note={`${entry.documents} 篇文档`} />
-        <Stat label="TOKENS" value={entry.tokens} note="全量索引" />
-        <Stat label="容量" value={`${entry.sizeMb} MB`} note="上限 100 MB" />
+        <Stat label={l.stats.trust} value={String(entry.trustScore)} note={l.stats.trustNote} />
+        <Stat
+          label={l.stats.benchmark}
+          value={String(entry.benchmarkScore)}
+          note={l.stats.benchmarkNote}
+        />
+        <Stat
+          label={l.stats.chunks}
+          value={entry.chunks}
+          note={fill(l.stats.chunksNote, { count: entry.documents })}
+        />
+        <Stat label={l.stats.tokens} value={entry.tokens} note={l.stats.tokensNote} />
+        <Stat label={l.stats.size} value={`${entry.sizeMb} MB`} note={l.stats.sizeNote} />
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_312px]">
         <div className="flex flex-col gap-4">
-          <Panel title="版本" right="当前发布版本">
+          <Panel title={l.versionPanel} right={l.versionPanelRight}>
             <div className="rounded-lg border-2 border-line bg-subtle p-3.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-[14px] font-bold text-ink">{entry.version}</span>
-                  <Chip tone="brand">当前版本</Chip>
+                  <Chip tone="brand">{l.currentVersion}</Chip>
                   <Chip tone="good">Ready</Chip>
                 </div>
-                <span className="text-[11.5px] text-faint">发布于 {entry.updated}</span>
+                <span className="text-[11.5px] text-faint">
+                  {fill(l.publishedAt, { when: entry.updated })}
+                </span>
               </div>
               <div className="mt-2.5 flex flex-col">
                 <Row k="Parser / Chunker" v="parser v3.1 · chunker v2.0" />
@@ -131,11 +150,11 @@ export default async function LibraryDetailPage({ params }: Params) {
               </div>
             </div>
             <p className="text-[11.5px] leading-[1.7] text-faint">
-              版本不可变。查询在请求开始时固定 Version，因此刷新期间不会混用新旧 Chunk；刷新失败时旧版本继续可用。
+              {l.versionNote}
             </p>
           </Panel>
 
-          <Panel title="接入示例" right="REST / MCP / SDK 使用同一份检索结果">
+          <Panel title={l.examplesPanel} right={l.examplesPanelRight}>
             <div className="rounded-lg border-2 border-line bg-subtle p-3.5">
               <pre className="overflow-x-auto font-mono text-[11px] leading-[1.75] text-[#278f5c]">
 {`query-docs
@@ -145,13 +164,13 @@ export default async function LibraryDetailPage({ params }: Params) {
               </pre>
             </div>
             <p className="text-[11.5px] leading-[1.7] text-faint">
-              每次成功受理的查询计为 1 API Call，与返回的 Chunk 数或 Token 数无关。
+              {l.examplesNote}
             </p>
           </Panel>
         </div>
 
         <div className="flex flex-col gap-4">
-          <Panel title="来源">
+          <Panel title={l.sourcePanel}>
             <div className="flex items-center gap-2">
               <Chip>{entry.sourceType}</Chip>
               <span className="truncate font-mono text-[11.5px] text-[#2d4e54]">
@@ -160,50 +179,50 @@ export default async function LibraryDetailPage({ params }: Params) {
             </div>
             <Row k="folders" v="docs, guides" mono />
             <Row k="excludeFolders" v="archive" mono />
-            <Row k="最近同步" v={entry.updated} />
+            <Row k={l.lastSync} v={entry.updated} />
           </Panel>
 
-          <Panel title="链上存证">
+          <Panel title={l.anchorPanel}>
             <div className="flex items-center gap-2">
-              {entry.anchored ? <Chip tone="good">已存证</Chip> : <Chip tone="warn">待存证</Chip>}
-              <span className="text-[11.5px] text-muted">Aptos 主网</span>
+              {entry.anchored ? (
+                <Chip tone="good">{l.anchored}</Chip>
+              ) : (
+                <Chip tone="warn">{l.unanchored}</Chip>
+              )}
+              <span className="text-[11.5px] text-muted">{l.aptosMainnet}</span>
             </div>
             {entry.anchored ? (
               <>
-                <Row k="交易哈希" v="0x7f3c…a91b" mono />
-                <Row k="区块时间" v="2026-08-17 14:02:11" />
+                <Row k={l.txHash} v="0x7f3c…a91b" mono />
+                <Row k={l.blockTime} v="2026-08-17 14:02:11" />
               </>
             ) : (
-              <p className="text-[11.5px] text-muted">该版本尚未进入锚定批次，不影响检索与引用。</p>
+              <p className="text-[11.5px] text-muted">{l.notAnchoredYet}</p>
             )}
             <Button href="/docs/anchoring" variant="outline" className="mt-1 w-full">
-              独立验证此版本
+              {l.verifyVersion}
             </Button>
-            <p className="text-[11px] leading-[1.65] text-faint">
-              验证工具不调用 recall0 任何接口。存证只证明「该时刻内容即此版本」，不构成对内容正确性的保证。
-            </p>
+            <p className="text-[11px] leading-[1.65] text-faint">{l.verifyNote}</p>
           </Panel>
 
-          <Panel title="所有权">
+          <Panel title={l.ownershipPanel}>
             {entry.claimedBy ? (
               <>
                 <div className="flex items-center gap-2">
-                  <Chip tone="good">已认领</Chip>
+                  <Chip tone="good">{l.claimed}</Chip>
                   <span className="text-[12px] font-semibold text-ink">{entry.claimedBy}</span>
                 </div>
-                <Row k="校验方式" v="GitHub 仓库权限校验" />
+                <Row k={l.verificationMethod} v={l.verificationMethodValue} />
               </>
             ) : (
               <>
                 <div className="flex items-center gap-2">
-                  <Chip tone="warn">待认领</Chip>
-                  <span className="text-[12px] text-muted">尚无所有者</span>
+                  <Chip tone="warn">{l.unclaimed}</Chip>
+                  <span className="text-[12px] text-muted">{l.noOwner}</span>
                 </div>
-                <p className="text-[11px] leading-[1.65] text-faint">
-                  提交不等于拥有。来源维护者可以通过独立验证流程认领，取得管理权与发布者分成资格；未认领的公开库不产生收益。
-                </p>
+                <p className="text-[11px] leading-[1.65] text-faint">{l.claimNote}</p>
                 <Button href="/libraries/claim" className="mt-1 w-full">
-                  认领此知识库
+                  {l.claimCta}
                 </Button>
               </>
             )}
