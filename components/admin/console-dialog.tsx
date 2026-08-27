@@ -16,6 +16,14 @@ import { XIcon } from '@/components/ui/icons';
 const BUSY_DISMISS_GRACE_MS = 10_000;
 
 /**
+ * Two widths, because the console has two kinds of dialog: a decision to
+ * confirm, and a form to fill in. The design draws the second one wider, and a
+ * six-field form squeezed into the confirmation width puts two columns into
+ * 348px, where the labels wrap and the fields stop being readable.
+ */
+const DIALOG_WIDTH = { confirm: 'max-w-[380px]', form: 'max-w-[560px]' } as const;
+
+/**
  * Modal dialog for the console -- design source frame `BWeHH`.
  *
  * Built on the native `<dialog>`, which is worth more here than any hand-rolled
@@ -41,6 +49,7 @@ export function ConsoleDialog({
   description,
   closeLabel,
   busy = false,
+  width = 'confirm',
   footer,
   children,
 }: {
@@ -49,6 +58,7 @@ export function ConsoleDialog({
   description?: string;
   closeLabel: string;
   busy?: boolean;
+  width?: keyof typeof DIALOG_WIDTH;
   /**
    * Given whether dismissal is currently blocked, so the caller's own controls
    * can agree with the dialog's rather than guessing from `busy` -- which stops
@@ -164,7 +174,7 @@ export function ConsoleDialog({
        * `m-auto` restores the centring the UA stylesheet gives a modal dialog:
        * Tailwind's preflight zeroes every margin, which pins it to the corner.
        */
-      className="m-auto w-[calc(100vw-32px)] max-w-[380px] rounded-[12px] border-2 border-line bg-card p-0 text-ink shadow-[0_18px_48px_rgba(29,67,73,0.15)] backdrop:bg-inkdeep/45 open:flex open:flex-col"
+      className={`m-auto w-[calc(100vw-32px)] ${DIALOG_WIDTH[width]} rounded-[12px] border-2 border-line bg-card p-0 text-ink shadow-[0_18px_48px_rgba(29,67,73,0.15)] backdrop:bg-inkdeep/45 open:flex open:flex-col`}
     >
       <header className="flex items-start justify-between gap-2.5 px-4 pt-3.5 pb-3">
         <div className="flex min-w-0 flex-col gap-1">

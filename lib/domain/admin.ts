@@ -9,6 +9,7 @@
 export type AdminCapability =
   | 'users'
   | 'libraries'
+  | 'platformLibraries'
   | 'plans'
   | 'billing'
   | 'administrators'
@@ -17,6 +18,7 @@ export type AdminCapability =
 export const ADMIN_CAPABILITIES: readonly AdminCapability[] = [
   'users',
   'libraries',
+  'platformLibraries',
   'plans',
   'billing',
   'administrators',
@@ -35,7 +37,15 @@ export const ADMIN_ROLE_IDS: readonly AdminRoleId[] = ['super', 'operator', 'rev
  */
 const ROLE_CAPABILITIES: Record<AdminRoleId, readonly AdminCapability[]> = {
   super: ADMIN_CAPABILITIES,
-  operator: ['users', 'libraries', 'plans', 'billing'],
+  operator: ['users', 'libraries', 'platformLibraries', 'plans', 'billing'],
+  /*
+   * `libraries` and `platformLibraries` are separate capabilities because
+   * requirement.md 3.1 gives them to different people: a Reviewer decides
+   * whether a *user's* public library may ship, while creating, refreshing,
+   * suspending and publishing the platform's own libraries is the Operator's
+   * job. One capability covering both would let a reviewer publish a library
+   * under recall0's name.
+   */
   reviewer: ['libraries'],
   support: ['users'],
 };

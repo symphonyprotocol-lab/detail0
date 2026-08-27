@@ -77,7 +77,7 @@ export function AdminSidebar({
           href: '/admin/platform-libraries',
           label: nav.platformLibraries,
           Icon: GlobeIcon,
-          needs: 'libraries',
+          needs: 'platformLibraries',
         },
       ],
     },
