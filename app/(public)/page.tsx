@@ -33,7 +33,7 @@ export default async function HomePage() {
     <>
       {/* Hero -- geometry, type and icons follow the design source frame `hRx0w`. */}
       <section className="site-wash">
-        <div className="mx-auto flex w-full max-w-[918px] flex-col items-center px-5 pt-[72px] pb-[62px]">
+        <div className="mx-auto flex w-full max-w-[918px] flex-col items-center px-5 pt-[72px] pb-[40px]">
           <p className="flex w-full items-center gap-[7px] text-[12px] leading-[1.5] font-[650] text-brandink">
             <ShieldCheckIcon size={15} />
             {t.home.badge}
@@ -61,7 +61,7 @@ export default async function HomePage() {
             </div>
             <Link
               href="/login"
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-[20px] border-2 border-line bg-card px-5 text-[14px] font-medium tracking-[-0.029em] text-ink transition-colors hover:bg-subtle"
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-[20px] border-2 border-line bg-card px-5 text-[14px] font-medium tracking-[-0.029em] text-ink shadow-[0_4px_10px_rgba(45,45,83,0.1),0_1px_1px_rgba(45,45,83,0.1)] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-subtle hover:shadow-[0_10px_22px_-8px_rgba(3,26,30,0.24)]"
             >
               <KeyIcon />
               {t.home.getKey}
@@ -80,12 +80,15 @@ export default async function HomePage() {
       </section>
 
       {/* Knowledge directory -- design source frame `EG2Gu`. */}
-      <section className="mx-auto w-full max-w-[918px] border-t-2 border-line px-5 pt-13 pb-[70px]">
+      <section className="mx-auto w-full max-w-[918px] px-5 pt-6 pb-[70px]">
         <SectionHeading
           eyebrow="KNOWLEDGE DIRECTORY"
           title={t.home.directoryTitle}
           action={
-            <Button href="/libraries/claim">
+            <Button
+              href="/libraries/claim"
+              className="shadow-[0_4px_10px_rgba(0,150,133,0.26)] hover:-translate-y-0.5 hover:shadow-[0_10px_22px_-8px_rgba(0,150,133,0.5)]"
+            >
               <PlusIcon size={15} />
               {t.home.submitLibrary}
             </Button>
@@ -94,7 +97,7 @@ export default async function HomePage() {
 
         <div className="mt-6">
           <div className="flex flex-wrap items-start gap-3 pb-[18px]">
-            <label className="flex h-[46px] min-w-0 flex-1 items-center gap-2.5 rounded-lg border-2 border-line bg-card px-[15px] py-0.5 shadow-[0_4px_10px_rgba(45,45,83,0.06)]">
+            <label className="flex h-[46px] min-w-0 flex-1 items-center gap-2.5 rounded-lg border-2 border-line bg-card/60 px-[15px] py-0.5 shadow-[0_4px_10px_rgba(45,45,83,0.06)]">
               <SearchIcon size={18} className="text-muted" />
               <input
                 placeholder={t.home.searchPlaceholder}
@@ -104,7 +107,7 @@ export default async function HomePage() {
                 ⌘ K
               </kbd>
             </label>
-            <div className="flex h-[46px] shrink-0 items-center rounded-lg border-2 border-line bg-card p-[5px]">
+            <div className="flex h-[46px] shrink-0 items-center rounded-lg border-2 border-line bg-card/60 p-[5px]">
               <span className="flex h-9 items-center gap-1.5 rounded-md bg-brandsoft px-3 text-[12px] font-[550] tracking-[-0.027em] text-brandink">
                 <SparklesIcon size={15} />
                 {t.home.popular}
@@ -132,15 +135,15 @@ export default async function HomePage() {
       </section>
 
       {/* Surfaces -- design source frame `jByip`. */}
-      <section className="mx-auto w-full max-w-[918px] border-t-2 border-line px-5 pt-11 pb-[54px]">
-        <p className="text-center text-[11px] tracking-[-0.029em] text-muted">
+      <section className="mx-auto w-full max-w-[918px] px-5 pt-11 pb-[54px]">
+        <p className="text-center text-[13px] tracking-[-0.029em] text-muted">
           {t.home.surfacesNote}
         </p>
         <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-12 gap-y-4 sm:justify-between sm:px-[47px]">
           {SURFACES.map(({ label, Icon }) => (
             <li
               key={label}
-              className="flex items-center gap-2 text-[13px] font-[650] tracking-[-0.025em] text-steel/78"
+              className="flex items-center gap-2 text-[15px] font-[650] tracking-[-0.025em] text-steel/78"
             >
               <Icon size={20} />
               {label}
@@ -150,7 +153,7 @@ export default async function HomePage() {
       </section>
 
       {/* On-chain proof -- design source frame `oKG2g`. */}
-      <section className="mx-auto w-full max-w-[918px] border-t-2 border-line px-5 pt-13 pb-[70px]">
+      <section className="mx-auto w-full max-w-[918px] px-5 pt-13 pb-[70px]">
         <SectionHeading eyebrow="ON-CHAIN PROOF" title={t.home.proofTitle} />
         <div className="mt-7 grid gap-[18px] sm:grid-cols-3">
           {t.home.proof.map((item) => (
@@ -171,7 +174,7 @@ export default async function HomePage() {
 
       {/* CTA -- design source frame `B1XJrb`. */}
       <section className="mx-auto w-full max-w-[918px] px-5 pt-16 pb-16">
-        <div className="flex flex-col items-start justify-between gap-[30px] rounded-xl border-2 border-[#aadad7] bg-card bg-[linear-gradient(120deg,rgba(228,242,242,0.75)_0%,rgba(228,242,242,0)_65%)] px-10 py-9 shadow-[0_4px_10px_rgba(45,45,83,0.06)] sm:flex-row sm:items-center">
+        <div className="flex flex-col items-start justify-between gap-[30px] rounded-xl bg-[#f0f0f0] px-10 py-9 shadow-[0_4px_10px_rgba(45,45,83,0.06)] sm:flex-row sm:items-center">
           <div className="flex flex-col gap-[11px] pt-2">
             <span className="text-[11px] font-bold tracking-[-0.029em] text-brand">
               {t.home.ctaEyebrow}

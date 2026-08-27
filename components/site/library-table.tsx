@@ -20,11 +20,11 @@ export async function LibraryTable({
   const { table } = (await getMessages()).catalog;
 
   return (
-    <div className="overflow-hidden rounded-[9px] border-2 border-line bg-card p-0.5">
+    <div className="overflow-hidden rounded-[9px] border-2 border-line bg-card/60 p-0.5">
       <div className="overflow-x-auto">
         <div className="min-w-[884px]">
           <div
-            className={`grid ${COLS} h-10 items-center border-b-2 border-line bg-subtle text-[10px] font-[650] tracking-[0.04em] text-muted`}
+            className={`grid ${COLS} h-10 items-center border-b-2 border-line bg-subtle/60 text-[10px] font-[650] tracking-[0.04em] text-muted`}
           >
             <span>{table.name}</span>
             <span>{table.libraryId}</span>
@@ -37,7 +37,7 @@ export async function LibraryTable({
             <Link
               key={entry.libraryId}
               href={`/libraries${entry.libraryId}`}
-              className={`grid ${COLS} h-[66px] items-center text-[12px] tracking-[-0.015em] text-steel transition-colors hover:bg-subtle ${
+              className={`grid ${COLS} h-[66px] items-center text-[12px] tracking-[-0.015em] text-steel transition-colors hover:bg-subtle/85 ${
                 i === entries.length - 1 ? '' : 'border-b-2 border-line'
               }`}
             >

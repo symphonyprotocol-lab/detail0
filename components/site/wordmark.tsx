@@ -20,7 +20,7 @@ export function Wordmark() {
       >
         <Re0Mark size={24} />
       </span>
-      <span className="text-[15px] font-semibold tracking-[-0.03em] text-ink">Re0</span>
+      <span className="text-[15px] font-semibold tracking-[-0.03em] text-ink">RE0</span>
     </Link>
   );
 }

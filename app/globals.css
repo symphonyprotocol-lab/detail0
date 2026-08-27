@@ -57,13 +57,64 @@
   --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, monospace;
 }
 
-/* Radial wash behind the hero, as in the design source. */
+/*
+ * Radial wash behind the hero, as in the design source.
+ *
+ * It is painted by a pseudo-element rather than the section's own background so
+ * it can bleed upward past the floating header capsule (54px pill plus its 12px
+ * gutters). The wash running behind the capsule is what makes it read as
+ * suspended over the page instead of welded to the top edge.
+ *
+ * The box covers the whole first screen rather than just the hero section, so
+ * the gradient is sized against the viewport and keeps going past the hero.
+ * The ellipse is in turn taller than that box (118%) so the tint is still
+ * fading when it reaches the bottom edge -- sized to 100% it would land on zero
+ * exactly there and read as a flat band.
+ *
+ * Because the ellipse has not finished fading at that edge, a white ramp is
+ * layered over its lower half. That is what lands the wash on exactly the page
+ * background below, instead of stepping off a residual tint onto white.
+ */
 .site-wash {
-  background-image: radial-gradient(
-    60% 42% at 50% 0%,
-    rgba(195, 236, 223, 0.54) 0%,
-    rgba(195, 236, 223, 0) 100%
-  );
+  position: relative;
+}
+
+.site-wash::before {
+  content: '';
+  position: absolute;
+  inset: -78px 0 0 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0) 60%,
+      rgba(255, 255, 255, 0.55) 82%,
+      #ffffff 100%
+    ),
+    radial-gradient(
+      92% 118% at 50% 0%,
+      rgba(88, 208, 185, 0.66) 0%,
+      rgba(112, 215, 197, 0.5) 34%,
+      rgba(148, 227, 211, 0.34) 66%,
+      rgba(195, 236, 223, 0) 100%
+    );
+}
+
+.site-wash > * {
+  position: relative;
+  z-index: 1;
+}
+
+/*
+ * Whatever follows the hero has to paint above the wash, which now overhangs
+ * the hero section to reach the bottom of the first screen.
+ */
+.site-wash ~ * {
+  position: relative;
+  z-index: 1;
 }
 
 /*
@@ -80,6 +131,19 @@
   background-color: var(--color-surface);
   color: var(--color-ink);
   color-scheme: light;
+}
+
+/*
+ * The marketing site sits on white rather than the tinted product surface, so
+ * the hero wash has something to land on: it ramps to #ffffff at the bottom of
+ * the first screen and the page carries that same white downward. Its cards are
+ * read from their borders, not from a card/background contrast, so nothing is
+ * lost by dropping the tint. Unlayered like `.product-surface` above it -- a
+ * `bg-card` utility would lose to that rule, since Tailwind's utilities are
+ * layered and unlayered CSS outranks them.
+ */
+.site-surface {
+  background-color: var(--color-card);
 }
 
 /* Work area of the admin console, as in the design source. */

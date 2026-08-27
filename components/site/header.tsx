@@ -6,8 +6,10 @@ import { getMessages } from '@/lib/i18n/server';
 import { optionalSession } from '@/lib/http/session';
 
 /**
- * Marketing chrome. The one session-aware bit is the action button: a signed-in
- * visitor is offered their dashboard instead of a login they already have.
+ * Marketing chrome: a capsule that docks centred over the page and tracks the
+ * 918px content column rather than spanning the viewport. The one session-aware
+ * bit is the action button: a signed-in visitor is offered their dashboard
+ * instead of a login they already have.
  */
 export async function SiteHeader() {
   const [session, t] = await Promise.all([optionalSession(), getMessages()]);
@@ -19,8 +21,8 @@ export async function SiteHeader() {
   ];
 
   return (
-    <header className="sticky top-0 z-30 border-b border-line/70 bg-surface/85 backdrop-blur">
-      <div className="mx-auto flex h-[62px] w-full max-w-[918px] items-center justify-between px-5">
+    <header className="sticky top-0 z-30 px-5 pt-3 pb-3">
+      <div className="mx-auto flex h-[54px] w-full max-w-[918px] items-center justify-between rounded-full border border-line/70 bg-card/85 px-5 shadow-[0_1px_2px_rgba(3,26,30,0.04),0_8px_24px_-12px_rgba(3,26,30,0.16)] backdrop-blur">
         <div className="flex items-center gap-8">
           <Wordmark />
           <nav className="hidden items-center gap-6 md:flex">

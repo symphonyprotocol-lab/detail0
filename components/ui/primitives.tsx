@@ -34,7 +34,7 @@ export function Button({
   size?: 'sm' | 'md';
   className?: string;
 }) {
-  const base = `inline-flex items-center justify-center gap-2 rounded-full text-[14px] font-medium tracking-[-0.029em] transition-colors ${
+  const base = `inline-flex items-center justify-center gap-2 rounded-full text-[14px] font-medium tracking-[-0.029em] transition-[color,background-color,border-color,box-shadow,transform] duration-200 ${
     size === 'md' ? 'h-10 px-[18px]' : 'h-9 px-4'
   }`;
   const style =

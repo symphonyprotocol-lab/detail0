@@ -13,7 +13,7 @@ export async function SiteFooter() {
   ];
 
   return (
-    <footer className="border-t border-line bg-card">
+    <footer className="relative z-10 border-t border-line bg-card">
       <div className="mx-auto flex w-full max-w-[918px] flex-col items-center justify-between gap-4 px-5 py-7 text-[11px] sm:flex-row">
         <p className="flex items-center gap-[9px] text-muted">
           <span className="font-medium">{t.footer.copyright}</span>

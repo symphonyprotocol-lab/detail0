@@ -9,9 +9,9 @@ export default async function PublicLayout({ children }: { children: ReactNode }
 
   return (
     <LocaleProvider locale={locale} messages={t}>
-      <div className="product-surface flex min-h-screen flex-col">
+      <div className="product-surface site-surface flex min-h-screen flex-col">
         <SiteHeader />
-        <main className="flex-1">{children}</main>
+        <main className="flex flex-1 flex-col">{children}</main>
         <SiteFooter />
       </div>
     </LocaleProvider>

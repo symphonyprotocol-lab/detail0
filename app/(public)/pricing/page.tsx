@@ -30,7 +30,7 @@ const PLAN_FACTS = [
   },
 ] as const;
 
-/** The teal-washed banner the design source uses to close a run of sections. */
+/** The grey banner that closes a run of sections; teal is left to its accents. */
 function CtaBanner({
   eyebrow,
   title,
@@ -47,7 +47,7 @@ function CtaBanner({
 }) {
   return (
     <div className={`mx-auto w-full max-w-[918px] px-5 ${className}`}>
-      <section className="flex flex-wrap items-center justify-between gap-7 rounded-[11px] border-2 border-[#a6d9d5] bg-card bg-[linear-gradient(120deg,rgba(228,242,242,0.78)_0%,rgba(228,242,242,0)_65%)] px-10 py-[34px] shadow-[0_4px_10px_rgba(45,45,83,0.06)] md:h-[150px] md:flex-nowrap md:py-0">
+      <section className="flex flex-wrap items-center justify-between gap-7 rounded-[11px] bg-[#f0f0f0] px-10 py-[34px] shadow-[0_4px_10px_rgba(45,45,83,0.06)] md:h-[150px] md:flex-nowrap md:py-0">
         <div className="flex flex-col gap-[11px] pt-2">
           <p className="text-[11px] font-bold tracking-[-0.03em] text-brand">{eyebrow}</p>
           <h2 className="text-[25px] leading-[1.5] font-semibold tracking-[-0.04em] text-ink">
@@ -72,91 +72,98 @@ export default async function PricingPage() {
 
   return (
     <>
-      <section className="mx-auto w-full max-w-[918px] px-5 pt-[50px] pb-[70px]">
-        <SectionHeading
-          eyebrow="PLANS"
-          title={p.title}
-          as="h1"
-          action={<p className="text-[11px] tracking-[-0.03em] text-muted">{p.headerNote}</p>}
-        />
+      {/*
+        * Plans and the comparison table share one tinted band. The negative
+        * margin pulls it up behind the floating header capsule (54px pill plus
+        * its 12px gutters) and the matching padding puts the content back, so
+        * the tint starts at the very top of the page rather than under the
+        * header.
+        */}
+      <div className="-mt-[78px] bg-[#f6fafc] pt-[78px]">
+        <section className="mx-auto w-full max-w-[918px] px-5 pt-[50px] pb-[70px]">
+          <SectionHeading
+            eyebrow="PLANS"
+            title={p.title}
+            as="h1"
+            action={<p className="text-[11px] tracking-[-0.03em] text-muted">{p.headerNote}</p>}
+          />
 
-        <div className="mt-3.5 grid gap-3.5 md:grid-cols-3">
-          {plans.map((plan) => (
-            <article
-              key={plan.id}
-              className={`flex flex-col rounded-lg border-2 bg-card p-6 ${
-                plan.featured
-                  ? 'border-[#46c8bb] shadow-[0_4px_10px_rgba(45,45,83,0.12),0_1px_1px_rgba(45,45,83,0.12)]'
-                  : 'border-line shadow-[0_4px_10px_rgba(45,45,83,0.06)]'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span className="flex size-[34px] shrink-0 items-center justify-center rounded-lg border-2 border-[#a3d9d5] bg-brandsoft text-brand">
-                  {plan.icon}
-                </span>
-                <span
-                  className={`inline-flex items-center rounded-full px-2 py-1 text-[10px] font-bold tracking-[-0.03em] whitespace-nowrap ${
-                    plan.featured ? 'bg-brand text-white' : 'bg-brandsoft text-brandink'
-                  }`}
-                >
-                  {plan.kicker}
-                </span>
-              </div>
+          <div className="mt-3.5 grid gap-3.5 md:grid-cols-3">
+            {plans.map((plan) => (
+              <article
+                key={plan.id}
+                className={`flex flex-col rounded-lg border-2 bg-card p-6 ${
+                  plan.featured
+                    ? 'border-[#46c8bb] shadow-[0_4px_10px_rgba(45,45,83,0.12),0_1px_1px_rgba(45,45,83,0.12)]'
+                    : 'border-line shadow-[0_4px_10px_rgba(45,45,83,0.06)]'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex size-[34px] shrink-0 items-center justify-center rounded-lg border-2 border-[#a3d9d5] bg-brandsoft text-brand">
+                    {plan.icon}
+                  </span>
+                  <span
+                    className={`inline-flex items-center rounded-full px-2 py-1 text-[10px] font-bold tracking-[-0.03em] whitespace-nowrap ${
+                      plan.featured ? 'bg-brand text-white' : 'bg-brandsoft text-brandink'
+                    }`}
+                  >
+                    {plan.kicker}
+                  </span>
+                </div>
 
-              <h3 className="mt-[23px] text-[18px] leading-[1.5] font-semibold tracking-[-0.03em] text-ink">
-                {plan.name}
-              </h3>
+                <h3 className="mt-[23px] text-[18px] leading-[1.5] font-semibold tracking-[-0.03em] text-ink">
+                  {plan.name}
+                </h3>
 
-              <p className="mt-[9px] flex items-end gap-[7px]">
-                <span className="text-[48px] leading-none font-semibold tracking-[-0.055em] text-ink">
-                  {plan.price}
-                </span>
-                <span className="pb-1.5 text-[11px] tracking-[-0.03em] text-muted">{plan.unit}</span>
-              </p>
+                <p className="mt-[9px] flex items-end gap-[7px]">
+                  <span className="text-[48px] leading-none font-semibold tracking-[-0.055em] text-ink">
+                    {plan.price}
+                  </span>
+                  <span className="pb-1.5 text-[11px] tracking-[-0.03em] text-muted">{plan.unit}</span>
+                </p>
 
-              <p className="mt-3.5 self-start rounded-md bg-mutedbg px-[9px] py-1.5 text-[16px] leading-[1.5] tracking-[-0.02em] text-steel">
-                {plan.calls}
-              </p>
+                <p className="mt-3.5 self-start rounded-md bg-mutedbg px-[9px] py-1.5 text-[16px] leading-[1.5] tracking-[-0.02em] text-steel">
+                  {plan.calls}
+                </p>
 
-              <p className="mt-3.5 min-h-10 text-[12px] leading-[1.65] tracking-[-0.03em] text-muted">
-                {plan.blurb}
-              </p>
+                <p className="mt-3.5 min-h-10 text-[12px] leading-[1.65] tracking-[-0.03em] text-muted">
+                  {plan.blurb}
+                </p>
 
-              <ul className="mt-[17px] flex flex-col gap-[11px] border-t-2 border-line pt-[19px] text-[11px] leading-[1.5] tracking-[-0.03em] text-steel">
-                {plan.points.map((point) => (
-                  <li key={point} className="flex items-center gap-2">
-                    <CheckIcon size={14} className="text-brand" />
-                    {point}
-                  </li>
-                ))}
-              </ul>
+                <ul className="mt-[17px] flex flex-col gap-[11px] border-t-2 border-line pt-[19px] text-[11px] leading-[1.5] tracking-[-0.03em] text-steel">
+                  {plan.points.map((point) => (
+                    <li key={point} className="flex items-center gap-2">
+                      <CheckIcon size={14} className="text-brand" />
+                      {point}
+                    </li>
+                  ))}
+                </ul>
 
-              <div className="mt-auto pt-[22px]">
-                <Link
-                  href="/login"
-                  className={`flex h-10 items-center justify-center gap-2 rounded-full text-sm font-medium tracking-[-0.03em] transition-colors ${
-                    plan.featured
-                      ? 'bg-brand text-white hover:bg-brand/90'
-                      : 'border-2 border-line bg-surface text-ink hover:bg-subtle'
-                  }`}
-                >
-                  {plan.cta}
-                  <ArrowRightIcon size={14} />
-                </Link>
-              </div>
-            </article>
-          ))}
-        </div>
+                <div className="mt-auto pt-[22px]">
+                  <Link
+                    href="/login"
+                    className={`flex h-10 items-center justify-center gap-2 rounded-full text-sm font-medium tracking-[-0.03em] transition-colors ${
+                      plan.featured
+                        ? 'bg-brand text-white hover:bg-brand/90'
+                        : 'border-2 border-line bg-surface text-ink hover:bg-subtle'
+                    }`}
+                  >
+                    {plan.cta}
+                    <ArrowRightIcon size={14} />
+                  </Link>
+                </div>
+              </article>
+            ))}
+          </div>
 
-        <p className="mt-3.5 flex items-center justify-center gap-2 rounded-lg border-2 border-line bg-brandsoft/60 px-[17px] py-[15px] text-center text-[11px] leading-[1.5] tracking-[-0.03em] text-steel">
-          <span aria-hidden className="font-semibold text-brand">
-            $
-          </span>
-          {p.callNote}
-        </p>
-      </section>
+          <p className="mt-3.5 flex items-center justify-center gap-2 rounded-lg border-2 border-line bg-brandsoft/60 px-[17px] py-[15px] text-center text-[11px] leading-[1.5] tracking-[-0.03em] text-steel">
+            <span aria-hidden className="font-semibold text-brand">
+              $
+            </span>
+            {p.callNote}
+          </p>
+        </section>
 
-      <div className="border-y-2 border-line bg-[#f6fafc]">
         <div className="mx-auto w-full max-w-[918px] px-5 pt-16 pb-18">
           <SectionHeading
             eyebrow="COMPARE"

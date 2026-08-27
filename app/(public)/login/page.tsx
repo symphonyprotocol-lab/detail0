@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { ProviderSignInButton } from '@/components/site/provider-sign-in-button';
 import { Wordmark } from '@/components/site/wordmark';
 import {
-  ArrowRightIcon,
   BookOpenCheckIcon,
   GitHubIcon,
   GoogleIcon,
@@ -46,9 +46,9 @@ export default async function LoginPage({
   const error = isLoginError(params.error) ? params.error : null;
 
   return (
-    <section className="site-wash">
-      <div className="mx-auto flex w-full max-w-[918px] flex-col items-center gap-5 px-5 pt-[66px] pb-[86px]">
-        <div className="w-full max-w-[430px] rounded-[14px] border-2 border-line bg-card/95 pt-9 shadow-[0_18px_60px_rgba(3,26,30,0.08)]">
+    <section className="site-wash flex flex-1 items-center justify-center">
+      <div className="mx-auto flex w-full max-w-[918px] flex-col items-center gap-5 px-5 py-[66px]">
+        <div className="w-full max-w-[430px] rounded-[14px] bg-card/85 pt-9 shadow-[0_2px_6px_rgba(3,26,30,0.05),0_26px_70px_-14px_rgba(3,26,30,0.22)] backdrop-blur-sm">
           <div className="flex justify-center px-[30px]">
             <Wordmark />
           </div>
@@ -76,26 +76,7 @@ export default async function LoginPage({
             {providers.map((p) => (
               <form key={p.id} method="post" action={`/api/auth/${p.id}/start`}>
                 <input type="hidden" name="returnTo" value={returnTo} />
-                <button
-                  type="submit"
-                  className="flex w-full h-[58px] items-center gap-[11px] rounded-[9px] border-2 border-line bg-card px-[14px] text-left transition-colors hover:bg-subtle"
-                >
-                  <span
-                    aria-hidden
-                    className="flex size-[33px] shrink-0 items-center justify-center rounded-lg border-2 border-line bg-subtle"
-                  >
-                    {p.icon}
-                  </span>
-                  <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                    <span className="text-[11px] leading-[1.5] font-[650] tracking-[-0.03em] text-ink">
-                      {p.name}
-                    </span>
-                    <span className="text-[9px] leading-[1.5] tracking-[-0.03em] text-muted">
-                      {p.hint}
-                    </span>
-                  </span>
-                  <ArrowRightIcon size={15} className="text-muted" />
-                </button>
+                <ProviderSignInButton icon={p.icon} name={p.name} hint={p.hint} />
               </form>
             ))}
           </div>
