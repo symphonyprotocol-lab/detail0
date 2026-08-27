@@ -1,4 +1,5 @@
 import {
+  check,
   pgTable,
   pgEnum,
   text,
@@ -101,6 +102,24 @@ export const settlementStatusEnum = pgEnum('settlement_status', [
   'paid',
   'clawed_back',
   'voided',
+]);
+export const billingDocumentKindEnum = pgEnum('billing_document_kind', [
+  'subscription',
+  'pack',
+]);
+/**
+ * The provider's own vocabulary, mirrored rather than reshaped. One column
+ * covers issuing and payment because that is how a provider models a billing
+ * document; see lib/domain/billing.
+ */
+export const billingDocumentStatusEnum = pgEnum('billing_document_status', [
+  'draft',
+  'open',
+  'paid',
+  'failed',
+  'refunded',
+  'void',
+  'uncollectible',
 ]);
 export const policyModeEnum = pgEnum('policy_mode', ['quality', 'select']);
 
@@ -273,6 +292,86 @@ export const paymentEvent = pgTable(
     processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('payment_event_uq').on(t.provider, t.externalEventId)],
+);
+
+/**
+ * The console's read-only mirror of the Payment Provider's billing documents.
+ *
+ * requirement.md 5.3 asks the console to show orders, payment state, refunds
+ * and invoicing status, and says every human action goes through the provider.
+ * architecture.md 11.3 fixes what may be kept on this side: the external id,
+ * the status, the amount and the currency. Cards, addresses and the provider's
+ * rendered invoice stay over there and are not columns here.
+ *
+ * `payment_event` is the append-only, verified log of what the provider said;
+ * this is the projection of it a screen can query. One row per provider
+ * document, rewritten in place as its state moves, which is what makes
+ * `(provider, external_id)` the key rather than the primary key: the row is
+ * mutable because it mirrors something mutable.
+ */
+export const billingDocument = pgTable(
+  'billing_document',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    provider: text('provider').notNull(),
+    /** The provider's machine id -- what an operator pastes into its console. */
+    externalId: text('external_id').notNull(),
+    /** Its human-facing number, or the external id again when it issues none. */
+    number: text('number').notNull(),
+    kind: billingDocumentKindEnum('kind').notNull(),
+    status: billingDocumentStatusEnum('status').notNull(),
+    amountMinor: integer('amount_minor').notNull(),
+    /**
+     * Refunds are their own column rather than a rewritten amount: what was
+     * charged is a fact about the past, and a dispute that cannot see both
+     * numbers cannot be settled. Partial refunds need it too.
+     */
+    refundedMinor: integer('refunded_minor').notNull().default(0),
+    /** As the provider settled it. requirement.md 4.3 keeps the original code. */
+    currency: text('currency').notNull().default('USD'),
+    /**
+     * A method *type* -- `card`, `alipay` -- never an instrument. A last-four
+     * is card data by any useful definition and does not belong on this side.
+     */
+    method: text('method'),
+    /** What was billed, when it is a subscription period. */
+    subscriptionId: uuid('subscription_id').references(() => subscription.id),
+    /** What was bought, when it is a call pack. */
+    addonGrantId: uuid('addon_grant_id').references(() => addonGrant.id),
+    /** The immutable version the order was priced against. requirement.md 4.3 */
+    planVersionId: uuid('plan_version_id').references(() => planVersion.id),
+    periodStart: timestamp('period_start', { withTimezone: true }),
+    periodEnd: timestamp('period_end', { withTimezone: true }),
+    issuedAt: timestamp('issued_at', { withTimezone: true }).notNull(),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    /** The verified event that last wrote this row -- the trail back to source. */
+    lastEventId: uuid('last_event_id').references(() => paymentEvent.id),
+    /**
+     * The instant the provider says this state was true, not the instant we
+     * wrote it. Webhooks arrive out of order, so this is what decides whether
+     * an arriving event is newer than the row it would overwrite.
+     */
+    observedAt: timestamp('observed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('billing_document_uq').on(t.provider, t.externalId),
+    /*
+     * Money is checked where it is stored, not only where it is parsed. The
+     * mirror refuses these too (lib/domain/billing), but the table is written
+     * by adapters, and an adapter that confuses minor and major units -- or
+     * reports more back than went out -- must not be able to drive the
+     * revenue readout negative.
+     */
+    check(
+      'billing_document_amount_ck',
+      sql`${t.amountMinor} >= 0 and ${t.refundedMinor} >= 0 and ${t.refundedMinor} <= ${t.amountMinor}`,
+    ),
+    /** The console's default order, and the page window that walks it. */
+    index('billing_document_issued_idx').on(t.issuedAt.desc(), t.id.desc()),
+    index('billing_document_status_idx').on(t.status, t.issuedAt.desc()),
+    index('billing_document_workspace_idx').on(t.workspaceId, t.issuedAt.desc()),
+  ],
 );
 
 // ---------------------------------------------------------------- knowledge

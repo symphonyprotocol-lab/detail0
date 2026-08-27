@@ -343,6 +343,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 | `subscription` | Provider Customer/Subscription、周期和状态 |
 | `addon_grant` | 已购 Additional Calls 的总量、已用量和剩余余额；**无到期时间**，跨账期结转 |
 | `payment_event` | 验签后的外部 Event 幂等记录 |
+| `billing_document` | Provider 订单/发票的只读投影：外部 ID、状态、金额、币种；管理后台账单页读它 |
 
 ### 6.2 知识与检索
 
@@ -654,6 +655,8 @@ Webhook 处理顺序：
 5. 记录处理结果，不直接改写历史 Usage。
 
 支付状态不确定时，新增付费能力 Fail Closed；已支付周期读取按配置的 Grace Policy 处理。退款、发票和银行卡信息保留在 Provider，recall0 只保存外部 ID、状态、金额和币种。
+
+这份「只保存」的投影落在 `billing_document`，按 `(provider, external_id)` 一行一单，随状态原地改写，供管理后台的订阅账单页查询（§5.3 的只读同步）。它与 `payment_event` 是两把不同的幂等钥匙，不能合并：`(provider, external_event_id)` 让重投的 Webhook 变成空操作，`(provider, external_id)` 让同一张单据保持一行而不是一次通知一行。两者必须同事务写入——事件写了而投影没写，重试会因为事件已处理而直接跳过，这次状态就永久丢失。Webhook 不保证顺序，因此投影另存 Provider 侧的状态时间，只有更新的事件才允许覆盖已有行：一条迟到的 `paid` 覆盖掉已退款的单据，会让后台报出平台并没有的收入。支付方式只记录类别（`card`、`alipay`），不记录任何卡片实例，卡号与后四位都不进入本侧存储。
 
 ### 11.4 分成记账
 
