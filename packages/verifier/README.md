@@ -1,4 +1,4 @@
-# @recall0/verifier
+# @detail0/verifier
 
 Independent anchor verifier.
 
@@ -6,5 +6,5 @@ Given a citation's library id, version and chunk digests, it reads the batch
 Merkle root from Aptos mainnet and recomputes the proof locally.
 
 **It must not import anything from `lib/`.** The whole point is that verification
-does not depend on recall0 — see architecture.md 8.5 and the acceptance criterion
-"校验过程不调用 recall0 任何接口".
+does not depend on detail0 — see architecture.md 8.5 and the acceptance criterion
+"校验过程不调用 detail0 任何接口".

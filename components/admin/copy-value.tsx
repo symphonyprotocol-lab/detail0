@@ -9,7 +9,7 @@ import { CheckIcon, CopyIcon } from '@/components/ui/icons';
  * It exists because of what the billing screen cannot do. Every action on a
  * billing document happens at the Payment Provider (requirement.md 5.3), and
  * the way an operator gets there is by pasting the provider's own id into the
- * provider's own console. recall0 stores that id and nothing more -- no deep
+ * provider's own console. detail0 stores that id and nothing more -- no deep
  * link, because a link would mean storing which provider console a document
  * belongs to and keeping that guess correct.
  *

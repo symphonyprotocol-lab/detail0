@@ -36,7 +36,7 @@ function sealKey(): Promise<CryptoKey> {
       {
         name: 'HKDF',
         hash: 'SHA-256',
-        salt: encoder.encode('recall0/cookie-seal/v1'),
+        salt: encoder.encode('detail0/cookie-seal/v1'),
         info: encoder.encode('aes-gcm'),
       },
       material,

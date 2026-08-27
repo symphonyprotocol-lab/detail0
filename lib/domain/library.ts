@@ -1,7 +1,7 @@
 /**
  * Platform library rules, as pure functions. No Next.js, no driver, no fetch.
  *
- * A platform library is one recall0 publishes itself: requirement.md 5.3 gives
+ * A platform library is one detail0 publishes itself: requirement.md 5.3 gives
  * the console four verbs over it -- create, refresh, suspend and publish -- and
  * nothing else. The distinction from a user library is not cosmetic:
  *

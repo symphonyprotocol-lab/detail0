@@ -10,8 +10,8 @@ import type { Dictionary } from '@/lib/i18n/dictionary';
  */
 export const en: Dictionary = {
   meta: {
-    siteName: 'Recall0',
-    titleTemplate: '%s · Recall0',
+    siteName: 'Detail0',
+    titleTemplate: '%s · Detail0',
     description:
       'Trustworthy knowledge, built for every AI agent. Search public libraries and feed your agent current context that carries its version, source and citation.',
   },
@@ -27,7 +27,7 @@ export const en: Dictionary = {
   },
 
   footer: {
-    copyright: '© 2026, Recall0',
+    copyright: '© 2026, Detail0',
     tagline: 'Trustworthy knowledge behind every AI decision.',
     status: 'Status',
     about: 'About',
@@ -67,7 +67,7 @@ export const en: Dictionary = {
       },
       {
         title: 'Independent verification',
-        body: 'The public verifier calls no Recall0 endpoint. Anyone can use on-chain data to check for themselves which version a citation came from.',
+        body: 'The public verifier calls no Detail0 endpoint. Anyone can use on-chain data to check for themselves which version a citation came from.',
       },
     ],
     proofNote:
@@ -172,31 +172,31 @@ export const en: Dictionary = {
   about: {
     metaTitle: 'About',
     metaDescription:
-      'Recall0 turns public documentation and private material you are entitled to use into versioned libraries an AI agent can search, cite and verify independently.',
+      'Detail0 turns public documentation and private material you are entitled to use into versioned libraries an AI agent can search, cite and verify independently.',
     title: 'Trustworthy knowledge behind every AI decision',
-    lede: 'Recall0 turns public documentation and private material you are entitled to use into versioned libraries an AI agent can search, retrieve and cite. What matters to us is not whether a model sounds convincing, but where the passage it cited came from, which version it belongs to, and whether someone else can check it.',
+    lede: 'Detail0 turns public documentation and private material you are entitled to use into versioned libraries an AI agent can search, retrieve and cite. What matters to us is not whether a model sounds convincing, but where the passage it cited came from, which version it belongs to, and whether someone else can check it.',
     browse: 'Browse public libraries',
     readDocs: 'Read the docs',
     whyTitle: 'What we are solving',
     problems: [
       {
         title: 'The docs an agent gets are usually stale',
-        body: 'Knowledge baked into model weights has a cutoff date, and a web scrape is a snapshot of one moment. Neither can answer "which version is this passage from". Recall0 organises libraries by version, so every result points at one definite, traceable version.',
+        body: 'Knowledge baked into model weights has a cutoff date, and a web scrape is a snapshot of one moment. Neither can answer "which version is this passage from". Detail0 organises libraries by version, so every result points at one definite, traceable version.',
       },
       {
         title: 'Citations cannot be checked',
-        body: 'Text stuffed into a context window usually arrives with no source, no timestamp and no proof it was not rewritten on the way. Every Recall0 result keeps its source and citation, and the content digest of each published version is written to Aptos mainnet.',
+        body: 'Text stuffed into a context window usually arrives with no source, no timestamp and no proof it was not rewritten on the way. Every Detail0 result keeps its source and citation, and the content digest of each published version is written to Aptos mainnet.',
       },
       {
         title: 'Billing is tangled up with content',
-        body: 'Per-token pricing turns long context into a cost risk, and selling by library charges twice for knowledge that is already public. Recall0 bills one accepted query, and the amount of content returned never changes the price.',
+        body: 'Per-token pricing turns long context into a cost risk, and selling by library charges twice for knowledge that is already public. Detail0 bills one accepted query, and the amount of content returned never changes the price.',
       },
     ],
     principlesTitle: 'Four things we hold to',
     principles: [
       {
         title: 'Independently verifiable',
-        body: 'Digests of published versions, audit chain heads and publisher statements all go to Aptos mainnet. A third party can verify them with the public verifier and on-chain data alone, without calling any Recall0 endpoint.',
+        body: 'Digests of published versions, audit chain heads and publisher statements all go to Aptos mainnet. A third party can verify them with the public verifier and on-chain data alone, without calling any Detail0 endpoint.',
       },
       {
         title: 'Billed per call, nothing else',
@@ -244,7 +244,7 @@ export const en: Dictionary = {
   contact: {
     metaTitle: 'Contact',
     metaDescription:
-      'Support, library claims and content appeals, partnerships and security disclosure at Recall0 — with the response time for each.',
+      'Support, library claims and content appeals, partnerships and security disclosure at Detail0 — with the response time for each.',
     title: 'Contact us',
     lede: 'Picking the right channel gets you an answer faster. For account and billing requests, please write from your registered email so we can confirm who you are.',
     channels: [
@@ -293,7 +293,7 @@ export const en: Dictionary = {
   status: {
     metaTitle: 'Status',
     metaDescription:
-      'Live status, 90-day uptime and incident history for the Recall0 retrieval API, MCP, indexing, console and on-chain proofs.',
+      'Live status, 90-day uptime and incident history for the Detail0 retrieval API, MCP, indexing, console and on-chain proofs.',
     title: 'Service status',
     lede: 'Current state of the retrieval API, MCP, index refresh, console and on-chain proofs, plus uptime over the last {days} days. Planned maintenance is announced here in advance.',
     allHealthy: 'All systems operational',
@@ -323,7 +323,7 @@ export const en: Dictionary = {
     reportCardLink: 'Go to contact →',
     anchorCardTitle: 'Proofs are unaffected by service status',
     anchorCardBody:
-      'Version digests already on Aptos mainnet can be checked with the public verifier, which calls no Recall0 endpoint — degradation shown on this page cannot touch that.',
+      'Version digests already on Aptos mainnet can be checked with the public verifier, which calls no Detail0 endpoint — degradation shown on this page cannot touch that.',
     anchorCardLink: 'About on-chain proofs →',
     components: {
       retrieval: {
@@ -372,10 +372,10 @@ export const en: Dictionary = {
   legal: {
     metaTitle: 'Legal',
     metaDescription:
-      'Recall0 terms of service, acceptable use, content and copyright rules, privacy policy, billing terms and the on-chain proof statement.',
+      'Detail0 terms of service, acceptable use, content and copyright rules, privacy policy, billing terms and the on-chain proof statement.',
     title: 'Legal',
     ledeLead:
-      'This page covers the Recall0 website, REST API, MCP service, CLI and console. Effective',
+      'This page covers the Detail0 website, REST API, MCP service, CLI and console. Effective',
     ledeTail:
       '. Registering an account, issuing a query or submitting a library means you accept the terms below.',
     contents: 'CONTENTS',
@@ -400,7 +400,7 @@ export const en: Dictionary = {
       changes: '8. Changes and contact',
     },
     clauses: {
-      c11: 'Recall0 provides retrieval and citation over knowledge libraries. We return context passages carrying their source, version and citation. We do not make judgements for you, and we are not responsible for decisions taken on the basis of those passages.',
+      c11: 'Detail0 provides retrieval and citation over knowledge libraries. We return context passages carrying their source, version and citation. We do not make judgements for you, and we are not responsible for decisions taken on the basis of those passages.',
       c12: 'Using the service requires an account. You may link several sign-in methods, but you are responsible for everything that happens under the account, including calls made with an API key. Revoke a leaked key in the console immediately.',
       c13: 'We grant you a non-exclusive, non-transferable right to access public libraries and your own private libraries within your quota. That licence does not cover reselling retrieval results in bulk, replicating the platform index, or using retrieval output to rebuild a dataset that substitutes for this service.',
       c14: 'You may stop using the service and close your account at any time. If you seriously breach these terms, the acceptable use policy or applicable law, we may suspend or terminate the account; unless the law requires otherwise, we give notice and a period to put things right first.',
@@ -428,7 +428,7 @@ export const en: Dictionary = {
       c53: 'When quota is exhausted, new billable calls pause. Published content and account data are unaffected.',
       c54: 'Claimed public libraries take part in revenue share, allocated linearly from platform revenue by successful retrievals rather than weighted by Trust Score. Platform-owned, private and unclaimed public libraries do not take part. Payout thresholds and holding periods follow the rules published on the pricing and settlement pages, and payouts run through an external payment provider.',
       c55: 'Price changes are announced in advance and take effect from the next billing period. Call packs already purchased are unaffected.',
-      c61: 'Content digests of published versions, the platform audit chain head and publisher statement digests are written to Aptos mainnet. Anyone can verify them with the public verifier and on-chain data, without calling any Recall0 endpoint.',
+      c61: 'Content digests of published versions, the platform audit chain head and publisher statement digests are written to Aptos mainnet. Anyone can verify them with the public verifier and on-chain data, without calling any Detail0 endpoint.',
       c62: {
         lead: 'A proof establishes that "the content digest of a given version existed at a given time and has not been rewritten since". It is',
         emphasis: 'not a guarantee of the correctness, completeness or fitness of the content',
@@ -437,7 +437,7 @@ export const en: Dictionary = {
       c63: 'On-chain writes depend on a public network, and congestion or forks can delay them. A delay does not change what is being proven, and verification matches once the backfill completes.',
       c71: 'The service is provided "as is". We work to keep it available and publish incidents on the status page, but we do not promise uninterrupted or error-free operation.',
       c72: 'We are not responsible for the accuracy of third-party source content, nor for decisions you make on the basis of retrieval results, nor for indirect loss, lost profit or lost data arising from them.',
-      c73: 'To the extent the law allows, our aggregate liability in any circumstance is capped at the total fees you actually paid Recall0 in the 12 months before the event giving rise to the claim.',
+      c73: 'To the extent the law allows, our aggregate liability in any circumstance is capped at the total fees you actually paid Detail0 in the 12 months before the event giving rise to the claim.',
       c74: 'Non-performance caused by force majeure, upstream network failure or third-party service outage is not a breach.',
       c81: 'When the terms change we update the effective date on this page; material changes to rights or obligations are announced in the product or by email in advance. Continuing to use the service after a change takes effect means you accept it.',
       c82: {
@@ -457,19 +457,19 @@ export const en: Dictionary = {
 
   login: {
     metaTitle: 'Sign in',
-    metaDescription: 'Sign in to Recall0 with your GitHub or Google account.',
+    metaDescription: 'Sign in to Detail0 with your GitHub or Google account.',
     title: 'Welcome back',
-    subtitle: 'Choose an account to continue to Recall0.',
+    subtitle: 'Choose an account to continue to Detail0.',
     providers: {
       github: { name: 'Continue with GitHub', hint: 'Use your GitHub account' },
       google: { name: 'Continue with Google', hint: 'Use your Google account' },
     },
     passwordNote:
-      'Recall0 never reads your account password — the third-party account only completes authentication.',
-    termsLead: 'By signing in you agree to Recall0’s',
+      'Detail0 never reads your account password — the third-party account only completes authentication.',
+    termsLead: 'By signing in you agree to Detail0’s',
     termsLink: 'terms of service and privacy policy',
     termsTail: '.',
-    autoCreate: 'A Recall0 account is created automatically on first sign-in.',
+    autoCreate: 'A Detail0 account is created automatically on first sign-in.',
     perks: ['Sync conversation history', 'Manage API keys', 'Access private libraries'],
     errors: {
       oauth_failed: 'Sign-in did not complete. Please try again.',
@@ -489,7 +489,7 @@ export const en: Dictionary = {
     title: 'Public library directory',
     claim: 'Claim a library',
     submit: 'Submit a library',
-    lede: 'Every public library has passed platform review and is free for anyone to query. Each published version gets an on-chain content proof, so a citation can be verified without Recall0.',
+    lede: 'Every public library has passed platform review and is free for anyone to query. Each published version gets an on-chain content proof, so a citation can be verified without Detail0.',
     searchPlaceholder: 'Search by name, domain or Library ID…',
     popular: 'Popular',
     recentlyUpdated: 'Recently updated',
@@ -563,7 +563,7 @@ export const en: Dictionary = {
       'This version has not entered an anchoring batch yet, which does not affect retrieval or citation.',
     verifyVersion: 'Verify this version',
     verifyNote:
-      'The verifier calls no Recall0 endpoint. A proof establishes only that "the content at that moment was this version" — never that the content is correct.',
+      'The verifier calls no Detail0 endpoint. A proof establishes only that "the content at that moment was this version" — never that the content is correct.',
     ownershipPanel: 'Ownership',
     verificationMethod: 'Verified by',
     verificationMethodValue: 'GitHub repository permissions',
@@ -576,8 +576,8 @@ export const en: Dictionary = {
   playground: {
     metaTitle: 'Playground',
     metaDescription:
-      'Talk to the Recall0 MCP server and get current, traceable specialist knowledge.',
-    titleLine1: 'Talk to the Recall0 MCP server',
+      'Talk to the Detail0 MCP server and get current, traceable specialist knowledge.',
+    titleLine1: 'Talk to the Detail0 MCP server',
     titleLine2: 'for current, traceable specialist knowledge',
     seedQuestion: 'How do I implement server-side authentication safely in the Next.js App Router?',
     thinking: 'Let me look up the current Next.js official documentation.',
@@ -632,7 +632,7 @@ export const en: Dictionary = {
       keysDescription: 'Create and manage the keys used to authenticate.',
       createKey: 'Create a key',
       keyColumns: ['Name', 'Key', 'Created', 'Last used'],
-      installTitle: 'Install recall0',
+      installTitle: 'Install detail0',
       installDescription: 'Run the command to connect the MCP server to your AI coding tool.',
       installCommandLabel: 'install command',
       installManualLead: 'You can also',
@@ -686,7 +686,7 @@ export const en: Dictionary = {
       metaTitle: 'API keys',
       eyebrow: 'DEVELOPER SETTINGS',
       title: 'API keys',
-      description: 'Create, scope and rotate the credentials used to reach the recall0 API.',
+      description: 'Create, scope and rotate the credentials used to reach the detail0 API.',
       createKey: 'Create a key',
       noticeTitle: 'A key is shown in full only once, at creation',
       noticeBody:
@@ -788,7 +788,7 @@ export const en: Dictionary = {
       title: 'Settings',
       description: 'Your profile, sign-in method and subscription plan.',
       profileTitle: 'Profile',
-      profileDescription: 'Your recall0 account details.',
+      profileDescription: 'Your detail0 account details.',
       email: 'Email',
       provider: 'Sign-in method',
       joined: 'Joined',
@@ -1040,7 +1040,7 @@ export const en: Dictionary = {
 
   admin: {
     metaTitle: 'Admin console',
-    eyebrow: 'recall0 admin',
+    eyebrow: 'detail0 admin',
     shell: {
       subtitle: 'Admin console',
       searchPlaceholder: 'Search users, libraries or invoices…',
@@ -1141,11 +1141,11 @@ export const en: Dictionary = {
         'Role permissions and action audit',
         'Every sensitive action recorded',
       ],
-      copyright: '© 2026 recall0 · Security operations',
+      copyright: '© 2026 detail0 · Security operations',
       title: 'Administrator sign-in',
       subtitle: 'Authorized platform administrators only',
       emailLabel: 'Administrator email',
-      emailPlaceholder: 'admin@recall0.com',
+      emailPlaceholder: 'admin@detail0.com',
       passwordLabel: 'Password',
       passwordPlaceholder: 'Administrator password',
       mfaLabel: 'Verification code',
@@ -1350,7 +1350,7 @@ export const en: Dictionary = {
     },
     platformLibraries: {
       title: 'Platform libraries',
-      description: 'Create and maintain the public libraries recall0 publishes itself.',
+      description: 'Create and maintain the public libraries detail0 publishes itself.',
       create: 'Create platform library',
       searchPlaceholder: 'Search platform libraries or Library ID',
       columns: ['Library', 'Source', 'Documents', 'Size', 'Last sync', 'Status'],
@@ -1422,7 +1422,7 @@ export const en: Dictionary = {
       form: {
         title: 'Create platform library',
         description: 'A platform library is created public and starts as a draft; source and refresh policy stay editable afterwards.',
-        noticeTitle: 'Platform libraries are maintained by recall0',
+        noticeTitle: 'Platform libraries are maintained by detail0',
         noticeBody: 'No owner workspace and no revenue share. It starts as a draft and can be published once its first version is indexed.',
         publicPill: 'Public',
         fieldTitle: 'Title',
@@ -1782,7 +1782,7 @@ export const en: Dictionary = {
         lastEvent: 'Last event',
         lastEventNone: 'Backfilled from reconciliation, so no event',
         observedAt: 'Provider state as of',
-        note: 'recall0 keeps the external id, the status, the amount and the currency. Card details, the rendered invoice and the billing address stay at the provider.',
+        note: 'detail0 keeps the external id, the status, the amount and the currency. Card details, the rendered invoice and the billing address stay at the provider.',
       },
     },
     settlements: {
@@ -2037,22 +2037,22 @@ export const en: Dictionary = {
       },
     ],
     administrators: [
-      { name: 'Yuzhao', email: 'admin@recall0.com', scope: 'All permissions', lastActive: 'Just now' },
+      { name: 'Yuzhao', email: 'admin@detail0.com', scope: 'All permissions', lastActive: 'Just now' },
       {
         name: 'Ming Li',
-        email: 'reviewer@recall0.com',
+        email: 'reviewer@detail0.com',
         scope: 'Libraries, review',
         lastActive: '12 minutes ago',
       },
       {
         name: 'Anya Wu',
-        email: 'ops@recall0.com',
+        email: 'ops@detail0.com',
         scope: 'Users, plans, billing',
         lastActive: '3 hours ago',
       },
       {
         name: 'Kai Zhang',
-        email: 'support@recall0.com',
+        email: 'support@detail0.com',
         scope: 'Users, read only',
         lastActive: '7 days ago',
       },

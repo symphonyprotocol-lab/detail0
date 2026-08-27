@@ -481,7 +481,7 @@ export async function offerEnrolment(token: string): Promise<EnrolmentOffer> {
     email: row.email,
     username: row.username,
     secret,
-    provisioningUri: totpProvisioningUri({ secret, account: row.email, issuer: 'recall0' }),
+    provisioningUri: totpProvisioningUri({ secret, account: row.email, issuer: 'detail0' }),
   };
 }
 

@@ -44,7 +44,7 @@ const ROLE_CAPABILITIES: Record<AdminRoleId, readonly AdminCapability[]> = {
    * whether a *user's* public library may ship, while creating, refreshing,
    * suspending and publishing the platform's own libraries is the Operator's
    * job. One capability covering both would let a reviewer publish a library
-   * under recall0's name.
+   * under detail0's name.
    */
   reviewer: ['libraries'],
   support: ['users'],
