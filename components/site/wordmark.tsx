@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-import { Detail0Mark } from '@/components/ui/icons';
+import { Recall0Mark } from '@/components/ui/icons';
 
 /**
  * Brand lockup, shared by the marketing header, the dashboard header and the
@@ -18,9 +18,9 @@ export function Wordmark() {
         aria-hidden
         className="flex size-6 items-center justify-center rounded-md bg-brand text-white"
       >
-        <Detail0Mark size={24} />
+        <Recall0Mark size={24} />
       </span>
-      <span className="text-[15px] font-semibold tracking-[-0.03em] text-ink">Detail0</span>
+      <span className="text-[15px] font-semibold tracking-[-0.03em] text-ink">Recall0</span>
     </Link>
   );
 }

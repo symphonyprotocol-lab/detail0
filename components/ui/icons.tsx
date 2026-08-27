@@ -457,7 +457,7 @@ export function FileCodeIcon(props: IconProps) {
  * badge that wraps it -- so it inherits `currentColor` like the line icons.
  * Keep the geometry in sync with app/icon.svg.
  */
-export function Detail0Mark({ size = 24, className }: IconProps) {
+export function Recall0Mark({ size = 24, className }: IconProps) {
   return (
     <svg
       aria-hidden
