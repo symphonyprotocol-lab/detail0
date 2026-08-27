@@ -57,7 +57,7 @@ const LIFECYCLE_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'neutral'> = {
 };
 
 /**
- * Libraries detail0 publishes itself -- design source frame `d5LpW4`.
+ * Libraries recall0 publishes itself -- design source frame `d5LpW4`.
  *
  * Reads the real `library` table, filtered to `is_platform_library`. Creating
  * one is a genuine write and always has been available to this screen; what is

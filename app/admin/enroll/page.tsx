@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { EnrolmentForm } from '@/components/admin/enrolment-form';
-import { CircleXIcon, LockKeyholeIcon, Detail0Mark } from '@/components/ui/icons';
+import { CircleXIcon, LockKeyholeIcon, Recall0Mark } from '@/components/ui/icons';
 import { offerEnrolment, qrCodeSvg } from '@/lib/application/administration';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
@@ -46,9 +46,9 @@ export default async function AdminEnrolPage({
             aria-hidden
             className="flex size-6 items-center justify-center rounded-md bg-brand text-white"
           >
-            <Detail0Mark size={24} />
+            <Recall0Mark size={24} />
           </span>
-          <span className="text-[15px] font-semibold tracking-[-0.03em] text-ink">detail0</span>
+          <span className="text-[15px] font-semibold tracking-[-0.03em] text-ink">recall0</span>
         </Link>
 
         {offer ? (

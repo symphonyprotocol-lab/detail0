@@ -78,7 +78,7 @@ async function apiGet<T>(path: string, token: string): Promise<T> {
         authorization: `Bearer ${token}`,
         accept: 'application/vnd.github+json',
         'x-github-api-version': '2022-11-28',
-        'user-agent': 'detail0',
+        'user-agent': 'recall0',
       },
       signal: AbortSignal.timeout(TIMEOUT_MS),
       cache: 'no-store',

@@ -3,7 +3,7 @@
  *
  * This is steps 2 and 5 of architecture.md 11.3 -- record the verified event
  * once, project it onto the document it describes -- and nothing else. It does
- * not charge, refund, retry or reissue: detail0 never moves money
+ * not charge, refund, retry or reissue: recall0 never moves money
  * (requirement.md 4.3), so the only thing this side of the boundary does with a
  * payment is find out about it.
  *

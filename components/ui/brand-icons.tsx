@@ -1,5 +1,5 @@
 /**
- * Vendor logomarks for the surfaces detail0 plugs into.
+ * Vendor logomarks for the surfaces recall0 plugs into.
  *
  * The design source draws these as line-icon placeholders, but the real marks
  * are what users recognise, so the paths here are the vendors' own, taken from

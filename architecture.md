@@ -1,4 +1,4 @@
-# detail0 开发与部署架构
+# recall0 开发与部署架构
 
 - 版本：3.0
 - 更新日期：2026-08-17
@@ -9,7 +9,7 @@
 
 ## 1. 架构结论
 
-detail0 使用一个 TypeScript 代码库交付公共站点、用户 Dashboard、管理后台、REST API 和远程 MCP；耗时的抓取、解析、Embedding、刷新和删除由 Vercel Workflows 执行。
+recall0 使用一个 TypeScript 代码库交付公共站点、用户 Dashboard、管理后台、REST API 和远程 MCP；耗时的抓取、解析、Embedding、刷新和删除由 Vercel Workflows 执行。
 
 4.0 决策把运行基座从 Vinext/Cloudflare 换到 Vercel + Neon。3.0 换栈的依据是「仓库当前基座是 vinext starter」，而该 starter 已在提交 `306e76a` 中随站点代码一并删除，依据不再成立；仓库目前没有任何应用代码，本次切换的成本仅限文档修订。
 
@@ -55,7 +55,7 @@ detail0 使用一个 TypeScript 代码库交付公共站点、用户 Dashboard�
 2. **原生生命周期规则**：直接满足 §7 关于清理失败任务临时对象和过期导出的要求，不需要自建清理任务。
 3. **存储单价**：容量按 GB-月常驻累积，单价差会持续放大。
 
-出网费**不是**主要理由。detail0 的检索路径读 Postgres 而非对象存储，真正流向终端用户的只有导出文件和审核用快照，量很小，不是 CDN 型负载。
+出网费**不是**主要理由。recall0 的检索路径读 Postgres 而非对象存储，真正流向终端用户的只有导出文件和审核用快照，量很小，不是 CDN 型负载。
 
 **为什么 Upstash 只承担两件事。** 匿名限流和检索缓存在上一版是运行平台自带能力，换栈后丢失，Upstash 是补回这两项能力，不是新增能力。明确否决三种扩大用法：
 
@@ -85,8 +85,8 @@ detail0 使用一个 TypeScript 代码库交付公共站点、用户 Dashboard�
 
 - Context7 MCP 包本质上是其远程 API 的代理，不包含生产检索后端；
 - Context7 的生产抓取、解析、Embedding、Rerank、质量评分和计费实现未在公共仓库中完整提供；
-- detail0 的 Trust Score 使用 0–100，公开库审核和 Free 私有库规则也不同；
-- detail0 使用自己的命名、Schema、API Host、Key 前缀和自有数据平面。
+- recall0 的 Trust Score 使用 0–100，公开库审核和 Free 私有库规则也不同；
+- recall0 使用自己的命名、Schema、API Host、Key 前缀和自有数据平面。
 
 ## 3. 系统上下文与部署拓扑
 
@@ -493,7 +493,7 @@ Step 输出只保存可序列化摘要；大对象保存在对象存储。外部
 - Anchor Signer 通过 `lib/providers` 的 Signer Adapter 调用云 KMS，私钥不可导出，业务代码不得直接引用 KMS SDK 或链 SDK；
 - 链、KMS 或节点不可用时批次停留在 `pending` 并重试告警，发布、刷新、检索、计量、审核和出账全部不受影响；
 - Context 与 Search 响应默认不返回 Anchor 字段，避免影响 `maxTokens` 裁剪与响应体积；存证信息走独立的 Anchor 查询接口；
-- 公开 Verifier 作为独立包发布，**不允许 import 任何服务端 `lib/` 代码**，以保证「校验不依赖 detail0」这一验收标准成立；
+- 公开 Verifier 作为独立包发布，**不允许 import 任何服务端 `lib/` 代码**，以保证「校验不依赖 recall0」这一验收标准成立；
 - 存证不产生 Usage Event，不进入 §11 的额度链路。
 
 ## 9. 混合检索
@@ -654,7 +654,7 @@ Webhook 处理顺序：
 4. 关联不可变 Plan Version；
 5. 记录处理结果，不直接改写历史 Usage。
 
-支付状态不确定时，新增付费能力 Fail Closed；已支付周期读取按配置的 Grace Policy 处理。退款、发票和银行卡信息保留在 Provider，detail0 只保存外部 ID、状态、金额和币种。
+支付状态不确定时，新增付费能力 Fail Closed；已支付周期读取按配置的 Grace Policy 处理。退款、发票和银行卡信息保留在 Provider，recall0 只保存外部 ID、状态、金额和币种。
 
 这份「只保存」的投影落在 `billing_document`，按 `(provider, external_id)` 一行一单，随状态原地改写，供管理后台的订阅账单页查询（§5.3 的只读同步）。它与 `payment_event` 是两把不同的幂等钥匙，不能合并：`(provider, external_event_id)` 让重投的 Webhook 变成空操作，`(provider, external_id)` 让同一张单据保持一行而不是一次通知一行。两者必须同事务写入——事件写了而投影没写，重试会因为事件已处理而直接跳过，这次状态就永久丢失。Webhook 不保证顺序，因此投影另存 Provider 侧的状态时间，只有更新的事件才允许覆盖已有行：一条迟到的 `paid` 覆盖掉已退款的单据，会让后台报出平台并没有的收入。支付方式只记录类别（`card`、`alipay`），不记录任何卡片实例，卡号与后四位都不进入本侧存储。
 
@@ -741,7 +741,7 @@ query-docs(libraryId, query)
 - 每次 HTTP 请求创建无状态 Server Context，不保存 MCP Session；
 - `/mcp` 接受匿名请求或 Bearer API Key；
 - `/mcp/oauth` 强制 Bearer OAuth，并发布 Protected Resource Metadata；
-- stdio 从 `--api-key` 或 `DETAIL0_API_KEY` 读取 Key；
+- stdio 从 `--api-key` 或 `RECALL0_API_KEY` 读取 Key；
 - 传递客户端名称、版本、Transport 和随机 Session ID 作为非敏感遥测；
 - 后端调用设置明确超时，429/401/404 映射为可操作提示；
 - Zod Preprocess 只兼容白名单参数别名，规范 Schema 仍保持稳定；
@@ -752,7 +752,7 @@ query-docs(libraryId, query)
 TypeScript SDK：
 
 ```ts
-const client = new Detail0({ apiKey: process.env.DETAIL0_API_KEY });
+const client = new Recall0({ apiKey: process.env.RECALL0_API_KEY });
 
 const libraries = await client.searchLibrary(
   "server authentication",
@@ -773,12 +773,12 @@ SDK 默认：60 秒总超时、只对网络错误/429/5xx 进行有限指数退�
 CLI 命令：
 
 ```text
-detail0 setup [--mcp|--cli] [--client ...]
-detail0 remove [--client ...] [--all]
-detail0 auth login|logout|status
-detail0 library <name> <query>
-detail0 docs <library-id> <query>
-detail0 skill add|remove|list
+recall0 setup [--mcp|--cli] [--client ...]
+recall0 remove [--client ...] [--all]
+recall0 auth login|logout|status
+recall0 library <name> <query>
+recall0 docs <library-id> <query>
+recall0 skill add|remove|list
 ```
 
 配置写入必须可预览、可重复执行、保留用户其他配置。Skills、Codex/Claude/Cursor 插件和 AI SDK Tools 只组合 SDK/MCP，不直接访问数据库、对象存储或缓存。

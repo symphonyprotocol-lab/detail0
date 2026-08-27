@@ -95,7 +95,7 @@ describe('Library IDs', () => {
 });
 
 /**
- * A platform library is fetched under detail0's own name, so a source that can
+ * A platform library is fetched under recall0's own name, so a source that can
  * be tampered with in transit is a content-integrity problem rather than an
  * inconvenience -- which is why `http` is refused rather than upgraded.
  */

@@ -85,12 +85,12 @@ describe('totpProvisioningUri', () => {
   it('carries the parameters an authenticator needs', () => {
     const uri = totpProvisioningUri({
       secret: 'JBSWY3DPEHPK3PXP',
-      account: 'admin@detail0.com',
-      issuer: 'detail0',
+      account: 'admin@recall0.com',
+      issuer: 'recall0',
     });
-    expect(uri.startsWith('otpauth://totp/detail0%3Aadmin%40detail0.com?')).toBe(true);
+    expect(uri.startsWith('otpauth://totp/recall0%3Aadmin%40recall0.com?')).toBe(true);
     expect(uri).toContain('secret=JBSWY3DPEHPK3PXP');
-    expect(uri).toContain('issuer=detail0');
+    expect(uri).toContain('issuer=recall0');
     expect(uri).toContain('digits=6');
     expect(uri).toContain('period=30');
   });

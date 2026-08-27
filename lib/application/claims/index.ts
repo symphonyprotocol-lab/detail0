@@ -6,7 +6,7 @@ import { claimMethodsFor, requiresClaim } from '@/lib/domain';
  * Ownership claim. requirement.md 7.3, architecture.md 5.4.
  *
  * The question is not "who are you" but "do you control this source".
- * A key placed in detail0.json grants nothing: a config file can be written by
+ * A key placed in recall0.json grants nothing: a config file can be written by
  * forks, pull requests and mirrors, so write access is not control.
  *
  * library.ownerWorkspaceId has exactly two write paths: a verified claim, or an
