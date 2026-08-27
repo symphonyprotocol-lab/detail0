@@ -1,7 +1,6 @@
 /**
  * Placeholder data for the admin console -- design source frames `oxEhj`,
- * `SRtSN`, `zcHnx`, `d5LpW4`, `WHlyq`, `n7LZMz`, `RubCg`, `Uko79`, `buNhV`
- * and `z9DJOF`.
+ * `SRtSN`, `zcHnx`, `WHlyq`, `RubCg`, `Uko79`, `buNhV` and `z9DJOF`.
  *
  * Administration use cases are not implemented yet (architecture.md 21), so
  * these screens render from this fixture. The shapes mirror db/schema.ts --
@@ -132,23 +131,6 @@ export interface AdminClaimRow {
 }
 
 export const CLAIM_TOTAL = 6;
-
-/* ------------------------------------------------- platform libraries */
-
-export type PlatformStatus = 'published' | 'syncing' | 'draft';
-
-export interface PlatformLibraryRow {
-  title: string;
-  meta: string;
-  source: string;
-  documents: string;
-  size: string;
-  syncedAt: string;
-  status: PlatformStatus;
-  statusLabel: string;
-}
-
-export const PLATFORM_TOTAL = 126;
 
 /* ------------------------------------------------------------ settlements */
 
@@ -310,31 +292,6 @@ export function adminCopy(t: Dictionary) {
     { id: 'disputed', label: t.admin.claims.tabs.disputed, count: 1 },
   ];
 
-  const platformStats: AdminStat[] = [
-    { label: d.platformStats.published, value: '126' },
-    { label: d.platformStats.synced, value: '12' },
-    { label: d.platformStats.calls, value: '8.6M' },
-  ];
-
-  const platformFacts: [string, string, string, PlatformStatus][] = [
-    ['Website', '2,418', '84.2 MB', 'published'],
-    ['GitHub', '1,206', '46.8 MB', 'published'],
-    ['OpenAPI', '986', '38.1 MB', 'syncing'],
-    ['Website', '3,642', '126.7 MB', 'draft'],
-  ];
-
-  const platformLibraries: PlatformLibraryRow[] = d.platformLibraries.map((library, index) => {
-    const [source, documents, size, status] = platformFacts[index] ?? platformFacts[0]!;
-    return {
-      ...library,
-      source,
-      documents,
-      size,
-      status,
-      statusLabel: d.platformStatus[status],
-    };
-  });
-
   const settlementStats: AdminStat[] = [
     { label: d.settlementStats.net, value: '$18,420', caption: d.settlementStats.netCaption },
     { label: d.settlementStats.pool, value: '$2,214', caption: d.settlementStats.poolCaption },
@@ -402,8 +359,6 @@ export function adminCopy(t: Dictionary) {
     libraryTabs,
     claims,
     claimTabs,
-    platformStats,
-    platformLibraries,
     settlementStats,
     statements,
     administrators,

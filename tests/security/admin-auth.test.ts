@@ -43,6 +43,19 @@ describe('admin capabilities', () => {
     }
   });
 
+  /*
+   * requirement.md 3.1 splits these between two people: a Reviewer decides
+   * whether a *user's* public library ships, an Operator maintains the
+   * platform's own. One shared capability would have let a reviewer publish
+   * and suspend libraries under recall0's name.
+   */
+  it('keeps platform libraries out of the reviewer role', () => {
+    expect(roleAllows('reviewer', 'libraries')).toBe(true);
+    expect(roleAllows('reviewer', 'platformLibraries')).toBe(false);
+    expect(roleAllows('operator', 'platformLibraries')).toBe(true);
+    expect(roleAllows('support', 'platformLibraries')).toBe(false);
+  });
+
   it('grants nothing at all when no role is assigned', () => {
     expect(capabilitiesForRoles([])).toEqual([]);
   });

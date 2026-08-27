@@ -20,6 +20,7 @@ import { listBillingDocuments } from '@/lib/application/billing';
 import { toCsv } from './csv';
 import { listAuditEntries, type AuditResultFilter } from './list-audit';
 import { listClaims, listUserLibraries, type ClaimFilter, type LibraryReviewFilter } from './list-libraries';
+import { isPlatformStatusFilter, listPlatformLibraries } from './manage-platform-libraries';
 import { listConsoleUsers, type UserStatusFilter } from './list-users';
 import { listAdministrators } from './manage-administrators';
 
@@ -67,6 +68,27 @@ export const CONSOLE_EXPORTS: Record<string, ConsoleExport> = {
       return toCsv(
         ['library_id', 'title', 'owner', 'source', 'storage_bytes', 'visibility', 'lifecycle_status', 'created'],
         rows.map((r) => [r.publicId, r.title, r.ownerName, r.sourceType, r.storageBytes, r.visibility, r.lifecycleStatus, r.createdAt]),
+      );
+    },
+  },
+  'platform-libraries': {
+    capability: 'platformLibraries',
+    filename: 'platform-libraries',
+    async build(input) {
+      const { rows } = await listPlatformLibraries({
+        query: input.query,
+        /*
+         * Narrowed rather than cast, for the same reason as `billing` below:
+         * `lifecycle_status` is a Postgres enum, so a hand-typed
+         * `?status=bogus` would be `invalid input value for enum` and a 500
+         * rather than an empty extract.
+         */
+        status: isPlatformStatusFilter(input.status) ? input.status : 'all',
+        limit: EXPORT_LIMIT,
+      });
+      return toCsv(
+        ['library_id', 'title', 'source', 'sources', 'documents', 'storage_bytes', 'lifecycle_status', 'index_status', 'last_synced', 'created'],
+        rows.map((r) => [r.publicId, r.title, r.sourceType, r.sourceCount, r.documents, r.storageBytes, r.lifecycleStatus, r.indexStatus, r.lastSyncedAt, r.createdAt]),
       );
     },
   },

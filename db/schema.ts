@@ -405,6 +405,15 @@ export const library = pgTable(
     uniqueIndex('library_public_id_uq').on(t.publicId),
     index('library_owner_idx').on(t.ownerWorkspaceId),
     index('library_visibility_lifecycle_idx').on(t.visibility, t.lifecycleStatus),
+    /**
+     * The console's platform-library list reads `library` the other way round
+     * from the catalogue: it starts from `is_platform_library`, and the false
+     * rows outnumber the true ones by orders of magnitude. Partial, so this
+     * costs one entry per platform library rather than one per library.
+     */
+    index('library_platform_idx')
+      .on(t.lifecycleStatus, t.createdAt.desc())
+      .where(sql`${t.isPlatformLibrary}`),
   ],
 );
 
@@ -418,33 +427,41 @@ export const libraryAlias = pgTable(
   (t) => [uniqueIndex('library_alias_uq').on(t.fromPublicId)],
 );
 
-export const source = pgTable('source', {
-  id: uuid('id').primaryKey(),
-  libraryId: uuid('library_id').notNull().references(() => library.id),
-  type: sourceTypeEnum('type').notNull(),
-  location: text('location').notNull(),
-  config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
-  /** Encrypted reference only. Never the secret itself. */
-  credentialRef: text('credential_ref'),
-  refreshPolicy: jsonb('refresh_policy').$type<Record<string, unknown>>().notNull().default({}),
-});
+export const source = pgTable(
+  'source',
+  {
+    id: uuid('id').primaryKey(),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    type: sourceTypeEnum('type').notNull(),
+    location: text('location').notNull(),
+    config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
+    /** Encrypted reference only. Never the secret itself. */
+    credentialRef: text('credential_ref'),
+    refreshPolicy: jsonb('refresh_policy').$type<Record<string, unknown>>().notNull().default({}),
+  },
+  (t) => [index('source_library_idx').on(t.libraryId)],
+);
 
-export const libraryVersion = pgTable('library_version', {
-  id: uuid('id').primaryKey(),
-  libraryId: uuid('library_id').notNull().references(() => library.id),
-  label: text('label').notNull(),
-  sourceDigest: text('source_digest').notNull(),
-  parserVersion: text('parser_version').notNull(),
-  chunkerVersion: text('chunker_version').notNull(),
-  embeddingModel: text('embedding_model').notNull(),
-  /** Merkle root over ordered chunk digests, input to Version Anchor. */
-  contentMerkleRoot: text('content_merkle_root'),
-  indexStatus: indexStatusEnum('index_status').notNull(),
-  totalTokens: integer('total_tokens').notNull().default(0),
-  totalChunks: integer('total_chunks').notNull().default(0),
-  publishedAt: timestamp('published_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const libraryVersion = pgTable(
+  'library_version',
+  {
+    id: uuid('id').primaryKey(),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    label: text('label').notNull(),
+    sourceDigest: text('source_digest').notNull(),
+    parserVersion: text('parser_version').notNull(),
+    chunkerVersion: text('chunker_version').notNull(),
+    embeddingModel: text('embedding_model').notNull(),
+    /** Merkle root over ordered chunk digests, input to Version Anchor. */
+    contentMerkleRoot: text('content_merkle_root'),
+    indexStatus: indexStatusEnum('index_status').notNull(),
+    totalTokens: integer('total_tokens').notNull().default(0),
+    totalChunks: integer('total_chunks').notNull().default(0),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('library_version_library_idx').on(t.libraryId, t.createdAt.desc())],
+);
 
 export const libraryReview = pgTable('library_review', {
   id: uuid('id').primaryKey(),
@@ -498,14 +515,20 @@ export const libraryScore = pgTable('library_score', {
   computedAt: timestamp('computed_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const document = pgTable('document', {
-  id: uuid('id').primaryKey(),
-  libraryId: uuid('library_id').notNull().references(() => library.id),
-  versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
-  title: text('title').notNull(),
-  sourceUrl: text('source_url').notNull(),
-  objectKey: text('object_key'),
-});
+export const document = pgTable(
+  'document',
+  {
+    id: uuid('id').primaryKey(),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
+    title: text('title').notNull(),
+    sourceUrl: text('source_url').notNull(),
+    objectKey: text('object_key'),
+  },
+  /** Documents are counted per version -- versions are immutable, so a count by
+      library would include every superseded build. */
+  (t) => [index('document_version_idx').on(t.versionId)],
+);
 
 /**
  * Chunk text, the full-text vector and the embedding live on one row so that
@@ -589,6 +612,8 @@ export const usageEvent = pgTable(
   (t) => [
     uniqueIndex('usage_event_request_uq').on(t.requestId),
     index('usage_event_workspace_time_idx').on(t.workspaceId, t.createdAt),
+    /** Retrieval calls per library, for the console's per-library figures. */
+    index('usage_event_library_time_idx').on(t.libraryId, t.createdAt),
   ],
 );
 
@@ -734,6 +759,8 @@ export const workflowOperation = pgTable(
   },
   (t) => [
     uniqueIndex('workflow_operation_uq').on(t.libraryId, t.sourceDigest, t.operationType),
+    /** "Is anything open for this library", and the queue depth above the list. */
+    index('workflow_operation_library_idx').on(t.libraryId, t.operationType, t.status),
   ],
 );
 
