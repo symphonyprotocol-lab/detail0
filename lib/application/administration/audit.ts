@@ -82,12 +82,19 @@ export async function auditHash(input: {
 }
 
 /**
- * Writes the entry and returns its hash.
+ * Writes the entry and returns its hash, or null if the write was refused.
  *
  * Failures are swallowed and logged: an audit write must not be the thing that
  * stops an administrator signing out, and a lost row is visible as a broken
  * chain at verification time. It is never allowed to fail *silently* -- the
  * error line is the operator's signal.
+ *
+ * Under a test runner it is rethrown instead. The signal above is a line on
+ * stderr, and a runner captures stderr rather than printing it, so in the one
+ * environment that exists to catch this the swallow really is silent: a use
+ * case would make its change, record nothing, and still pass. A refused audit
+ * write in a test is a defect in the test or the schema, not a degradation to
+ * ride out, so it is raised where it happened.
  */
 export async function recordAudit(entry: AuditEntry): Promise<string | null> {
   try {
@@ -141,6 +148,8 @@ export async function recordAudit(entry: AuditEntry): Promise<string | null> {
         error instanceof Error ? error.message : 'unknown'
       }`,
     );
+    /* Vitest sets this; see the note above on why tests must not ride it out. */
+    if (process.env.VITEST) throw error;
     return null;
   }
 }

@@ -348,6 +348,7 @@ describeWithDb('managing administrators', () => {
     const rows = await db()
       .select({
         action: schema.auditLog.action,
+        targetId: schema.auditLog.targetId,
         reason: schema.auditLog.reason,
         beforeValue: schema.auditLog.beforeValue,
         afterValue: schema.auditLog.afterValue,
@@ -360,7 +361,14 @@ describeWithDb('managing administrators', () => {
     expect(actions).toContain('admin.change_role');
     expect(actions).toContain('admin.disable');
 
-    const roleChange = rows.find((row) => row.action === 'admin.change_role');
+    /*
+     * Matched on the target as well as the action: this actor demotes the
+     * second super administrator further down, so `admin.change_role` alone
+     * selects two rows and an unordered read picks either of them.
+     */
+    const roleChange = rows.find(
+      (row) => row.action === 'admin.change_role' && row.targetId === inviteeEmail,
+    );
     expect(roleChange?.reason).toBe('moved to the support rota');
     expect(roleChange?.beforeValue).toMatchObject({ roles: ['reviewer'] });
     expect(roleChange?.afterValue).toMatchObject({ roles: ['support'] });
