@@ -34,6 +34,14 @@ const externalId = `in_${workspaceId.slice(0, 12)}`;
 const EARLIER = new Date('2026-08-05T09:12:00.000Z');
 const LATER = new Date('2026-08-19T14:03:00.000Z');
 
+/**
+ * The period the sale covers. A subscription document carries one, and it is
+ * one of the fields a later partial event must leave alone -- so the fixture
+ * that creates the document has to establish it.
+ */
+const PERIOD_START = new Date('2026-08-05T09:00:00.000Z');
+const PERIOD_END = new Date('2026-09-05T09:00:00.000Z');
+
 const base = {
   workspaceId,
   provider,
@@ -44,6 +52,8 @@ const base = {
   currency: 'USD',
   method: 'card',
   issuedAt: new Date('2026-08-05T09:11:00.000Z'),
+  periodStart: PERIOD_START,
+  periodEnd: PERIOD_END,
 };
 
 describeWithDb('the provider billing mirror', () => {
@@ -146,7 +156,8 @@ describeWithDb('the provider billing mirror', () => {
     expect(rows[0]?.currency).toBe('USD');
     expect(rows[0]?.method).toBe('card');
     expect(rows[0]?.paidAt).toEqual(EARLIER);
-    expect(rows[0]?.periodEnd).not.toBeNull();
+    expect(rows[0]?.periodStart).toEqual(PERIOD_START);
+    expect(rows[0]?.periodEnd).toEqual(PERIOD_END);
   });
 
   it('keeps a recorded refund when a later event says nothing about it', async () => {

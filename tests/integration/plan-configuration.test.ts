@@ -9,7 +9,7 @@
  *
  * Runs only when TEST_DATABASE_URL points at a disposable database.
  */
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
@@ -26,7 +26,16 @@ const { AdminChangeRefused } = await import('@/lib/domain/admin');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 
-const actor = { administratorId: crypto.randomUUID(), email: 'plans@example.test' };
+/*
+ * A real `administrator` row, not just an id: `audit_log.administrator_id` is a
+ * foreign key, and `recordAudit` swallows a refused insert, so an actor who
+ * does not exist means the change is made and simply never recorded.
+ */
+const stamp = Date.now();
+const actor = {
+  administratorId: crypto.randomUUID(),
+  email: `plans-${stamp}@example.test`,
+};
 
 /** The refusal code, so a case can assert which guard fired rather than that one did. */
 async function expectRefusal(promise: Promise<unknown>): Promise<string> {
@@ -42,6 +51,15 @@ const workspaceId = uuidv7();
 let subscriptionId = '';
 
 describeWithDb('plan configuration', () => {
+  beforeAll(async () => {
+    await db().insert(schema.administrator).values({
+      id: actor.administratorId,
+      username: `Plan Operator ${stamp}`,
+      email: actor.email,
+      status: 'active',
+    });
+  });
+
   afterAll(async () => {
     const database = db();
     if (subscriptionId) {
@@ -53,9 +71,13 @@ describeWithDb('plan configuration', () => {
         .delete(schema.planVersion)
         .where(inArray(schema.planVersion.id, mintedVersionIds));
     }
+    // Audit rows first: they are what points at the administrator.
     await database
       .delete(schema.auditLog)
       .where(eq(schema.auditLog.administratorId, actor.administratorId));
+    await database
+      .delete(schema.administrator)
+      .where(eq(schema.administrator.id, actor.administratorId));
   });
 
   it('reads the seeded catalogue: three tiers, each with a live version', async () => {
