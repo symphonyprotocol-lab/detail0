@@ -9,7 +9,7 @@ import {
   DatabaseIcon,
   GlobeIcon,
   LayoutDashboardIcon,
-  Recall0Mark,
+  Detail0Mark,
   ReceiptIcon,
   ScrollTextIcon,
   ShieldCheckIcon,
@@ -125,11 +125,11 @@ export function AdminSidebar({
           aria-hidden
           className="flex size-[27px] shrink-0 items-center justify-center rounded-md bg-white/10 text-mint"
         >
-          <Recall0Mark size={24} />
+          <Detail0Mark size={24} />
         </span>
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="text-[15px] leading-[1.2] font-bold tracking-[-0.03em] text-white">
-            recall0
+            detail0
           </span>
           <span className="text-[10px] tracking-[-0.023em] text-consolemuted">
             {t.admin.shell.subtitle}

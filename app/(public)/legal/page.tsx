@@ -101,7 +101,7 @@ export default async function LegalPage() {
         <Clause n="3.3">
           {c.c33.lead}{' '}
           <code className="rounded bg-mutedbg px-1 py-0.5 font-mono text-[11.5px] text-steel">
-            recall0.json
+            detail0.json
           </code>
           {c.c33.tail}
         </Clause>
@@ -147,15 +147,15 @@ export default async function LegalPage() {
         <Clause n="8.1">{c.c81}</Clause>
         <Clause n="8.2">
           {c.c82.lead}{' '}
-          <a href="mailto:legal@recall0.com" className="font-medium text-brandink hover:underline">
-            legal@recall0.com
+          <a href="mailto:legal@detail0.com" className="font-medium text-brandink hover:underline">
+            legal@detail0.com
           </a>
           {c.c82.mid}{' '}
           <a
-            href="mailto:security@recall0.com"
+            href="mailto:security@detail0.com"
             className="font-medium text-brandink hover:underline"
           >
-            security@recall0.com
+            security@detail0.com
           </a>
           {c.c82.tail}
         </Clause>

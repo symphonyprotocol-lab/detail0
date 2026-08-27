@@ -18,10 +18,10 @@ export async function generateMetadata(): Promise<Metadata> {
 /** Icon and address per channel, in the order the dictionary lists them. */
 const CHANNEL_ICONS = [KeyIcon, BadgeCheckIcon, SparklesIcon, ShieldCheckIcon];
 const CHANNEL_EMAILS = [
-  'support@recall0.com',
-  'claims@recall0.com',
-  'partners@recall0.com',
-  'security@recall0.com',
+  'support@detail0.com',
+  'claims@detail0.com',
+  'partners@detail0.com',
+  'security@detail0.com',
 ];
 const ELSEWHERE_HREFS = ['/status', '/docs', '/pricing', '/legal'];
 
@@ -78,8 +78,8 @@ export default async function ContactPage() {
           </ul>
           <p className="mt-5 border-t-2 border-line pt-4 text-[12px] leading-[1.7] text-faint">
             {c.phishingLead}{' '}
-            <a href="mailto:security@recall0.com" className="font-medium text-brandink hover:underline">
-              security@recall0.com
+            <a href="mailto:security@detail0.com" className="font-medium text-brandink hover:underline">
+              security@detail0.com
             </a>
             {c.phishingTail}
           </p>

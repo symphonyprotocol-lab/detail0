@@ -40,7 +40,7 @@ export async function generateMetadata(): Promise<Metadata> {
  * Subscription billing -- design source frame `n7LZMz`.
  *
  * A read-only mirror, and that is a product rule rather than an unfinished
- * screen: recall0 never moves money, so refunds, retries and payment links all
+ * screen: detail0 never moves money, so refunds, retries and payment links all
  * happen at the Payment Provider (requirement.md 4.3, 5.3). There is no server
  * action behind this page and no row control that changes anything -- the two
  * controls open the document and export the list.
