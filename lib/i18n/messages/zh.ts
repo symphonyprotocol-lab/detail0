@@ -12,8 +12,8 @@
  */
 export const zh = {
   meta: {
-    siteName: 'Recall0',
-    titleTemplate: '%s · Recall0',
+    siteName: 'Re0',
+    titleTemplate: '%s · Re0',
     description:
       '可信知识，为每一个 AI Agent 而生。搜索公开知识库，把带版本、来源与引用的最新上下文接入你的 Agent。',
   },
@@ -29,7 +29,7 @@ export const zh = {
   },
 
   footer: {
-    copyright: '© 2026, Recall0',
+    copyright: '© 2026, Re0',
     tagline: '让可信知识进入每一次 AI 决策。',
     status: '服务状态',
     about: '关于',
@@ -65,7 +65,7 @@ export const zh = {
       },
       {
         title: '独立验证',
-        body: '公开验证工具不调用 Recall0 任何接口。任何人都能用链上数据自行校验引用来自哪个版本。',
+        body: '公开验证工具不调用 Re0 任何接口。任何人都能用链上数据自行校验引用来自哪个版本。',
       },
     ],
     proofNote:
@@ -168,31 +168,31 @@ export const zh = {
   about: {
     metaTitle: '关于',
     metaDescription:
-      'Recall0 把公开文档和你有权使用的私有资料，变成 AI Agent 可搜索、可引用、可独立验证的版本化知识库。',
+      'Re0 把公开文档和你有权使用的私有资料，变成 AI Agent 可搜索、可引用、可独立验证的版本化知识库。',
     title: '让可信知识进入每一次 AI 决策',
-    lede: 'Recall0 把公开文档和你有权使用的私有资料，转换为 AI Agent 可搜索、可检索、可引用的版本化知识库。我们关心的不是“模型能不能说得像样”，而是它引用的那段内容来自哪里、属于哪个版本、能不能被别人独立核对。',
+    lede: 'Re0 把公开文档和你有权使用的私有资料，转换为 AI Agent 可搜索、可检索、可引用的版本化知识库。我们关心的不是“模型能不能说得像样”，而是它引用的那段内容来自哪里、属于哪个版本、能不能被别人独立核对。',
     browse: '浏览公开知识库',
     readDocs: '阅读文档',
     whyTitle: '我们在解决什么',
     problems: [
       {
         title: 'Agent 拿到的文档常常是旧的',
-        body: '模型权重里的知识有截止日期，网页抓取拿到的是当下快照。两者都无法回答“这段内容属于哪个版本”。Recall0 以版本为单位组织知识库，检索结果始终指向一个确定的、可回溯的版本。',
+        body: '模型权重里的知识有截止日期，网页抓取拿到的是当下快照。两者都无法回答“这段内容属于哪个版本”。Re0 以版本为单位组织知识库，检索结果始终指向一个确定的、可回溯的版本。',
       },
       {
         title: '引用无法核对',
-        body: '一段被塞进上下文的文本，通常不带来源、不带时间，也无法证明没有被中途改写。Recall0 的每条结果都保留来源与引用，已发布版本的内容摘要写入 Aptos 主网。',
+        body: '一段被塞进上下文的文本，通常不带来源、不带时间，也无法证明没有被中途改写。Re0 的每条结果都保留来源与引用，已发布版本的内容摘要写入 Aptos 主网。',
       },
       {
         title: '计费与内容质量绑在一起',
-        body: '按 Token 计费会让长上下文变成成本风险，按库售卖会让公开知识被重复收费。Recall0 只按一次成功受理的查询计费，返回多少内容都不改变价格。',
+        body: '按 Token 计费会让长上下文变成成本风险，按库售卖会让公开知识被重复收费。Re0 只按一次成功受理的查询计费，返回多少内容都不改变价格。',
       },
     ],
     principlesTitle: '我们坚持的四件事',
     principles: [
       {
         title: '可独立验证',
-        body: '已发布版本、审计链头和发布者结算单的摘要都写入 Aptos 主网。第三方用公开 Verifier 和链上数据即可校验，全程不调用 Recall0 任何接口。',
+        body: '已发布版本、审计链头和发布者结算单的摘要都写入 Aptos 主网。第三方用公开 Verifier 和链上数据即可校验，全程不调用 Re0 任何接口。',
       },
       {
         title: '只按调用计费',
@@ -239,7 +239,7 @@ export const zh = {
   contact: {
     metaTitle: '联系我们',
     metaDescription:
-      'Recall0 的技术支持、知识库认领与内容申诉、商务合作与安全披露渠道，以及各自的响应时间。',
+      'Re0 的技术支持、知识库认领与内容申诉、商务合作与安全披露渠道，以及各自的响应时间。',
     title: '联系我们',
     lede: '按问题类型选择渠道能让处理更快。账号与账单相关的请求，请使用注册邮箱发送，方便我们核对身份。',
     channels: [
@@ -287,7 +287,7 @@ export const zh = {
   status: {
     metaTitle: '服务状态',
     metaDescription:
-      'Recall0 检索 API、MCP、索引刷新、控制台与链上存证的运行状态、近 90 天可用率和历史事件。',
+      'Re0 检索 API、MCP、索引刷新、控制台与链上存证的运行状态、近 90 天可用率和历史事件。',
     title: '服务状态',
     lede: '检索 API、MCP、索引刷新、控制台与链上存证的当前状态，以及近 {days} 天的可用率。计划内维护会提前在本页公告。',
     allHealthy: '全部系统运行正常',
@@ -313,7 +313,7 @@ export const zh = {
     reportCardLink: '前往联系我们 →',
     anchorCardTitle: '存证不受服务状态影响',
     anchorCardBody:
-      '已写入 Aptos 主网的版本摘要可以用公开 Verifier 独立校验，校验过程不调用 Recall0 任何接口，本页显示的降级不会影响这一点。',
+      '已写入 Aptos 主网的版本摘要可以用公开 Verifier 独立校验，校验过程不调用 Re0 任何接口，本页显示的降级不会影响这一点。',
     anchorCardLink: '了解链上存证 →',
     components: {
       retrieval: { name: '检索 API', detail: 'REST /v1/context 与 /v1/libraries 的查询与解析' },
@@ -347,9 +347,9 @@ export const zh = {
   legal: {
     metaTitle: '法律条款',
     metaDescription:
-      'Recall0 的服务条款、可接受使用政策、内容与版权规则、隐私政策、计费条款以及链上存证声明。',
+      'Re0 的服务条款、可接受使用政策、内容与版权规则、隐私政策、计费条款以及链上存证声明。',
     title: '法律条款',
-    ledeLead: '本页适用于 Recall0 的网站、REST API、MCP 服务、CLI 与控制台。生效日期',
+    ledeLead: '本页适用于 Re0 的网站、REST API、MCP 服务、CLI 与控制台。生效日期',
     ledeTail: '。注册账号、发起查询或提交知识库，即表示你接受以下条款。',
     contents: 'CONTENTS',
     toc: [
@@ -373,7 +373,7 @@ export const zh = {
       changes: '8. 条款变更与联系',
     },
     clauses: {
-      c11: 'Recall0 提供的是知识库的检索与引用服务。我们返回带来源、版本与引用的上下文片段，不代替你做出判断，也不对基于这些片段产生的决策承担责任。',
+      c11: 'Re0 提供的是知识库的检索与引用服务。我们返回带来源、版本与引用的上下文片段，不代替你做出判断，也不对基于这些片段产生的决策承担责任。',
       c12: '使用服务需注册账号。你可以绑定多个登录方式，但需对账号下发生的全部活动负责，包括通过 API Key 发起的调用。发现 Key 泄露应立即在控制台吊销。',
       c13: '我们授予你在有效额度内访问公开知识库和你自己私有知识库的非独占、不可转让的使用权。该授权不包括批量转售检索结果、复制平台索引，或用检索输出重建可替代本服务的数据集。',
       c14: '你可以随时停止使用并注销账号。若你严重违反本条款、可接受使用政策或适用法律，我们可以暂停或终止账号；除非法律另有要求，终止前会先给出通知与整改期限。',
@@ -401,7 +401,7 @@ export const zh = {
       c53: '额度用尽后新的计费调用会暂停，已发布内容与账号数据不受影响。',
       c54: '完成认领的公开知识库参与收入分成，按被成功检索的次数从平台收入中线性分配，不按 Trust Score 加权；平台自建库、私有库与未认领的公开库不参与。出账门槛与持有期以定价与结算页面公布的规则为准，出账通过外部支付服务完成。',
       c55: '价格调整会提前通知，并自下一个账期生效，已购买的调用包不受影响。',
-      c61: '已发布版本的内容摘要、平台审计链头与发布者结算单摘要会写入 Aptos 主网。任何人都可以用公开 Verifier 与链上数据完成校验，全程不需要调用 Recall0 的任何接口。',
+      c61: '已发布版本的内容摘要、平台审计链头与发布者结算单摘要会写入 Aptos 主网。任何人都可以用公开 Verifier 与链上数据完成校验，全程不需要调用 Re0 的任何接口。',
       c62: {
         lead: '存证证明的是“某一版本的内容摘要在某一时间已存在且此后未被改写”，',
         emphasis: '不构成对内容正确性、完整性或适用性的保证',
@@ -410,7 +410,7 @@ export const zh = {
       c63: '链上写入依赖公链网络，拥塞或分叉可能导致延迟。延迟不改变被证明的内容本身，补写完成后校验结果一致。',
       c71: '服务按“现状”提供。我们会努力维持可用性并在服务状态页公开事件记录，但不承诺不中断或无差错运行。',
       c72: '我们不对第三方来源内容的准确性负责，也不对你依据检索结果作出的决策、以及由此产生的间接损失、利润损失或数据损失承担责任。',
-      c73: '在法律允许的范围内，我们在任何情况下的累计责任上限，为你在索赔事件发生前 12 个月内实际支付给 Recall0 的费用总额。',
+      c73: '在法律允许的范围内，我们在任何情况下的累计责任上限，为你在索赔事件发生前 12 个月内实际支付给 Re0 的费用总额。',
       c74: '因不可抗力、上游网络故障或第三方服务中断导致的不能履行，不构成违约。',
       c81: '条款更新后会修改本页的生效日期；涉及权利义务的重大变更会通过站内公告或邮件提前通知。变更生效后继续使用服务即视为接受。',
       c82: {
@@ -431,18 +431,18 @@ export const zh = {
 
   login: {
     metaTitle: '登录',
-    metaDescription: '使用 GitHub 或 Google 账户登录 Recall0。',
+    metaDescription: '使用 GitHub 或 Google 账户登录 Re0。',
     title: '欢迎回来',
-    subtitle: '选择一个账户，继续访问 Recall0。',
+    subtitle: '选择一个账户，继续访问 Re0。',
     providers: {
       github: { name: '使用 GitHub 登录', hint: '继续使用你的 GitHub 账户' },
       google: { name: '使用 Google 登录', hint: '继续使用你的 Google 账户' },
     },
-    passwordNote: 'Recall0 不会读取你的账户密码，仅使用第三方账户完成安全身份验证。',
-    termsLead: '登录即表示你同意 Recall0 的',
+    passwordNote: 'Re0 不会读取你的账户密码，仅使用第三方账户完成安全身份验证。',
+    termsLead: '登录即表示你同意 Re0 的',
     termsLink: '服务条款和隐私政策',
     termsTail: '。',
-    autoCreate: '首次登录时会自动创建 Recall0 账户。',
+    autoCreate: '首次登录时会自动创建 Re0 账户。',
     perks: ['同步对话记录', '管理 API 密钥', '访问私有知识库'],
     errors: {
       oauth_failed: '登录没有完成，请重新尝试。',
@@ -460,7 +460,7 @@ export const zh = {
     title: '公开知识库目录',
     claim: '认领知识库',
     submit: '提交知识库',
-    lede: '全部公开知识库均已通过平台审核，可被任意用户免费查询；每个已发布版本都会生成链上内容存证，引用可脱离 Recall0 独立验证。',
+    lede: '全部公开知识库均已通过平台审核，可被任意用户免费查询；每个已发布版本都会生成链上内容存证，引用可脱离 Re0 独立验证。',
     searchPlaceholder: '搜索名称、领域或 Library ID…',
     popular: '热门',
     recentlyUpdated: '最近更新',
@@ -525,7 +525,7 @@ export const zh = {
     notAnchoredYet: '该版本尚未进入锚定批次，不影响检索与引用。',
     verifyVersion: '独立验证此版本',
     verifyNote:
-      '验证工具不调用 Recall0 任何接口。存证只证明「该时刻内容即此版本」，不构成对内容正确性的保证。',
+      '验证工具不调用 Re0 任何接口。存证只证明「该时刻内容即此版本」，不构成对内容正确性的保证。',
     ownershipPanel: '所有权',
     verificationMethod: '校验方式',
     verificationMethodValue: 'GitHub 仓库权限校验',
@@ -537,8 +537,8 @@ export const zh = {
 
   playground: {
     metaTitle: '在线试用',
-    metaDescription: '与 Recall0 MCP Server 对话，获取最新、可追溯的专业知识。',
-    titleLine1: '与 Recall0 MCP Server 对话',
+    metaDescription: '与 Re0 MCP Server 对话，获取最新、可追溯的专业知识。',
+    titleLine1: '与 Re0 MCP Server 对话',
     titleLine2: '获取最新、可追溯的专业知识',
     seedQuestion: 'Next.js App Router 中如何安全地实现服务端鉴权？',
     thinking: '我会查找最新的 Next.js 官方文档。',
@@ -590,7 +590,7 @@ export const zh = {
       keysDescription: '创建和管理用于身份验证的密钥。',
       createKey: '创建密钥',
       keyColumns: ['名称', '密钥', '创建时间', '最后使用'],
-      installTitle: '安装 recall0',
+      installTitle: '安装 re0',
       installDescription: '运行命令，将 MCP Server 连接到你的 AI 编程工具。',
       installCommandLabel: '安装命令',
       installManualLead: '也可以',
@@ -642,7 +642,7 @@ export const zh = {
       metaTitle: 'API 密钥',
       eyebrow: '开发者设置',
       title: 'API 密钥',
-      description: '创建、限制并轮换用于访问 recall0 API 的凭证。',
+      description: '创建、限制并轮换用于访问 re0 API 的凭证。',
       createKey: '创建密钥',
       noticeTitle: '密钥只会在创建时完整显示一次',
       noticeBody: '请将密钥保存在安全的密码管理器或环境变量中，不要提交到公开仓库。',
@@ -736,7 +736,7 @@ export const zh = {
       title: '设置',
       description: '查看你的个人信息、登录方式和订阅计划。',
       profileTitle: '个人信息',
-      profileDescription: '你的 recall0 账户资料。',
+      profileDescription: '你的 re0 账户资料。',
       email: '电子邮箱',
       provider: '登录方式',
       joined: '加入时间',
@@ -959,7 +959,7 @@ export const zh = {
 
   admin: {
     metaTitle: '管理后台',
-    eyebrow: 'recall0 管理后台',
+    eyebrow: 're0 管理后台',
     shell: {
       subtitle: '后台管理',
       searchPlaceholder: '搜索用户、知识库或账单…',
@@ -1054,11 +1054,11 @@ export const zh = {
       headline: '安全地管理平台、用户与知识。',
       subhead: '审批公共知识库、维护订阅配置，并追踪所有关键管理操作。',
       perks: ['强制两步验证', '角色权限与操作审计', '敏感操作全程留痕'],
-      copyright: '© 2026 recall0 · 安全运营中心',
+      copyright: '© 2026 re0 · 安全运营中心',
       title: '管理员登录',
       subtitle: '仅限已授权的网站管理员访问',
       emailLabel: '管理员邮箱',
-      emailPlaceholder: 'admin@recall0.com',
+      emailPlaceholder: 'admin@re0.com',
       passwordLabel: '密码',
       passwordPlaceholder: '管理员密码',
       mfaLabel: '两步验证码',
@@ -1255,7 +1255,7 @@ export const zh = {
     },
     platformLibraries: {
       title: '平台知识库',
-      description: '创建并维护由 recall0 官方发布的公共知识库。',
+      description: '创建并维护由 re0 官方发布的公共知识库。',
       create: '创建平台知识库',
       searchPlaceholder: '搜索平台知识库或 Library ID',
       columns: ['知识库', '来源', '文档数', '容量', '最后同步', '状态'],
@@ -1322,7 +1322,7 @@ export const zh = {
       form: {
         title: '创建平台知识库',
         description: '平台知识库以公开可见创建，先落草稿；来源与刷新策略保存后可再调整。',
-        noticeTitle: '平台知识库由 recall0 官方维护',
+        noticeTitle: '平台知识库由 re0 官方维护',
         noticeBody: '不设 Owner Workspace，不参与分成；创建后为草稿，首个版本索引就绪才能发布。',
         publicPill: '公开',
         fieldTitle: '知识库名称',
@@ -1672,7 +1672,7 @@ export const zh = {
         lastEvent: '最后事件',
         lastEventNone: '由对账补录，没有对应事件',
         observedAt: 'Provider 状态时间',
-        note: 'recall0 只保存外部单号、状态、金额和币种；卡号、发票原件和账单地址都留在 Provider。',
+        note: 're0 只保存外部单号、状态、金额和币种；卡号、发票原件和账单地址都留在 Provider。',
       },
     },
     settlements: {
@@ -1918,25 +1918,25 @@ export const zh = {
     administrators: [
       {
         name: 'Yuzhao',
-        email: 'admin@recall0.com',
+        email: 'admin@re0.com',
         scope: '全部权限',
         lastActive: '刚刚',
       },
       {
         name: 'Ming Li',
-        email: 'reviewer@recall0.com',
+        email: 'reviewer@re0.com',
         scope: '知识库、审核',
         lastActive: '12 分钟前',
       },
       {
         name: 'Anya Wu',
-        email: 'ops@recall0.com',
+        email: 'ops@re0.com',
         scope: '用户、订阅、账单',
         lastActive: '3 小时前',
       },
       {
         name: 'Kai Zhang',
-        email: 'support@recall0.com',
+        email: 'support@re0.com',
         scope: '用户只读',
         lastActive: '7 天前',
       },

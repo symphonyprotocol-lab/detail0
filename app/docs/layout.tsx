@@ -16,8 +16,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     <RootProvider theme={{ defaultTheme: 'system', enableSystem: true }}>
       <DocsLayout
         tree={source.pageTree}
-        nav={{ title: 'Recall0 docs' }}
-        githubUrl="https://github.com/symphonyprotocol-lab/recall0"
+        nav={{ title: 'Re0 docs' }}
+        githubUrl="https://github.com/symphonyprotocol-lab/re0"
         themeSwitch={{ mode: 'light-dark-system' }}
       >
         {children}

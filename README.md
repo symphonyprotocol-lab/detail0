@@ -1,4 +1,4 @@
-# Recall0
+# Re0
 
 把公开文档和用户有权使用的私有资料，转换为 AI Agent 可搜索、可检索、可引用的**版本化知识库**。
 
@@ -77,7 +77,7 @@
 - 未认领的公开库不产生收益，它的调用也不摊薄其他发布者的分配；收益不追溯到认领之前；
 - 按可计分成 Call 数线性分配，**不按 Trust Score 加权**——分数只决定资格，不决定金额；
 - 收益数据不得进入检索、召回或排序的任何环节；
-- 出账由外部支付服务完成，Recall0 不保存银行账号、不持有用户资金。
+- 出账由外部支付服务完成，Re0 不保存银行账号、不持有用户资金。
 
 完整设计见 [publisher-revenue-share.md](./publisher-revenue-share.md)。
 
@@ -91,7 +91,7 @@
 | Website、`llms.txt` | DNS TXT 记录，备选 well-known 文件 |
 | 上传文档、OpenAPI、Notion | 不适用，创建者即所有者 |
 
-**在 `recall0.json` 里放公钥不会授予任何权限**：配置文件的可写范围与来源的控制权不等价，Fork、PR、镜像站都能写那个文件。完整规则见 [requirement.md](./requirement.md) 第 7.3 节，授权链路约束见 [architecture.md](./architecture.md) 第 5.4 节。
+**在 `re0.json` 里放公钥不会授予任何权限**：配置文件的可写范围与来源的控制权不等价，Fork、PR、镜像站都能写那个文件。完整规则见 [requirement.md](./requirement.md) 第 7.3 节，授权链路约束见 [architecture.md](./architecture.md) 第 5.4 节。
 
 ## 链上存证
 

@@ -5,7 +5,7 @@
  * granted, not requested (requirement.md 3.2, 5.3). This script is that grant,
  * run by someone who already holds the database credentials.
  *
- *   npm run admin:create -- --email admin@recall0.com --username Yuzhao --role super
+ *   npm run admin:create -- --email admin@re0.com --username Yuzhao --role super
  *
  * The password is read from the ADMIN_PASSWORD environment variable rather than
  * an argument, so it never lands in a shell history file. The TOTP secret is
@@ -45,7 +45,7 @@ const username = argument('username')?.trim();
 const role = argument('role')?.trim() ?? 'super';
 const password = process.env.ADMIN_PASSWORD;
 
-if (!email || !email.includes('@')) fail('--email is required, e.g. --email admin@recall0.com');
+if (!email || !email.includes('@')) fail('--email is required, e.g. --email admin@re0.com');
 if (!username) fail('--username is required, e.g. --username Yuzhao');
 if (!isAdminRoleId(role)) fail(`--role must be one of: ${ADMIN_ROLE_IDS.join(', ')}`);
 if (!password || password.length < 12) {
@@ -97,7 +97,7 @@ await database.transaction(async (tx) => {
   await tx.insert(schema.administratorRole).values({ administratorId, roleId: role });
 });
 
-const uri = totpProvisioningUri({ secret, account: email, issuer: 'recall0' });
+const uri = totpProvisioningUri({ secret, account: email, issuer: 're0' });
 
 console.log(`
   ${existing ? 'Updated' : 'Created'} administrator

@@ -1,7 +1,7 @@
 /**
  * Subscription billing rules, as pure functions. No Next.js, no driver, no fetch.
  *
- * recall0 never moves money. Payments, cards, invoices and refunds belong to an
+ * re0 never moves money. Payments, cards, invoices and refunds belong to an
  * external Payment Provider (requirement.md 4.3), the console's billing screen
  * is a read-only mirror of that provider's state, and every human action --
  * refunding, retrying, reissuing -- happens over there (requirement.md 5.3).

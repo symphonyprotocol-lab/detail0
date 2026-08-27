@@ -8,7 +8,7 @@ import {
   CircleXIcon,
   HashIcon,
   LockKeyholeIcon,
-  Recall0Mark,
+  Re0Mark,
   ShieldCheckIcon,
 } from '@/components/ui/icons';
 import { isAdminLoginError, safeAdminReturnTo } from '@/lib/domain/admin';
@@ -92,10 +92,10 @@ export default async function AdminLoginPage({
             aria-hidden
             className="flex size-[26px] items-center justify-center rounded-md bg-white/10 text-mint"
           >
-            <Recall0Mark size={24} />
+            <Re0Mark size={24} />
           </span>
           <span className="text-[17px] leading-[1.5] font-bold tracking-[-0.019em] text-white">
-            recall0
+            re0
           </span>
         </Link>
 

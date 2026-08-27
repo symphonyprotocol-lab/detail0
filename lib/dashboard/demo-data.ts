@@ -71,7 +71,7 @@ export interface ApiKey {
   lastUsed: string;
 }
 
-export const INSTALL_COMMAND = 'npx recall0 setup';
+export const INSTALL_COMMAND = 'npx re0 setup';
 
 export interface QuickstartTab {
   id: string;
@@ -80,8 +80,8 @@ export interface QuickstartTab {
   response: string;
 }
 
-const SEARCH_REQUEST = `curl -X GET "https://recall0.com/api/v1/libraries/search?library_name=next.js&query=auth" \\
-  -H "Authorization: Bearer $RECALL0_API_KEY"`;
+const SEARCH_REQUEST = `curl -X GET "https://re0.com/api/v1/libraries/search?library_name=next.js&query=auth" \\
+  -H "Authorization: Bearer $RE0_API_KEY"`;
 
 const SEARCH_RESPONSE = `{
   "results": [{
@@ -94,8 +94,8 @@ const SEARCH_RESPONSE = `{
   }]
 }`;
 
-const CONTEXT_REQUEST = `curl -X GET "https://recall0.com/api/v1/context?library_id=/vercel/next.js&topic=middleware" \\
-  -H "Authorization: Bearer $RECALL0_API_KEY"`;
+const CONTEXT_REQUEST = `curl -X GET "https://re0.com/api/v1/context?library_id=/vercel/next.js&topic=middleware" \\
+  -H "Authorization: Bearer $RE0_API_KEY"`;
 
 const CONTEXT_RESPONSE = `{
   "library_id": "/vercel/next.js",
@@ -194,7 +194,7 @@ export interface QualityFilter {
 }
 
 export const POLICY_BLOCKED = ['legacy-docs'];
-export const POLICY_ALLOWED = ['recall0-official'];
+export const POLICY_ALLOWED = ['re0-official'];
 export const POLICY_REACHABLE = 12_426;
 
 /* -------------------------------------------------------- add a library */
