@@ -56,7 +56,7 @@ export async function GET(
   return new NextResponse(csv, {
     headers: {
       'content-type': 'text/csv; charset=utf-8',
-      'content-disposition': `attachment; filename="recall0-${descriptor.filename}-${stamp}.csv"`,
+      'content-disposition': `attachment; filename="re0-${descriptor.filename}-${stamp}.csv"`,
       // A list of administrators is not something to leave in a shared cache.
       'cache-control': 'no-store',
     },

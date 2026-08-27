@@ -3,7 +3,7 @@
  * full, and the four things an operator may do to it.
  *
  * requirement.md 5.3 gives the console exactly four verbs over a library
- * recall0 publishes itself -- create, refresh, suspend, publish -- and this
+ * re0 publishes itself -- create, refresh, suspend, publish -- and this
  * module is all four, plus the two reads the screens need.
  *
  * What is real here and what is not, stated once so no screen has to guess:

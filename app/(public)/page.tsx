@@ -52,7 +52,7 @@ export default async function HomePage() {
           <div className="mt-6 flex w-full flex-wrap items-center gap-2.5">
             <div className="flex h-12 items-center gap-[92px] rounded-lg border-2 border-[#10292c] bg-inkdeep py-0.5 pr-[11px] pl-[18px] shadow-[0_4px_10px_rgba(45,45,83,0.12),0_1px_1px_rgba(45,45,83,0.12)]">
               <code className="font-mono text-[12px] tracking-[-0.03em] text-[#e4edee]">
-                $ npx recall0 setup
+                $ npx re0 setup
               </code>
               <span className="flex h-7 items-center gap-1.5 border-l-2 border-[#294043] pr-[9px] pl-[11px] text-[#b8d4d5]">
                 <CopyIcon size={15} />

@@ -39,7 +39,7 @@ describe('audit chain', () => {
     administratorId: '11111111-1111-4111-8111-111111111111',
     action: 'admin.sign_in',
     targetType: 'administrator' as string | null,
-    targetId: 'admin@recall0.com' as string | null,
+    targetId: 'admin@re0.com' as string | null,
     reason: null as string | null,
     beforeValue: undefined as unknown,
     afterValue: undefined as unknown,
@@ -57,7 +57,7 @@ describe('audit chain', () => {
     for (const mutation of [
       { result: 'failure' },
       { action: 'admin.sign_out' },
-      { targetId: 'other@recall0.com' },
+      { targetId: 'other@re0.com' },
       { prevHash: 'earlier' },
       { createdAt: new Date('2026-08-26T12:00:01.000Z') },
       { ipDigest: null },
