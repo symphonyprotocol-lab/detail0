@@ -500,6 +500,33 @@ export function ConsoleNotice({
   );
 }
 
+/**
+ * One headline number above a detail screen -- design source `DPlDO`, `DiUMB`.
+ *
+ * Shared by the console's detail screens rather than copied into each: two
+ * screens drawing the same card from two definitions is how a 22px number
+ * becomes a 20px one on the screen nobody looked at.
+ */
+export function Metric({ label, value, note }: { label: string; value: string; note: string }) {
+  return (
+    <Panel className="flex flex-col gap-1.5 px-4 py-3.5">
+      <p className="text-[11px] font-bold tracking-[0.02em] text-faint">{label}</p>
+      <p className="text-[22px] leading-[1.2] font-[650] tracking-[-0.04em] text-ink">{value}</p>
+      <p className="text-[11px] tracking-[-0.023em] text-muted">{note}</p>
+    </Panel>
+  );
+}
+
+/** One labelled fact inside a detail panel's two-column `<dl>`. */
+export function Fact({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5 border-b border-line/70 py-3 last:border-b-0 sm:[&:nth-last-child(-n+2)]:border-b-0">
+      <dt className="text-[11px] font-bold tracking-[0.02em] text-faint">{label}</dt>
+      <dd className="text-[12px] tracking-[-0.023em] break-all text-steel">{value}</dd>
+    </div>
+  );
+}
+
 /** Progress bar used by the health readouts. */
 export function Meter({ value }: { value: number }) {
   return (

@@ -150,23 +150,6 @@ export interface PlatformLibraryRow {
 
 export const PLATFORM_TOTAL = 126;
 
-/* ---------------------------------------------------------------- billing */
-
-export type InvoiceStatus = 'due' | 'paid' | 'refunded';
-
-export interface InvoiceRow {
-  number: string;
-  customer: string;
-  plan: string;
-  amount: string;
-  date: string;
-  method: string;
-  status: InvoiceStatus;
-  statusLabel: string;
-}
-
-export const INVOICE_TOTAL = 1_864;
-
 /* ------------------------------------------------------------ settlements */
 
 export type StatementStatus = 'held' | 'paid' | 'clawback';
@@ -352,32 +335,6 @@ export function adminCopy(t: Dictionary) {
     };
   });
 
-  const billingStats: AdminStat[] = [
-    { label: d.billingStats.revenue, value: '$19,240', caption: d.billingStats.revenueCaption },
-    { label: d.billingStats.active, value: '1,864', caption: d.billingStats.activeCaption },
-    { label: d.billingStats.due, value: '$1,240', caption: d.billingStats.dueCaption },
-    { label: d.billingStats.refund, value: '0.42%', caption: d.billingStats.refundCaption },
-  ];
-
-  const invoiceFacts: [keyof typeof d.invoicePlan, string, InvoiceStatus][] = [
-    ['pro', '$5.00', 'due'],
-    ['addon', '$5.00', 'paid'],
-    ['pro', '$5.00', 'paid'],
-    ['pro', '$5.00', 'refunded'],
-  ];
-
-  const invoices: InvoiceRow[] = d.invoices.map((invoice, index) => {
-    const [plan, amount, status] = invoiceFacts[index] ?? invoiceFacts[0]!;
-    return {
-      ...invoice,
-      plan: d.invoicePlan[plan],
-      amount,
-      method: d.invoiceMethod.card,
-      status,
-      statusLabel: d.invoiceStatus[status],
-    };
-  });
-
   const settlementStats: AdminStat[] = [
     { label: d.settlementStats.net, value: '$18,420', caption: d.settlementStats.netCaption },
     { label: d.settlementStats.pool, value: '$2,214', caption: d.settlementStats.poolCaption },
@@ -447,8 +404,6 @@ export function adminCopy(t: Dictionary) {
     claimTabs,
     platformStats,
     platformLibraries,
-    billingStats,
-    invoices,
     settlementStats,
     statements,
     administrators,
