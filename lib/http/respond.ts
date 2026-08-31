@@ -15,7 +15,13 @@ export function errorResponse(error: unknown, requestId: string): NextResponse<A
     },
   };
 
-  return NextResponse.json(body, { status: httpStatusFor(appError.code) });
+  const status = httpStatusFor(appError.code);
+  return NextResponse.json(body, {
+    status,
+    /* §12.2: 429 carries Retry-After. One minute is the coarse default; the
+       precise window stays server side. */
+    ...(status === 429 ? { headers: { 'retry-after': '60' } } : {}),
+  });
 }
 
 export function newRequestId(): string {

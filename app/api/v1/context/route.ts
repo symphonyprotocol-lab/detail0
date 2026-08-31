@@ -1,11 +1,56 @@
+/**
+ * GET /api/v1/context -- retrieval within one library. architecture.md 12.1.
+ *
+ * The route is a thin shell: authentication and the anonymous rate limit in
+ * `retrievalCaller`, parameter validation against the shared contract, then
+ * the single retrieval use case (architecture.md 9.2 -- REST, MCP and the
+ * playground all call the same function). `type=txt` is rendered from the
+ * canonical JSON by the formatter, never assembled separately.
+ */
+import { NextResponse, type NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';
+import { queryDocsInputSchema } from '@/contracts/schemas';
+import { queryDocs } from '@/lib/application/retrieval';
+import { renderContextText } from '@/lib/application/retrieval/format';
+import { retrievalCaller } from '@/lib/http/retrieval-caller';
 import { errorResponse, newRequestId } from '@/lib/http/respond';
 
-/**
- * GET /api/v1/context — context retrieval
- * Route Handlers may only call lib/application use cases. architecture.md 4.
- */
-export async function GET() {
+export const runtime = 'nodejs';
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
-  return errorResponse(new AppError('not_implemented', 'GET /api/v1/context — context retrieval is not implemented yet'), requestId);
+  try {
+    const caller = await retrievalCaller(request, requestId);
+
+    const params = request.nextUrl.searchParams;
+    const maxTokens = params.get('maxTokens');
+    const parsed = queryDocsInputSchema.safeParse({
+      libraryId: params.get('libraryId') ?? undefined,
+      query: params.get('query') ?? undefined,
+      ...(maxTokens === null ? {} : { maxTokens: Number(maxTokens) }),
+      format: params.get('type') ?? undefined,
+    });
+    if (!parsed.success) {
+      throw new AppError(
+        'invalid_request',
+        'libraryId and query are required; maxTokens 256-64000; type json or txt',
+      );
+    }
+
+    const output = await queryDocs(caller, parsed.data);
+
+    if (parsed.data.format === 'txt') {
+      return new NextResponse(renderContextText(output), {
+        headers: {
+          'content-type': 'text/plain; charset=utf-8',
+          'cache-control': 'private, no-store',
+        },
+      });
+    }
+    return NextResponse.json(output, {
+      headers: { 'cache-control': 'private, no-store' },
+    });
+  } catch (error) {
+    return errorResponse(error, requestId);
+  }
 }

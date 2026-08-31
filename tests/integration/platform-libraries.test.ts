@@ -92,6 +92,12 @@ describeWithDb('platform libraries', () => {
       .update(schema.library)
       .set({ currentVersionId: null })
       .where(inArray(schema.library.id, created));
+    await database
+      .delete(schema.libraryProfileVector)
+      .where(inArray(schema.libraryProfileVector.libraryId, created));
+    await database
+      .delete(schema.libraryProfile)
+      .where(inArray(schema.libraryProfile.libraryId, created));
     await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, created));
     await database.delete(schema.document).where(inArray(schema.document.libraryId, created));
     await database

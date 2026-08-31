@@ -6,6 +6,7 @@
  * Adding a code is a minor change; changing a code's meaning is a breaking change.
  */
 export const ERROR_CODES = [
+  'invalid_request',
   'library_not_found',
   'library_not_ready',
   'library_suspended',
@@ -59,6 +60,7 @@ export interface ApiErrorBody {
 }
 
 const DEFAULT_STATUS: Record<ErrorCode, number> = {
+  invalid_request: 400,
   library_not_found: 404,
   library_not_ready: 409,
   library_suspended: 409,
