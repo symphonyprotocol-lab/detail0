@@ -1,10 +1,10 @@
 /**
  * One build: a set of sources in, one indexed but unpublished Version out.
  *
- * This is architecture.md 8.2 steps 2 through 8 -- fetch, scan, discover,
- * normalize, cite, chunk, embed-index, evaluate. Step 9 (review) does not apply
- * to a platform library (architecture.md 8.1 routes it straight to publishing)
- * and step 10 is `publish-version.ts`, deliberately separate: a version that is
+ * This is architecture.md 8.2 steps 2 through 9 -- fetch, scan, discover,
+ * normalize, cite, chunk, embed-index, profile, evaluate. Step 10 (review) does
+ * not apply to a platform library (architecture.md 8.1 routes it straight to
+ * publishing) and step 11 is `publish-version.ts`, deliberately separate: a version that is
  * built but not pointed at is a safe state, and one this module can leave
  * behind if publishing has to wait.
  *
@@ -37,6 +37,13 @@ import {
   type ParsedDocument,
 } from '@/lib/domain/ingestion';
 import { uuidv7 } from '@/lib/domain/id';
+import {
+  CentroidAccumulator,
+  extractTerms,
+  PROFILE_LIMITS,
+  PROFILE_VERSION,
+  profileSearchText,
+} from '@/lib/domain/profile';
 import { isPlatformSourceType, type PlatformSourceType } from '@/lib/domain/library';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { objectKeys } from '@/lib/infrastructure/objects/store';
@@ -462,6 +469,15 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
    * pointer. A build interrupted here leaves a `processing` version that can
    * never be published, which `discardVersion` then clears away.
    */
+  /*
+   * The profile (architecture.md 8.2 step 8, 9.6) is accumulated while the
+   * vectors stream past, because they are dropped as soon as they are written:
+   * the centroid accumulator keeps k running means, never the vectors. Terms
+   * come from the same bodies being embedded; titles from the document rows.
+   * All of it derived, all of it rebuilt with the version (architecture.md 6.4).
+   */
+  const centroids = new CentroidAccumulator();
+
   try {
     for (let offset = 0; offset < pending.length; offset += EMBED_WINDOW) {
       const window = pending.slice(offset, offset + EMBED_WINDOW);
@@ -473,6 +489,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
           'the embedding provider returned the wrong number of vectors',
         );
       }
+      for (const vector of vectors) centroids.add(vector);
 
       for (let at = 0; at < window.length; at += INSERT_BATCH) {
         await database.insert(schema.chunk).values(
@@ -483,6 +500,9 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
         );
       }
     }
+
+    const titles = rows.map((row) => row.document.title).slice(0, PROFILE_LIMITS.maxTitles);
+    const terms = extractTerms(pending.map((chunk) => chunk.body));
 
     await database.transaction(async (tx) => {
       /*
@@ -500,6 +520,34 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
           'index_incomplete',
           'embed-index',
           'the version is missing chunks',
+        );
+      }
+
+      /*
+       * The profile rides in the `ready` transaction, so `ready` implies "this
+       * version can be routed to" -- library discovery never meets a version
+       * whose chunks exist but whose profile does not.
+       */
+      await tx.insert(schema.libraryProfile).values({
+        id: uuidv7(),
+        libraryId: library.id,
+        versionId,
+        profileVersion: PROFILE_VERSION,
+        documentTitles: titles,
+        terms,
+        searchText: profileSearchText(titles, terms),
+      });
+
+      const vectors = centroids.centroids();
+      if (vectors.length > 0) {
+        await tx.insert(schema.libraryProfileVector).values(
+          vectors.map((embedding, ordinal) => ({
+            id: uuidv7(),
+            libraryId: library.id,
+            versionId,
+            ordinal,
+            embedding,
+          })),
         );
       }
 
@@ -570,6 +618,12 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
  */
 async function discardVersion(database: ReturnType<typeof db>, versionId: string): Promise<void> {
   try {
+    await database
+      .delete(schema.libraryProfileVector)
+      .where(eq(schema.libraryProfileVector.versionId, versionId));
+    await database
+      .delete(schema.libraryProfile)
+      .where(eq(schema.libraryProfile.versionId, versionId));
     await database.delete(schema.chunk).where(eq(schema.chunk.versionId, versionId));
     await database.delete(schema.document).where(eq(schema.document.versionId, versionId));
     await database.delete(schema.libraryVersion).where(eq(schema.libraryVersion.id, versionId));

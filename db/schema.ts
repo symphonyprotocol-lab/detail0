@@ -617,10 +617,14 @@ export const chunk = pgTable(
   },
   (t) => [
     index('chunk_library_version_idx').on(t.libraryId, t.versionId),
-    index('chunk_embedding_hnsw_idx').using(
-      'hnsw',
-      t.embedding.op('vector_cosine_ops'),
-    ),
+    /*
+     * No ANN index on `embedding` -- deliberately. architecture.md 9.1:
+     * retrieval always pins one version first, so vector recall is an exact
+     * scan of that version's few thousand rows via the index above. A global
+     * HNSW here would be maintained on every ingestion insert and searched
+     * with a filter it cannot honour. The picture-layer HNSW lives on
+     * `library_profile_vector`, which is small enough to be one.
+     */
     index('chunk_search_vector_idx').using('gin', t.searchVector),
     /** One chunk per position, so a retried build cannot duplicate one. */
     uniqueIndex('chunk_position_uq').on(t.versionId, t.documentId, t.ordinal),
@@ -630,6 +634,67 @@ export const chunk = pgTable(
      * never be found.
      */
     check('chunk_search_config_ck', sql`${t.searchConfig} in ('simple', 'arabic', 'armenian', 'basque', 'catalan', 'danish', 'dutch', 'english', 'finnish', 'french', 'german', 'greek', 'hindi', 'hungarian', 'indonesian', 'irish', 'italian', 'lithuanian', 'nepali', 'norwegian', 'portuguese', 'romanian', 'russian', 'serbian', 'spanish', 'swedish', 'tamil', 'turkish', 'yiddish')`),
+  ],
+);
+
+/**
+ * The library profile: content-derived routing data. architecture.md 9.6.
+ *
+ * One row per built Version, written in the `profile` step of a build and
+ * immutable after it, like everything else the version carries. Library-level
+ * discovery searches this row -- never `library.title`, which on a UGC
+ * platform carries no signal about the content.
+ *
+ * `search_text` is pre-segmented (space-joined titles and extracted terms, CJK
+ * already split into n-grams by the domain extractor), which is why `simple`
+ * is the right configuration here even though it is the wrong one for CJK
+ * chunk bodies: segmentation happened before Postgres ever saw the text.
+ */
+export const libraryProfile = pgTable(
+  'library_profile',
+  {
+    id: uuid('id').primaryKey(),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
+    /** Which extractor built this row; a new extractor rebuilds, never mixes. */
+    profileVersion: text('profile_version').notNull(),
+    documentTitles: jsonb('document_titles').$type<string[]>().notNull(),
+    terms: jsonb('terms').$type<string[]>().notNull(),
+    searchText: text('search_text').notNull(),
+    searchVector: customType<{ data: string; driverData: string; notNull: false }>({
+      dataType: () => 'tsvector',
+    })('search_vector').generatedAlwaysAs(sql`to_tsvector('simple', "search_text")`),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('library_profile_version_uq').on(t.versionId),
+    index('library_profile_library_idx').on(t.libraryId),
+    index('library_profile_search_idx').using('gin', t.searchVector),
+  ],
+);
+
+/**
+ * The picture-layer vectors: centroid embeddings of a version's chunks, a
+ * handful per library. architecture.md 9.1 and 9.6 -- this table is the one
+ * place a global HNSW is affordable and correct, because its row count is
+ * libraries x centroids (tens per library), not chunks.
+ */
+export const libraryProfileVector = pgTable(
+  'library_profile_vector',
+  {
+    id: uuid('id').primaryKey(),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    versionId: uuid('version_id').notNull().references(() => libraryVersion.id),
+    ordinal: integer('ordinal').notNull(),
+    embedding: vector('embedding', { dimensions: 1536 }).notNull(),
+  },
+  (t) => [
+    uniqueIndex('library_profile_vector_uq').on(t.versionId, t.ordinal),
+    index('library_profile_vector_library_idx').on(t.libraryId),
+    index('library_profile_vector_hnsw_idx').using(
+      'hnsw',
+      t.embedding.op('vector_cosine_ops'),
+    ),
   ],
 );
 

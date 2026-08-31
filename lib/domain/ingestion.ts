@@ -44,6 +44,7 @@ export const INGESTION_STAGES = [
   'normalize-cite',
   'chunk',
   'embed-index',
+  'profile',
   'evaluate',
   'publish',
 ] as const;

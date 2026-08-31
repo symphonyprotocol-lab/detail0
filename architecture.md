@@ -1,7 +1,7 @@
 # re0 开发与部署架构
 
 - 版本：3.0
-- 更新日期：2026-08-17
+- 更新日期：2026-08-31
 - 状态：MVP 架构基线
 - 产品需求：[requirement.md](./requirement.md)
 - 设计依据：[knowleg-market.pen](./knowleg-market.pen)
@@ -20,7 +20,8 @@ re0 使用一个 TypeScript 代码库交付公共站点、用户 Dashboard、管
 | 运行环境 | Vercel Functions |
 | 业务数据库 | Neon Postgres + Drizzle |
 | 关键词检索 | Postgres 全文检索 + BM25 排序，可重建派生索引 |
-| 向量检索 | 同库 pgvector，与 Chunk 同事务 |
+| 向量检索 | 同库 pgvector，与 Chunk 同事务；库内召回默认精确扫描，不依赖全局 ANN，见 §9.1 |
+| 库级发现 | 库画像（文档标题集 + 实体表 + 聚类质心）+ 全局 GIN 倒排 + scatter-gather 确认，见 §9.6 |
 | 对象存储 | S3 兼容私有 Bucket，首发 Cloudflare R2 |
 | 长任务 | Vercel Workflows |
 | 边缘态 | Upstash Redis，只承担匿名限流与检索缓存 |
@@ -86,7 +87,8 @@ re0 使用一个 TypeScript 代码库交付公共站点、用户 Dashboard、管
 - Context7 MCP 包本质上是其远程 API 的代理，不包含生产检索后端；
 - Context7 的生产抓取、解析、Embedding、Rerank、质量评分和计费实现未在公共仓库中完整提供；
 - re0 的 Trust Score 使用 0–100，公开库审核和 Free 私有库规则也不同；
-- re0 使用自己的命名、Schema、API Host、Key 前缀和自有数据平面。
+- re0 使用自己的命名、Schema、API Host、Key 前缀和自有数据平面；
+- Context7 的 `resolve-library-id` 把「从问题提炼库名」外包给调用方 LLM，服务端只做库名/描述的元数据匹配。这在代码文档领域成立——库名是 npm/GitHub 公共标识符，agent 的训练数据里就有。re0 的用户上传库名字与内容常不相关（「昆虫大全」里的「影翅虫」），跨库内容路由是 Context7 从未被迫解决、re0 必须自建的能力，见 §9.6。
 
 ## 3. 系统上下文与部署拓扑
 
@@ -359,6 +361,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 | `library_review` | 公开审核、反馈和证据 |
 | `library_claim` | 认领申请：申请人、验证方式、挑战 Token 摘要、状态、失败原因码、过期时间、裁定记录 |
 | `library_score` | Trust/Benchmark 算法版本和分项 |
+| `library_profile` | 库级内容画像：文档标题与目录集、关键实体与同义词表、chunk 向量聚类质心、自动生成的描述与主题标签；随 Version 发布派生，可重建，见 §9.6 |
 
 ### 6.3 Policy、Usage 与运营
 
@@ -395,7 +398,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 - `addon_grant` 没有到期字段；余额只在消费时递减，账期滚动不得清零或重估；
 - 金额保存整数最小货币单位和 ISO 4217 币种，不使用浮点数。
 
-`search_vector` 与 `embedding` 是 `chunk` 上的派生列，随 Chunk 同事务写入，因此不存在独立的向量清单或跨系统清理批次。数据库导出不依赖全文与向量索引；恢复时从 `chunk` 正文重建 `search_vector`，`embedding` 可从正文重新调用 Embedding Provider 生成，也可随备份一并导出以省去重算成本。
+`search_vector` 与 `embedding` 是 `chunk` 上的派生列，随 Chunk 同事务写入，因此不存在独立的向量清单或跨系统清理批次。数据库导出不依赖全文与向量索引；恢复时从 `chunk` 正文重建 `search_vector`，`embedding` 可从正文重新调用 Embedding Provider 生成，也可随备份一并导出以省去重算成本。`library_profile` 同属派生数据，可从已发布 Version 的内容重建。可重建性也是成本手段：长期无查询的冷库允许把 `embedding` 置空释放存储，按需重算，见 §9.1。
 
 ## 7. 对象存储布局
 
@@ -454,9 +457,10 @@ stateDiagram-v2
 5. `normalize-cite`：产生统一文档格式和 Citation；
 6. `chunk`：稳定 Chunk ID、Token 计数和去重；
 7. `embed-index`：全文索引与 pgvector，与 Chunk 同事务写入；
-8. `evaluate`：Trust、Benchmark 和检索 Golden Set；
-9. `review`：公开用户库等待人工结果；
-10. `publish`：原子切换发布指针。
+8. `profile`：从 Version 内容生成库画像——文档标题与目录集、关键实体与同义词表、chunk 向量聚类质心、自动描述与主题标签，写入 `library_profile`（§9.6）。画像是「平台从内容起的真名」，库级发现只信画像，不依赖用户命名与填表自觉；
+9. `evaluate`：Trust、Benchmark 和检索 Golden Set；
+10. `review`：公开用户库等待人工结果；
+11. `publish`：原子切换发布指针。
 
 Step 输出只保存可序列化摘要；大对象保存在对象存储。外部 Provider 调用保存 Input Digest 和 Provider Request ID，重试时优先查询已有结果。
 
@@ -502,13 +506,21 @@ Step 输出只保存可序列化摘要；大对象保存在对象存储。外部
 
 向量是 `chunk` 表上的 `embedding` 列，不存在独立的向量存储和 Vector ID 映射。租户与版本隔离由同表的 `library_id`、`version_id`、`workspace_id`、`visibility` 列承担，通过 SQL 谓词过滤，不需要额外的 Metadata Index 概念。
 
-- 建立 ANN 索引（HNSW 或等价实现），并把 `library_id + version_id` 作为过滤条件参与查询计划；
+**索引按查询形状分层，「一张表」不等于「一个全局向量索引」：**
+
+- **库内向量召回默认精确扫描，不依赖 ANN 索引**：查询已固定 Version，候选行数以单版本为界（通常数百到数千），按 `(library_id, version_id)` 索引捞行后精确计算余弦距离——零召回损失，且不受平台总库数影响；
+- **不建全局 chunk 级 HNSW**。十万库、上亿 chunk 量级下它三重失效：图上近邻大概率不属于目标库，过滤后召回崩坏；索引体积远超可用内存，遍历退化为随机 IO；每次 ingestion 批量写入都在维护全局图，放大发布事务成本。当前 Schema 中的全局 HNSW 属于该结论前的遗留，应移除；
+- **全局关键词能力由 `chunk` 上的 GIN 倒排承担**：倒排查询成本与词频成正比，不与表大小成正比；罕见词（恰恰是需要段落级定位的词）在亿级行上依旧廉价。该索引服务 §9.6 的路由层，不服务库内召回；
+- **全局语义能力由画像向量层的小型 HNSW 承担**（行数 = 库数 × 质心数，几十万量级），见 §9.6；
+- 超大单库（单版本行数超出精确扫描的延迟预算）按库单独评估局部索引或表分区，不以此为由回退到全局索引；
 - 查询必须至少过滤 `library_id + version_id`；私有库额外过滤 `workspace_id`；
 - 过滤条件由 Repository 层强制拼装，不允许调用方传入裸 SQL 或跳过隔离列；
 - 正文、Citation 与相似度在同一次查询中取得，不需要「先拿 ID 再回查」的二次往返；
 - `quarantined`、`unsafe`、版本不匹配的行在同一 WHERE 子句中排除。
 
 Embedding 维度、距离度量和索引参数版本化，随 `retrievalConfigVersion` 一起参与缓存键。更换 Embedding 模型必须走新 Version 重建，不得在原地覆盖列。
+
+**向量是存储成本的最大项，压缩是第一杠杆**：半精度（halfvec）与 Matryoshka 降维（512/256 维）在「库内小候选集精确排序 + FTS 融合 + Rerank 兜底」的链路下精度损失可接受，合计可把向量体积压到 fp32/1536 维的约六分之一。压缩参数属于 `retrievalConfigVersion`，变更走新 Version 重建。冷库 `embedding` 置空与重算见 §6.4。
 
 ### 9.2 查询链路
 
@@ -578,6 +590,32 @@ libraryVersion + policyVersion + queryHash + maxTokens + responseType + retrieva
 - 模型调用失败或超时时降级为直接返回 Chunk 列表，不返回错误页，也不重试到超过预算；
 - 生成结果与 Query 正文适用同一保密要求，不写产品日志与 Analytics；模型 Token 只进成本指标；
 - **REST 与 MCP 链路不得引入 LLM 依赖**：移除生成层后，API 与 MCP 的行为必须完全不变。
+
+### 9.6 库级发现与跨库路由
+
+用户从自然语言问题出发时（「影翅虫的防治与危害」），目标库可能叫「昆虫大全」或「医药宝典」——**线索在库的内容里，不在库的名字里**。UGC 平台上库名与内容不相关是常态而非例外，因此名字驱动的 resolve（Context7 模式，见 §2.2）只能作为辅助路径，库级发现必须基于内容。线索还可能只存在于某个章节段落（既不在文档标题也不在任何摘要里），所以设计必须覆盖到段落粒度。
+
+三层结构，画像负责把几万个库缩到十几个候选，真实命中负责正确性：
+
+**1. 画像层**（§8.2 `profile` 步，随发布派生）。每库三种内容表示：文档标题与目录集（最廉价有效的路由信号）；关键实体与同义词表（覆盖「影翅虫/隐翅虫」这类俗名与变体，纯库名匹配永远做不到）；chunk 向量聚类质心（每库 8–32 条代表向量——百科型大库的不同主题簇各自有代表，避免被单条摘要向量稀释）。
+
+**2. 路由层**（查询时三路融合，取 top 10–20 候选库）：
+
+- 画像 FTS：查询打文档标题集与实体表；
+- 画像向量：查询 Embedding 对质心表做 ANN（§9.1 的画像层小型 HNSW），语义兜底换说法、错别字；
+- 罕见词全局倒排：查询分词后，仅**低频高信息量词**打 `chunk` 表的 GIN 索引并按 `library_id` 聚合——段落级线索用段落级倒排接住，零遗漏；高频词不走此路（posting list 过长，且画像层已覆盖）。词频判定依赖 ingestion 侧累计的全局词频表。可选「实体 → 库」物化倒排表作第一跳，miss 再落全局 GIN。
+
+`domain_tag` 参与加权，不做硬过滤——「影翅虫皮炎的治疗」确实可能在医学库里。
+
+**3. 确认层**（scatter-gather）：对候选库并行执行 §9.2 的库内召回，以真实 chunk 命中分数做最终裁决或直接融合返回。负担得起的前提正是 §9.1 的库内精确扫描——并行十几个库，每库只扫几千行。
+
+硬约束：
+
+- **Policy 与可见性先于路由**：§10.2「Library Search 在元数据阶段应用 Policy」同样适用于画像检索；私有库的画像与 chunk 不得出现在任何全局召回结果中，§5.2「不可见库与不存在库同 404 外观」延伸到路由层；
+- **排序防对抗**：路由一旦基于内容，往库里堆砌热门实体就是对路由做 SEO。候选排序必须融合 Trust/Benchmark 分数与安全状态，且 §11.4「检索链路不得读取收益字段」同样覆盖路由排序；
+- **候选必须附带命中证据**（命中的文档标题/实体、少量段落摘录）：库名不可信之后，证据是调用方一轮定案的依据，证据薄导致的错选与重试比省下的往返更贵，见 §13.1；
+- **双入口共用同一实现**：MCP 走 agent 显式两轮（搜库 → 确认 → 查数），Web 问答走服务端自动 scatter-gather；两者只在「谁做最终裁决」上不同——一个交给调用方模型，一个交给服务端命中分数；
+- **中文分词是前置依赖**：`search_config` 目前没有中文路径，中文内容落到 `simple` 不分词，画像 FTS、全局倒排乃至库内 FTS 对中文整体失效。该缺口（§22 待验证事项）必须先于路由实现修复。
 
 ## 10. Policy Engine
 
@@ -677,8 +715,8 @@ Webhook 处理顺序：
 
 ```text
 GET /v1/libraries/search
-  ?libraryName=Next.js
-  &query=server+authentication
+  ?query=server+authentication      # 必填：用户问题或检索意图
+  &libraryName=Next.js              # 可选：库名辅助提示
 
 GET /v1/context
   ?libraryId=/vercel/next.js
@@ -686,6 +724,8 @@ GET /v1/context
   &type=json
   &maxTokens=5000
 ```
+
+Search 以 `query` 为主输入走 §9.6 的画像路由，`libraryName` 降级为可选提示（与 Context7 的参数习惯相反，理由见 §2.2）。每个候选除 Trust/Benchmark 分数外必须携带**命中证据**——匹配到的文档标题、实体词和少量段落摘录——供调用方在不信任库名的前提下定案。
 
 认证使用 `Authorization: Bearer mm_live_...`。匿名只允许明确开放的 Search/Context 子集。
 
@@ -732,7 +772,7 @@ OpenAPI 是发布门槛：
 MCP 包注册：
 
 ```text
-resolve-library-id(libraryName, query)
+resolve-library-id(query, libraryName?)
 query-docs(libraryId, query)
 ```
 
@@ -745,7 +785,8 @@ query-docs(libraryId, query)
 - 传递客户端名称、版本、Transport 和随机 Session ID 作为非敏感遥测；
 - 后端调用设置明确超时，429/401/404 映射为可操作提示；
 - Zod Preprocess 只兼容白名单参数别名，规范 Schema 仍保持稳定；
-- Tool Description 与 REST 数据都视为低于系统指令的内容。
+- Tool Description 与 REST 数据都视为低于系统指令的内容；
+- `resolve-library-id` 以 `query` 为主输入（§9.6、§12.1）：Tool Description 指示 agent 传用户问题而非猜测库名，候选带命中证据与 Trust/Benchmark 分数，由 agent 一轮定案后再调 `query-docs`；`libraryName` 保留为可选提示，兼容 Context7 的调用习惯。
 
 ### 13.2 SDK
 
@@ -838,7 +879,7 @@ Audit Log 采用只追加表，并保存前一条记录 Hash 形成链式校验�
 - Postgres 事务用于发布、Plan Version 激活和需要多表一致的写入；
 - 全文索引与向量同属 `chunk` 表，与发布指针同事务，不需要跨系统保序；只有对象存储写入必须先于事务提交，未被引用的对象由生命周期规则和 Recovery 清理；
 - 数据库使用 Neon 的时间点恢复与分支能力，并定期导出业务表到私有备份位置；
-- `search_vector`、`embedding` 和 `usage_summary` 可从 Chunk 正文与 Usage Event 重建；
+- `search_vector`、`embedding`、`library_profile` 和 `usage_summary` 可从 Chunk 正文与 Usage Event 重建；
 - 连接通过 Neon 连接池端点或 Serverless Driver 建立，禁止在函数内建立无池化的长连接；
 - 每季度执行恢复演练，验证 Library、Policy、Usage 和 Audit 的恢复点。
 
@@ -867,6 +908,7 @@ duration_ms
 
 - REST/MCP p50/p95/p99、错误率、429 和无结果率；
 - 全文/向量候选数、融合增益、Citation 缺失和 Rerank 耗时；
+- 库级路由的候选库数、命中率（最终裁决库落在候选前 N 的比例）、scatter-gather 扇出与耗时；
 - Workflow Step 时长、重试、Pending Age、Quarantine 和失败率；
 - Postgres 写入冲突与锁等待、对象存储错误、ANN 索引查询退化、数据库冷启动次数；
 - Usage Reservation 与 Summary 差异；
@@ -967,12 +1009,16 @@ MVP 不预先引入 Kubernetes、Kafka、自建搜索集群或外部 Vector DB�
 
 Upstash Redis 不在此列：它替代的是上一版运行平台自带的限流与缓存能力，属于换栈后的能力补位，不是提前优化。其职责边界在 §1.2 已经写死，扩大用法需要新的架构评审。
 
+外部 Vector DB 的否决按十万库、上亿 chunk 的量级重新校验过，仍然成立：主负载是库内 scoped 检索（Postgres 精确扫描的主场），全局语义由画像层小索引承担（§9.6），全局关键词由 GIN 倒排承担——没有一条查询路径需要全局 chunk 级 ANN。若「全平台 chunk 级语义检索」未来成为真实产品需求，先质疑需求本身（用户要的通常是「找到对的库」或「在对的库里找段落」，两者都已有解），确认后现实路径是**二值量化粗召回 + 原始向量精排**（仍在单 Postgres 内，量化后上亿向量约数十 GB 可驻内存），或迁往 namespace-per-tenant、对象存储分层的专用引擎——不是通用托管向量服务。
+
 出现以下证据时再评估演进：
 
 - Postgres 主写延迟或写入容量连续越过 SLO；
 - 全文检索在目标 Library 规模下无法达到 Search/Context p95；
 - ANN 索引的构建时长、内存占用或召回率成为真实瓶颈，且调参无法解决；
 - 数据库计算规格已达上限，或冷启动导致 p95 持续不达标；
+- 库级路由的候选命中率低于目标且画像层调参无法解决；
+- 向量存储成本增速超出压缩手段（半精度、降维、冷库置空，见 §9.1）可覆盖的范围；
 - 单 Workflow 无法满足抓取吞吐或 Provider Rate Limit；
 - 跨区域合规要求无法由当前数据位置满足；
 - Usage 条件写入成为明显热点（解法是分区或物化，不是外置计数器，见 §11.1）。
@@ -984,8 +1030,8 @@ Upstash Redis 不在此列：它替代的是上一版运行平台自带的限流
 1. 建立 App Shell、Contracts、Postgres Schema、身份和工作空间；
 2. 完成 Plan Version、API Key、Usage Reservation 和统一错误；
 3. 完成对象存储上传、GitHub/Website/Markdown/PDF/OpenAPI Ingestion；
-4. 完成全文检索、pgvector、混合检索、Citation 和版本发布；
-5. 完成 Library Search、Context REST 和在线试用；
+4. 完成全文检索、pgvector、混合检索、Citation 和版本发布（含中文分词方案落地与 `profile` 步的库画像生成）；
+5. 完成 Library Search（含 §9.6 画像路由与 scatter-gather）、Context REST 和在线试用；
 6. 完成远程 MCP、匿名限流和 OAuth 入口；
 7. 完成 Dashboard 知识库、调用记录、设置和访问规则；
 8. 完成 Payment、Pro、Add-on 和 Notion Connector；
@@ -1029,6 +1075,9 @@ Upstash Redis 不在此列：它替代的是上一版运行平台自带的限流
 
 ### 待验证事项
 
-- 全文检索的中文分词方案：Postgres 原生 FTS 需要 `zhparser`、`pg_bigm` 或退回 trigram，需先确认 Neon 的扩展支持范围；
+- 全文检索的中文分词方案：Postgres 原生 FTS 需要 `zhparser`、`pg_bigm` 或退回 trigram，需先确认 Neon 的扩展支持范围。**该项是 §9.6 库级发现的前置依赖，优先级高于路由实现**——当前 `search_config` 无中文路径，中文内容落到 `simple` 后库内 FTS 即失效。若 Neon 不支持相应扩展，退路是 ingestion 侧预分词（jieba 类）后以 `simple` 配置索引，需与 `search_vector` 生成列「不可漂移」的设计协调（预分词文本需独立存列或改为写入时计算）；
 - BM25 排序的实现路径：使用扩展提供的 BM25 还是在应用层实现，需比较可用性与成熟度；
+- 画像层实体抽取与聚类质心的实现选型（统计 vs LLM）及其在 ingestion 流水线中的成本与时长；
+- scatter-gather 确认层（10–20 库并行库内召回）在 Vercel Functions 时长限制与 Neon 连接池下的 p95 表现；
+- 向量压缩（halfvec + Matryoshka 降维）对检索 Golden Set 的召回影响，需在 §8.2 `evaluate` 步的基准上量化后再定默认维度；
 - 对象存储从 Workflow 写入 100 MB 量级快照的实际表现，上线前须压测。

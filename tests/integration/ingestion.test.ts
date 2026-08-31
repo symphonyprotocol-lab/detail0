@@ -140,6 +140,12 @@ describeWithDb('ingestion', () => {
       .update(schema.library)
       .set({ currentVersionId: null })
       .where(inArray(schema.library.id, created));
+    await database
+      .delete(schema.libraryProfileVector)
+      .where(inArray(schema.libraryProfileVector.libraryId, created));
+    await database
+      .delete(schema.libraryProfile)
+      .where(inArray(schema.libraryProfile.libraryId, created));
     await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, created));
     await database.delete(schema.document).where(inArray(schema.document.libraryId, created));
     await database
@@ -204,6 +210,68 @@ describeWithDb('ingestion', () => {
       .where(eq(schema.chunk.versionId, built.versionId))
       .limit(1);
     expect(indexed).toBeDefined();
+
+    // The profile rides in the `ready` transaction (architecture.md 8.2 step 8):
+    // a version that says ready can be routed to.
+    const [profile] = await database
+      .select()
+      .from(schema.libraryProfile)
+      .where(eq(schema.libraryProfile.versionId, built.versionId));
+    expect(profile?.profileVersion).toBe('re0-profile-1');
+    expect(profile?.documentTitles).toContain('Guide');
+    expect(profile?.terms).toContain('installer');
+
+    const centroids = await database
+      .select()
+      .from(schema.libraryProfileVector)
+      .where(eq(schema.libraryProfileVector.versionId, built.versionId));
+    expect(centroids.length).toBeGreaterThan(0);
+    for (const centroid of centroids) {
+      expect(centroid.embedding).toHaveLength(EMBEDDING_DIMENSIONS);
+    }
+  });
+
+  /**
+   * The rove-beetle case, end to end. architecture.md 9.6: the library's name
+   * says nothing about beetles, the term lives in one paragraph, and routing
+   * must still be able to find the library by it -- via the profile's
+   * pre-segmented keyword index, which works for CJK where `chunk`'s cannot.
+   */
+  it('profiles content the library name never mentions', async () => {
+    const libraryId = await fixtureLibrary(`ingest-profile-${Date.now()}`);
+    const files = [
+      {
+        path: 'docs/beetles.md',
+        url: 'https://example.test/beetles',
+        content:
+          '# 常见甲虫\n\n隐翅虫的防治与危害:隐翅虫体液含隐翅虫素,接触皮肤会引起皮炎。远离灯光可以减少接触。',
+      },
+    ];
+    const built = await buildVersion({
+      libraryId,
+      operationId: uuidv7(),
+      dependencies: dependencies({ files }),
+    });
+    expect(built.changed).toBe(true);
+    if (!built.changed) return;
+
+    const database = db();
+    const [profile] = await database
+      .select()
+      .from(schema.libraryProfile)
+      .where(eq(schema.libraryProfile.versionId, built.versionId));
+    expect(profile?.terms).toContain('隐翅虫');
+
+    // What the routing layer will actually run: simple-config FTS over the
+    // profile finds the term, even though the chunk index never could.
+    const [routed] = await database
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.libraryProfile)
+      .where(
+        sql`${schema.libraryProfile.versionId} = ${built.versionId}
+            and ${schema.libraryProfile.searchVector} @@ plainto_tsquery('simple', '隐翅虫')`,
+      );
+    expect(routed?.n).toBe(1);
   });
 
   it('publishes through the queue and moves the pointer atomically', async () => {
