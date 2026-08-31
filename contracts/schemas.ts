@@ -64,9 +64,26 @@ export const libraryIdSchema = z
 
 // --- Retrieval. Two-stage: resolve-library-id then query-docs. ---
 
+/**
+ * Query-first, name-optional. architecture.md 9.6 and 12.1: on a platform of
+ * user-uploaded libraries the display name carries no routing signal, so the
+ * caller passes the question and the server searches the content-derived
+ * profile. `libraryName` survives as an optional hint for Context7-style
+ * callers that do know a name.
+ */
 export const resolveLibraryInputSchema = z.object({
-  libraryName: z.string().min(1).max(200),
-  query: z.string().min(1).max(2000).optional(),
+  query: z.string().min(1).max(2000),
+  libraryName: z.string().min(1).max(200).optional(),
+});
+
+/**
+ * Why this candidate matched. The library's name cannot be trusted to say so
+ * (architecture.md 9.6), and without evidence the calling agent guesses --
+ * a wrong pick plus a retry costs more than the bytes here ever will.
+ */
+export const candidateEvidenceSchema = z.object({
+  matchedTitles: z.array(z.string()),
+  matchedTerms: z.array(z.string()),
 });
 
 export const libraryCandidateSchema = z.object({
@@ -78,6 +95,7 @@ export const libraryCandidateSchema = z.object({
   benchmarkScore: z.number().int().min(0).max(100),
   chunks: z.number().int().nonnegative(),
   updatedAt: z.string().datetime(),
+  evidence: candidateEvidenceSchema,
 });
 
 export const resolveLibraryOutputSchema = z.object({
