@@ -14,6 +14,7 @@ import {
   ScrollTextIcon,
   ShieldCheckIcon,
   SlidersIcon,
+  SparklesIcon,
   UsersIcon,
 } from '@/components/ui/icons';
 import type { AdminCapability } from '@/lib/domain/admin';
@@ -92,6 +93,8 @@ export function AdminSidebar({
           Icon: CircleDollarSignIcon,
           needs: 'billing',
         },
+        /* Provider configuration is product configuration, like plans. */
+        { href: '/admin/llm', label: nav.llm, Icon: SparklesIcon, needs: 'plans' },
       ],
     },
     {

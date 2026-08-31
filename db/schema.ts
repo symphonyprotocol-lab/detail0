@@ -719,6 +719,51 @@ export const libraryProfileVector = pgTable(
   ],
 );
 
+/**
+ * The playground's LLM configuration. architecture.md 9.5 -- the playground is
+ * the only entry that calls a model, and this row is what the console
+ * configures: provider endpoint, model, budgets and unit prices. Immutable
+ * versions like plans and policies; the newest row is active. The API key is
+ * NOT here -- 15.3 keeps secrets in the environment, so the console configures
+ * everything about the provider except the credential.
+ */
+export const llmConfig = pgTable('llm_config', {
+  id: uuid('id').primaryKey(),
+  baseUrl: text('base_url').notNull(),
+  model: text('model').notNull(),
+  maxOutputTokens: integer('max_output_tokens').notNull(),
+  timeoutMs: integer('timeout_ms').notNull(),
+  /** Micro-USD per million tokens, frozen per version like every price here. */
+  promptPriceMicro: bigint('prompt_price_micro', { mode: 'number' }).notNull(),
+  completionPriceMicro: bigint('completion_price_micro', { mode: 'number' }).notNull(),
+  enabled: boolean('enabled').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * One row per model call the playground made: the cost metric of 9.5 ("模型
+ * Token 只进成本指标"). Token counts and the cost computed with the config's
+ * frozen prices -- never the query, never the answer (same secrecy as the
+ * query itself). The library is referenced by public id, deliberately without
+ * a foreign key: spend history must survive the library it was spent on.
+ */
+export const llmCostEvent = pgTable(
+  'llm_cost_event',
+  {
+    id: uuid('id').primaryKey(),
+    configId: uuid('config_id').notNull().references(() => llmConfig.id),
+    libraryPublicId: text('library_public_id').notNull(),
+    workspaceId: uuid('workspace_id'),
+    model: text('model').notNull(),
+    promptTokens: integer('prompt_tokens').notNull(),
+    completionTokens: integer('completion_tokens').notNull(),
+    costMicroUsd: bigint('cost_micro_usd', { mode: 'number' }).notNull(),
+    latencyMs: integer('latency_ms'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('llm_cost_event_time_idx').on(t.createdAt)],
+);
+
 // ---------------------------------------------------------------- policy, usage, ops
 
 export const policyVersion = pgTable('policy_version', {

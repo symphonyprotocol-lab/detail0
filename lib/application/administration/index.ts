@@ -85,3 +85,13 @@ export {
   type InviteResult,
   type EnrolmentOffer,
 } from './manage-administrators';
+export {
+  activeLlmConfig,
+  readLlmConfiguration,
+  recordLlmCost,
+  updateLlmConfig,
+  LlmConfigRefused,
+  type LlmConfigRow,
+  type LlmConfiguration,
+  type LlmUsageStats,
+} from './manage-llm-config';
