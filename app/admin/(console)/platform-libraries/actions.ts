@@ -1,12 +1,18 @@
 'use server';
 
 import { headers } from 'next/headers';
+import { after } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import {
+  addPlatformLibrarySource,
   createPlatformLibrary,
+  removePlatformLibrarySource,
   requestPlatformLibraryRefresh,
   setPlatformLibraryLifecycle,
+  updatePlatformLibrary,
+  updatePlatformLibrarySource,
 } from '@/lib/application/administration';
+import { runOperation } from '@/lib/application/ingestion';
 import { AdminChangeRefused } from '@/lib/domain/admin';
 import {
   isPlatformLifecycleAction,
@@ -16,7 +22,7 @@ import {
 import { requireAdminCapability } from '@/lib/http/admin';
 
 /**
- * The three mutations behind the platform-library screens.
+ * The mutations behind the platform-library screens.
  *
  * Each one re-resolves the session and re-checks the capability, like every
  * other console action: a server action is a public endpoint with a generated
@@ -57,6 +63,15 @@ function refused(error: unknown, context: string): PlatformLibraryActionResult {
 }
 
 const text = (form: FormData, field: string) => String(form.get(field) ?? '');
+
+/** The operator, as every use case in this module wants them. */
+async function actor(session: { administratorId: string; email: string }) {
+  return {
+    administratorId: session.administratorId,
+    email: session.email,
+    clientAddress: await clientAddress(),
+  };
+}
 
 export async function createPlatformLibraryAction(
   _previous: PlatformLibraryActionResult | null,
@@ -123,7 +138,7 @@ export async function refreshPlatformLibraryAction(
   const session = await requireAdminCapability('platformLibraries');
   const libraryId = text(form, 'libraryId');
   try {
-    const { created } = await requestPlatformLibraryRefresh({
+    const { created, operationId } = await requestPlatformLibraryRefresh({
       actor: {
         administratorId: session.administratorId,
         email: session.email,
@@ -138,8 +153,130 @@ export async function refreshPlatformLibraryAction(
      */
     revalidatePath('/admin/platform-libraries');
     revalidatePath(`/admin/platform-libraries/${libraryId}`);
+
+    /*
+     * Queued and then run, in that order and after the response.
+     *
+     * architecture.md 8.4 is explicit that the caller does not wait for a
+     * refresh to execute, and this keeps that promise -- the operator gets the
+     * queued acknowledgement immediately. Running it in `after` rather than
+     * leaving it to the cron drain is what makes the button feel like a button:
+     * by the time they reload the detail page the operation has usually
+     * finished, and if it has not, the queue panel on that page says so.
+     *
+     * `runOperation` claims the row with a conditional update, so a cron drain
+     * that overlaps this cannot build the same library twice; the loser reports
+     * `lost` and does nothing. Failures are recorded on the operation row --
+     * throwing here would only produce an unhandled rejection after a response
+     * that already said "queued".
+     */
+    if (created) {
+      after(async () => {
+        try {
+          await runOperation({ operationId });
+        } catch (error) {
+          console.error(
+            `platform library refresh run failed: ${
+              error instanceof Error ? error.message : 'unknown'
+            }`,
+          );
+        }
+      });
+    }
+
     return { ok: true, libraryId, queued: created };
   } catch (error) {
     return refused(error, 'platform library refresh');
+  }
+}
+
+export async function updatePlatformLibraryAction(
+  _previous: PlatformLibraryActionResult | null,
+  form: FormData,
+): Promise<PlatformLibraryActionResult> {
+  const session = await requireAdminCapability('platformLibraries');
+  const libraryId = text(form, 'libraryId');
+  try {
+    const { publicId } = await updatePlatformLibrary({
+      actor: await actor(session),
+      libraryId,
+      title: text(form, 'title'),
+      publicId: text(form, 'publicId'),
+      description: text(form, 'description'),
+      domainTag: text(form, 'domainTag'),
+      language: text(form, 'language'),
+      reason: text(form, 'reason'),
+    });
+    revalidatePath('/admin/platform-libraries');
+    revalidatePath(`/admin/platform-libraries/${libraryId}`);
+    return { ok: true, libraryId, publicId };
+  } catch (error) {
+    return refused(error, 'platform library update');
+  }
+}
+
+export async function addPlatformSourceAction(
+  _previous: PlatformLibraryActionResult | null,
+  form: FormData,
+): Promise<PlatformLibraryActionResult> {
+  const session = await requireAdminCapability('platformLibraries');
+  const libraryId = text(form, 'libraryId');
+  try {
+    await addPlatformLibrarySource({
+      actor: await actor(session),
+      libraryId,
+      type: text(form, 'sourceType'),
+      location: text(form, 'location'),
+      refreshPolicy: text(form, 'refreshPolicy'),
+      reason: text(form, 'reason'),
+    });
+    revalidatePath('/admin/platform-libraries');
+    revalidatePath(`/admin/platform-libraries/${libraryId}`);
+    return { ok: true, libraryId };
+  } catch (error) {
+    return refused(error, 'platform library source add');
+  }
+}
+
+export async function updatePlatformSourceAction(
+  _previous: PlatformLibraryActionResult | null,
+  form: FormData,
+): Promise<PlatformLibraryActionResult> {
+  const session = await requireAdminCapability('platformLibraries');
+  const libraryId = text(form, 'libraryId');
+  try {
+    await updatePlatformLibrarySource({
+      actor: await actor(session),
+      libraryId,
+      sourceId: text(form, 'sourceId'),
+      location: text(form, 'location'),
+      refreshPolicy: text(form, 'refreshPolicy'),
+      reason: text(form, 'reason'),
+    });
+    revalidatePath(`/admin/platform-libraries/${libraryId}`);
+    return { ok: true, libraryId };
+  } catch (error) {
+    return refused(error, 'platform library source update');
+  }
+}
+
+export async function removePlatformSourceAction(
+  _previous: PlatformLibraryActionResult | null,
+  form: FormData,
+): Promise<PlatformLibraryActionResult> {
+  const session = await requireAdminCapability('platformLibraries');
+  const libraryId = text(form, 'libraryId');
+  try {
+    await removePlatformLibrarySource({
+      actor: await actor(session),
+      libraryId,
+      sourceId: text(form, 'sourceId'),
+      reason: text(form, 'reason'),
+    });
+    revalidatePath('/admin/platform-libraries');
+    revalidatePath(`/admin/platform-libraries/${libraryId}`);
+    return { ok: true, libraryId };
+  } catch (error) {
+    return refused(error, 'platform library source remove');
   }
 }

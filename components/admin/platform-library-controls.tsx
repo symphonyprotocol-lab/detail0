@@ -1,15 +1,8 @@
 'use client';
 
-import {
-  startTransition,
-  useActionState,
-  useEffect,
-  useId,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useActionState, useEffect, useId, useState } from 'react';
 import { ConsoleDialog } from '@/components/admin/console-dialog';
-import { ConsoleButton, IconButton, Monogram } from '@/components/admin/ui';
+import { ConsoleButton, IconButton } from '@/components/admin/ui';
 import {
   BanIcon,
   CircleCheckIcon,
@@ -19,20 +12,16 @@ import {
 } from '@/components/ui/icons';
 import type { PlatformLifecycleAction } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
-import type { PlatformLibraryActionResult } from '@/app/admin/(console)/platform-libraries/actions';
+import {
+  Refusal,
+  ReasonField,
+  submitOn,
+  TargetCard,
+  type PlatformAction as Action,
+  type PlatformLibraryTarget,
+} from './platform-library-shared';
 
-type Action = (
-  previous: PlatformLibraryActionResult | null,
-  form: FormData,
-) => Promise<PlatformLibraryActionResult>;
-
-export interface PlatformLibraryTarget {
-  id: string;
-  publicId: string;
-  title: string;
-  initial: string;
-  sourceLabel: string;
-}
+export type { PlatformLibraryTarget } from './platform-library-shared';
 
 /**
  * Queue a refresh -- design source frames `d5LpW4` (row control) and
@@ -44,8 +33,8 @@ export interface PlatformLibraryTarget {
  * action, and there is no reason to record if nobody was asked for one.
  *
  * The dialog is honest about what confirming does. It queues a Refresh
- * Operation and returns; it does not fetch anything, and the worker that will
- * ships with ingestion. Saying "synced" here would be the one sentence on this
+ * Operation and returns; the fetch happens afterwards, on a worker, and may
+ * find nothing changed. Saying "synced" here would be the one sentence on this
  * screen that is not true.
  */
 export function PlatformRefreshControl({
@@ -150,7 +139,7 @@ function RefreshDialog({
           {state?.queued ? r.doneBody : r.doneAlready}
         </p>
       ) : (
-        <form id={formId} onSubmit={onSubmit(submit)} className="flex flex-col gap-3">
+        <form id={formId} onSubmit={submitOn(submit)} className="flex flex-col gap-3">
           <input type="hidden" name="libraryId" value={target.id} />
           <Refusal state={state} />
           <TargetCard target={target} />
@@ -302,7 +291,7 @@ function LifecycleDialog({
         </>
       )}
     >
-      <form id={formId} onSubmit={onSubmit(submit)} className="flex flex-col gap-3">
+      <form id={formId} onSubmit={submitOn(submit)} className="flex flex-col gap-3">
         <input type="hidden" name="libraryId" value={target.id} />
         <input type="hidden" name="action" value={intent} />
 
@@ -346,79 +335,5 @@ function LifecycleDialog({
         )}
       </form>
     </ConsoleDialog>
-  );
-}
-
-/* ------------------------------------------------------------------ shared */
-
-/**
- * Submits through `onSubmit` rather than `action={submit}`.
- *
- * React resets an uncontrolled form once a function action settles, which
- * would clear the reason on a refusal -- so the operator would read "a reason
- * is required" over the field they had just typed one into, and have to type
- * it again to find out what the real refusal was.
- */
-function onSubmit(dispatch: (form: FormData) => void) {
-  return (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    startTransition(() => dispatch(data));
-  };
-}
-
-function Refusal({ state }: { state: PlatformLibraryActionResult | null }) {
-  const { t } = useI18n();
-  if (!state?.error) return null;
-  return (
-    <p
-      role="alert"
-      className="flex items-start gap-2 rounded-[8px] bg-errsoft p-2.5 text-[11px] leading-[1.5] text-err"
-    >
-      <CircleXIcon size={15} className="mt-px shrink-0" />
-      {t.admin.platformLibraries.errors[state.error]}
-    </p>
-  );
-}
-
-/** Which library this is about, so the confirmation is checkable, not abstract. */
-function TargetCard({ target }: { target: PlatformLibraryTarget }) {
-  return (
-    <div className="flex items-center gap-2.5 rounded-[8px] border-2 border-line bg-subtle px-2.5 py-2.5">
-      <Monogram initial={target.initial} />
-      <span className="flex min-w-0 flex-col gap-[3px]">
-        <span className="truncate text-[12px] font-medium tracking-[-0.023em] text-ink">
-          {target.title}
-        </span>
-        <span className="truncate text-[11px] tracking-[-0.023em] text-muted">
-          {target.publicId} · {target.sourceLabel}
-        </span>
-      </span>
-    </div>
-  );
-}
-
-function ReasonField({
-  label,
-  placeholder,
-  ariaLabel,
-}: {
-  label: string;
-  placeholder: string;
-  ariaLabel: string;
-}): ReactNode {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">{label}</span>
-      <input
-        name="reason"
-        required
-        maxLength={200}
-        data-dialog-autofocus
-        placeholder={placeholder}
-        aria-label={ariaLabel}
-        className="h-9 w-full rounded-[7px] border-2 border-line bg-card px-2.5 text-[12px] tracking-[-0.023em] text-ink placeholder:text-faint focus:border-brand focus:outline-none"
-      />
-    </label>
   );
 }

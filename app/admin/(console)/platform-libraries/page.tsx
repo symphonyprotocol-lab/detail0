@@ -28,6 +28,7 @@ import {
   PLATFORM_STATUS_FILTERS,
   type PlatformStatusFilter,
 } from '@/lib/application/administration';
+import { isIngestionConfigured } from '@/lib/application/ingestion';
 import { requireAdminCapability } from '@/lib/http/admin';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import { fill } from '@/lib/i18n/format';
@@ -59,12 +60,12 @@ const LIFECYCLE_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'neutral'> = {
 /**
  * Libraries re0 publishes itself -- design source frame `d5LpW4`.
  *
- * Reads the real `library` table, filtered to `is_platform_library`. Creating
- * one is a genuine write and always has been available to this screen; what is
- * not built yet is the ingestion side, so a new library sits in `draft` with no
- * version until the refresh queue is drained (architecture.md 21, step 3). The
- * empty state and the note under the stats say so rather than leaving an
- * operator to guess whether nothing happened or nothing works.
+ * Reads the real `library` table, filtered to `is_platform_library`. A new
+ * library sits in `draft` with no version until a refresh has fetched its
+ * source and indexed one, so the empty state says which of the two is missing:
+ * nothing created yet, nothing matching the filters, or -- when the deployment
+ * has no embedding provider or object storage -- a refresh that could not build
+ * anything if it were queued.
  */
 export default async function AdminPlatformLibrariesPage({
   searchParams,
@@ -80,6 +81,9 @@ export default async function AdminPlatformLibrariesPage({
   const query = searchTerm(params.q);
   const status = oneOf(params.status, PLATFORM_STATUS_FILTERS, 'all');
   const page = pageNumber(params.page);
+
+  /* Whether a queued refresh could build anything in this deployment. */
+  const ingestionReady = isIngestionConfigured();
 
   const [{ rows, total, counts }, summary] = await Promise.all([
     listPlatformLibraries({ query, status, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
@@ -213,7 +217,13 @@ export default async function AdminPlatformLibrariesPage({
                 <EmptyRow
                   columns={p.columns.length + 1}
                   message={counts.all === 0 ? p.empty : p.emptyFiltered}
-                  note={counts.all === 0 ? t.admin.notReady.platformLibraries : undefined}
+                  note={
+                    ingestionReady
+                      ? counts.all === 0
+                        ? t.admin.notReady.platformLibraries
+                        : undefined
+                      : t.admin.notReady.ingestion
+                  }
                 />
               ) : null}
               {rows.map((library) => (

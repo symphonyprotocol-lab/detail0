@@ -1,5 +1,6 @@
 import {
   check,
+  customType,
   pgTable,
   pgEnum,
   text,
@@ -546,7 +547,14 @@ export const chunk = pgTable(
     tokens: integer('tokens').notNull(),
     citation: jsonb('citation').$type<Record<string, unknown>>().notNull(),
     safetyStatus: text('safety_status').notNull().default('clean'),
-    searchVector: text('search_vector'),
+    /**
+     * Generated from `body`, never written. A stored generated column cannot
+     * drift from the text it indexes, and chunks are immutable once inserted
+     * (requirement.md 8.1 freezes a published Version), so it is computed once.
+     */
+    searchVector: customType<{ data: string; driverData: string; notNull: false }>({
+      dataType: () => 'tsvector',
+    })('search_vector').generatedAlwaysAs(sql`to_tsvector('simple', "body")`),
     embedding: vector('embedding', { dimensions: 1536 }),
   },
   (t) => [
@@ -555,6 +563,9 @@ export const chunk = pgTable(
       'hnsw',
       t.embedding.op('vector_cosine_ops'),
     ),
+    index('chunk_search_vector_idx').using('gin', t.searchVector),
+    /** One chunk per position, so a retried build cannot duplicate one. */
+    uniqueIndex('chunk_position_uq').on(t.versionId, t.documentId, t.ordinal),
   ],
 );
 

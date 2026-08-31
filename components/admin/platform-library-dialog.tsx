@@ -1,9 +1,10 @@
 'use client';
 
-import { startTransition, useActionState, useId, useState, type ReactNode } from 'react';
+import { startTransition, useActionState, useId, useState } from 'react';
 import { ConsoleDialog } from '@/components/admin/console-dialog';
 import { ConsoleButton, Pill } from '@/components/admin/ui';
 import { CircleCheckIcon, CircleXIcon, PlusIcon, SpinnerIcon } from '@/components/ui/icons';
+import { Field, FIELD, type PlatformAction as Action } from './platform-library-shared';
 import {
   namespaceFor,
   PLATFORM_SOURCE_TYPES,
@@ -12,12 +13,6 @@ import {
 } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
-import type { PlatformLibraryActionResult } from '@/app/admin/(console)/platform-libraries/actions';
-
-type Action = (
-  previous: PlatformLibraryActionResult | null,
-  form: FormData,
-) => Promise<PlatformLibraryActionResult>;
 
 /**
  * "Create platform library" -- design source frame `新建平台知识库`.
@@ -256,28 +251,5 @@ function CreateDialog({ action, onClose }: { action: Action; onClose: () => void
         </form>
       )}
     </ConsoleDialog>
-  );
-}
-
-const FIELD =
-  'h-9 w-full rounded-[7px] border-2 border-line bg-card px-2.5 text-[12px] tracking-[-0.023em] text-ink placeholder:text-faint focus:border-brand focus:outline-none';
-
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: ReactNode;
-}) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">{label}</span>
-      {children}
-      {hint ? (
-        <span className="text-[11px] leading-[1.45] tracking-[-0.023em] text-faint">{hint}</span>
-      ) : null}
-    </label>
   );
 }

@@ -1,0 +1,206 @@
+/**
+ * The worker side of the refresh queue.
+ *
+ * `manage-platform-libraries.ts` writes a `pending` row and returns; this is
+ * what turns that row into a published version. The two halves are deliberately
+ * unaware of each other: architecture.md 8.4 says a caller does not wait for a
+ * refresh to execute, so the console must stay correct whether this runs a
+ * second later, an hour later or not at all.
+ *
+ * Claiming is a conditional update, not a read followed by a write. Several
+ * workers may drain the same queue -- the cron entry and the background run
+ * that follows an operator pressing the button, at minimum -- and a claim that
+ * two of them can win is a library built twice.
+ */
+import { and, asc, eq, sql } from 'drizzle-orm';
+import {
+  IngestionFailure,
+  isIngestionError,
+  type IngestionErrorCode,
+} from '@/lib/domain/ingestion';
+import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { buildVersion } from './build-version';
+import { publishVersion } from './publish-version';
+import type { IngestionDependencies } from './dependencies';
+
+export type OperationOutcome =
+  | { status: 'succeeded'; versionId: string; documents: number; chunks: number }
+  | { status: 'skipped'; reason: 'unchanged' }
+  | { status: 'failed'; error: IngestionErrorCode }
+  | { status: 'lost' };
+
+/** Attempts before an operation stops being retried. */
+export const MAX_ATTEMPTS = 3;
+
+/**
+ * Runs one queued operation to completion.
+ *
+ * `lost` means another worker had already claimed it, which is a normal outcome
+ * rather than an error: two drains that overlap should do one build between
+ * them, and the one that arrives second has nothing to report.
+ */
+export async function runOperation(input: {
+  operationId: string;
+  dependencies?: IngestionDependencies;
+}): Promise<OperationOutcome> {
+  const database = db();
+
+  const claimed = await database
+    .update(schema.workflowOperation)
+    .set({
+      status: 'running',
+      attempts: sql`${schema.workflowOperation.attempts} + 1`,
+      error: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(schema.workflowOperation.id, input.operationId),
+        eq(schema.workflowOperation.status, 'pending'),
+      ),
+    )
+    .returning({
+      id: schema.workflowOperation.id,
+      libraryId: schema.workflowOperation.libraryId,
+      attempts: schema.workflowOperation.attempts,
+    });
+
+  const operation = claimed[0];
+  if (!operation) return { status: 'lost' };
+
+  if (!operation.libraryId) {
+    await finish(operation.id, 'failed', 'internal_error');
+    return { status: 'failed', error: 'internal_error' };
+  }
+
+  try {
+    const built = await buildVersion({
+      libraryId: operation.libraryId,
+      operationId: operation.id,
+      dependencies: input.dependencies,
+    });
+
+    if (!built.changed) {
+      await finish(operation.id, 'skipped', null);
+      return { status: 'skipped', reason: 'unchanged' };
+    }
+
+    /*
+     * architecture.md 8.1 sends a platform library from `Evaluating` straight
+     * to `Publishing` -- there is no human review of our own libraries. What is
+     * published here is the *version*: the pointer moves and the index goes
+     * live. Whether the library appears in the catalogue is a separate decision
+     * on `lifecycle_status`, which only an operator makes (requirement.md 5.3),
+     * and requirement.md 6.2 forbids collapsing the two into one field.
+     */
+    await publishVersion({ libraryId: operation.libraryId, versionId: built.versionId });
+
+    await finish(operation.id, 'succeeded', null);
+    return {
+      status: 'succeeded',
+      versionId: built.versionId,
+      documents: built.documents,
+      chunks: built.chunks,
+    };
+  } catch (error) {
+    const code = errorCode(error);
+
+    /*
+     * A failed refresh keeps the current version. requirement.md 8.2 is
+     * explicit about it: the library goes on answering from what it already
+     * has, and only `index_status` records that the newest attempt did not
+     * land. Marking the library failed would take a working library offline
+     * because a network fetch timed out.
+     */
+    await database
+      .update(schema.library)
+      .set({ lastCheckedAt: new Date() })
+      .where(eq(schema.library.id, operation.libraryId));
+
+    const retriable = operation.attempts < MAX_ATTEMPTS && isRetriable(code);
+    await finish(operation.id, retriable ? 'pending' : 'failed', code);
+
+    if (!retriable) {
+      await database
+        .update(schema.library)
+        .set({ indexStatus: 'failed' })
+        .where(
+          and(
+            eq(schema.library.id, operation.libraryId),
+            // A library that is already serving a version is not "failed".
+            sql`${schema.library.currentVersionId} is null`,
+          ),
+        );
+    }
+
+    console.error(
+      `ingestion ${operation.id} failed at ${
+        error instanceof IngestionFailure ? error.stage : 'unknown'
+      }: ${code}`,
+    );
+    return { status: 'failed', error: code };
+  }
+}
+
+/**
+ * Failures worth trying again.
+ *
+ * A network that was down may be up; a source that is empty, forbidden or
+ * unparseable will be all three again next time, and retrying it three times
+ * only delays the operator finding out.
+ */
+function isRetriable(code: IngestionErrorCode): boolean {
+  return (
+    code === 'source_unreachable' ||
+    code === 'embedding_unavailable' ||
+    code === 'storage_unavailable' ||
+    code === 'internal_error'
+  );
+}
+
+function errorCode(error: unknown): IngestionErrorCode {
+  if (error instanceof IngestionFailure) return error.code;
+  if (error instanceof Error && isIngestionError((error as { code?: unknown }).code)) {
+    return (error as unknown as { code: IngestionErrorCode }).code;
+  }
+  return 'internal_error';
+}
+
+async function finish(
+  operationId: string,
+  status: 'succeeded' | 'failed' | 'skipped' | 'pending',
+  error: IngestionErrorCode | null,
+): Promise<void> {
+  await db()
+    .update(schema.workflowOperation)
+    .set({ status, error, updatedAt: new Date() })
+    .where(eq(schema.workflowOperation.id, operationId));
+}
+
+/**
+ * Drains the queue, oldest first.
+ *
+ * Serial rather than concurrent. A build holds an embedding provider's rate
+ * limit and a Postgres transaction for as long as it runs, and the queue is
+ * platform libraries -- tens of them, refreshed daily. Parallelism here would
+ * buy nothing and would make provider throttling everyone's problem at once.
+ */
+export async function drainOperations(input: {
+  limit?: number;
+  dependencies?: IngestionDependencies;
+} = {}): Promise<OperationOutcome[]> {
+  const limit = Math.max(1, Math.min(50, input.limit ?? 10));
+
+  const pending = await db()
+    .select({ id: schema.workflowOperation.id })
+    .from(schema.workflowOperation)
+    .where(eq(schema.workflowOperation.status, 'pending'))
+    .orderBy(asc(schema.workflowOperation.createdAt))
+    .limit(limit);
+
+  const outcomes: OperationOutcome[] = [];
+  for (const row of pending) {
+    outcomes.push(await runOperation({ operationId: row.id, dependencies: input.dependencies }));
+  }
+  return outcomes;
+}

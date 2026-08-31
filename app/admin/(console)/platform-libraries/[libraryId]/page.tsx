@@ -7,6 +7,12 @@ import {
   type PlatformLibraryTarget,
 } from '@/components/admin/platform-library-controls';
 import {
+  AddPlatformSourceControl,
+  EditPlatformLibraryControl,
+  EditPlatformSourceControl,
+  RemovePlatformSourceControl,
+} from '@/components/admin/platform-library-edit';
+import {
   ConsoleButton,
   ConsoleNotice,
   ConsolePageHeader,
@@ -21,12 +27,21 @@ import {
 } from '@/components/admin/ui';
 import { ChevronLeftIcon, GlobeIcon } from '@/components/ui/icons';
 import { getPlatformLibrary } from '@/lib/application/administration';
+import { isIngestionConfigured } from '@/lib/application/ingestion';
+import { isPlatformSourceType, type PlatformSourceType } from '@/lib/domain/library';
 import { requireAdminCapability, currentAdminSession } from '@/lib/http/admin';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
 import { bytes, initialsOf, utcInstant, utcStamp } from '../../list-params';
-import { refreshPlatformLibraryAction, setPlatformLifecycleAction } from '../actions';
+import {
+  addPlatformSourceAction,
+  refreshPlatformLibraryAction,
+  removePlatformSourceAction,
+  setPlatformLifecycleAction,
+  updatePlatformLibraryAction,
+  updatePlatformSourceAction,
+} from '../actions';
 
 /**
  * The metadata and the page both need the library, and Next renders them as two
@@ -101,6 +116,18 @@ export default async function AdminPlatformLibraryPage({
     ? label(p.sourceTypes, record.sources[0].type)
     : d.basics.none;
 
+  /*
+   * The type the Library ID's namespace is checked against on an edit. Taken
+   * from the first source, falling back to `github` for a library whose sources
+   * have all been removed -- `updatePlatformLibrary` re-derives it server side
+   * either way, so this only decides which hint the form shows.
+   */
+  const firstType = record.sources[0]?.type;
+  const sourceType: PlatformSourceType = isPlatformSourceType(firstType) ? firstType : 'github';
+
+  /* Whether a queued refresh could actually build anything in this deployment. */
+  const ingestionReady = isIngestionConfigured();
+
   const target: PlatformLibraryTarget = {
     id: record.id,
     publicId: record.publicId,
@@ -125,6 +152,18 @@ export default async function AdminPlatformLibraryPage({
               <ChevronLeftIcon size={14} />
               {d.back}
             </ConsoleButton>
+            <EditPlatformLibraryControl
+              action={updatePlatformLibraryAction}
+              target={target}
+              library={{
+                title: record.title,
+                publicId: record.publicId,
+                description: record.description,
+                domainTag: record.domainTag,
+                language: record.language,
+                sourceType,
+              }}
+            />
             <PlatformRefreshControl
               action={refreshPlatformLibraryAction}
               target={target}
@@ -175,17 +214,18 @@ export default async function AdminPlatformLibraryPage({
       </section>
 
       {/*
-        * Said once, on the screen where a queued refresh that never runs would
-        * otherwise read as a bug rather than as a subsystem that has not
-        * shipped.
+        * Only when a refresh could not build anything. A library with no
+        * versions is an ordinary state -- it has simply not been refreshed --
+        * and a standing notice over every new library would train operators to
+        * ignore the one case that does need reading.
         */}
-      {record.versions.length === 0 ? (
+      {ingestionReady ? null : (
         <ConsoleNotice
           icon={<GlobeIcon size={18} />}
           title={d.versions.title}
-          body={`${d.versions.note} ${d.queue.note}`}
+          body={t.admin.notReady.ingestion}
         />
-      ) : null}
+      )}
 
       <Panel className="overflow-hidden">
         <PanelHead title={d.basics.title} description={d.basics.description} />
@@ -203,9 +243,17 @@ export default async function AdminPlatformLibraryPage({
       </Panel>
 
       <Panel>
-        <PanelHead title={d.sources.title} description={d.sources.description} />
+        <PanelHead
+          title={d.sources.title}
+          description={d.sources.description}
+          action={
+            record.lifecycleStatus === 'archived' ? undefined : (
+              <AddPlatformSourceControl action={addPlatformSourceAction} target={target} />
+            )
+          }
+        />
         <TableScroller>
-          <table className="w-full min-w-[560px] border-collapse text-left">
+          <table className="w-full min-w-[620px] border-collapse text-left">
             <thead>
               <tr>
                 {d.sources.columns.map((column) => (
@@ -213,11 +261,14 @@ export default async function AdminPlatformLibraryPage({
                     {column}
                   </th>
                 ))}
+                <th scope="col" className={`${TH} w-[86px]`}>
+                  <span className="sr-only">{d.sources.actions}</span>
+                </th>
               </tr>
             </thead>
             <tbody>
               {record.sources.length === 0 ? (
-                <Empty columns={d.sources.columns.length} message={d.sources.empty} />
+                <Empty columns={d.sources.columns.length + 1} message={d.sources.empty} />
               ) : null}
               {record.sources.map((source) => (
                 <tr key={source.id} className="border-t-2 border-line">
@@ -226,6 +277,26 @@ export default async function AdminPlatformLibraryPage({
                   </td>
                   <td className={`${TD} break-all`}>{source.location}</td>
                   <td className={TD}>{p.refreshPolicies[source.refreshPolicy]}</td>
+                  <td className={TD}>
+                    {/*
+                      * Both controls are offered on every row, including the
+                      * last one. Removing the last source is refused by the use
+                      * case with a sentence explaining why; a button that
+                      * silently disappears explains nothing.
+                      */}
+                    <span className="flex items-center gap-1.5">
+                      <EditPlatformSourceControl
+                        action={updatePlatformSourceAction}
+                        target={target}
+                        source={source}
+                      />
+                      <RemovePlatformSourceControl
+                        action={removePlatformSourceAction}
+                        target={target}
+                        source={source}
+                      />
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -251,7 +322,7 @@ export default async function AdminPlatformLibraryPage({
                 <Empty
                   columns={d.versions.columns.length}
                   message={d.versions.empty}
-                  note={d.versions.note}
+                  note={ingestionReady ? d.versions.note : d.versions.notConfigured}
                 />
               ) : null}
               {record.versions.map((version) => (
@@ -304,7 +375,12 @@ export default async function AdminPlatformLibraryPage({
                         {operation.status}
                       </Pill>
                       {operation.error ? (
-                        <span className="text-[11px] text-err">{operation.error}</span>
+                        /* A stable code, rendered as the sentence it stands
+                           for. The raw code is kept as the fallback so a build
+                           whose dictionary is behind still says something. */
+                        <span className="text-[11px] text-err">
+                          {label(t.admin.ingestionErrors, operation.error)}
+                        </span>
                       ) : null}
                     </span>
                   </td>

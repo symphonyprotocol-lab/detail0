@@ -244,6 +244,8 @@ export const PLATFORM_LIBRARY_ERRORS = [
   'invalid_metadata',
   'invalid_transition',
   'no_ready_version',
+  'source_not_found',
+  'last_source',
   'archived',
   'reason_required',
   'unavailable',
@@ -362,4 +364,96 @@ function optional(value: string | undefined, max: number): string | null {
     throw new PlatformLibraryRefused('invalid_metadata', 'a field is longer than allowed');
   }
   return trimmed;
+}
+
+/* ------------------------------------------------------------------- edits */
+
+/** A validated metadata edit, ready to update. */
+export interface PlatformLibraryEdit {
+  publicId: string;
+  title: string;
+  description: string | null;
+  domainTag: string | null;
+  language: string | null;
+}
+
+export interface PlatformLibraryEditInput {
+  /** The type the library was created under. Its namespace is immutable. */
+  sourceType: PlatformSourceType;
+  title: string;
+  publicId: string;
+  description?: string;
+  domainTag?: string;
+  language?: string;
+}
+
+/**
+ * Validates an edit of the fields the catalogue shows.
+ *
+ * The Library ID is editable, and deliberately so: requirement.md 6.1 says a
+ * slug change keeps a redirect, which is only meaningful if a slug can change
+ * at all. What it may not do is leave its namespace -- the namespace is decided
+ * by the source type (requirement.md 6.1), and moving `/websites/x` to
+ * `/docs/x` would be a different kind of library wearing the same row.
+ *
+ * The source type itself is not editable here. Changing it would invalidate
+ * every version already built from the old one, and the honest way to do that
+ * is a new library.
+ */
+export function editPlatformLibrary(input: PlatformLibraryEditInput): PlatformLibraryEdit {
+  const title = input.title.trim();
+  if (title.length === 0 || title.length > TITLE_MAX_LENGTH) {
+    throw new PlatformLibraryRefused('invalid_title', 'a title is required');
+  }
+
+  const publicId = normalizePublicId(input.sourceType, input.publicId);
+  if (!publicId) {
+    throw new PlatformLibraryRefused(
+      'invalid_public_id',
+      `a ${input.sourceType} library is published under ${namespaceFor(input.sourceType)}`,
+    );
+  }
+
+  return {
+    publicId,
+    title,
+    description: optional(input.description, DESCRIPTION_MAX_LENGTH),
+    domainTag: optional(input.domainTag, TAG_MAX_LENGTH),
+    language: optional(input.language, LANGUAGE_MAX_LENGTH),
+  };
+}
+
+/* ----------------------------------------------------------------- sources */
+
+/** A validated source, ready to insert or update. */
+export interface PlatformSourceDraft {
+  type: PlatformSourceType;
+  location: string;
+  refreshPolicy: RefreshPolicy;
+}
+
+/**
+ * Validates one source of a platform library.
+ *
+ * Shares `normalizeLocation` with the create form rather than re-deriving the
+ * rules, so a location the create form refuses cannot arrive through the edit
+ * one. requirement.md 6.1 allows a library more than one source, which is why
+ * this exists apart from `draftPlatformLibrary`.
+ */
+export function draftPlatformSource(input: {
+  type: string;
+  location: string;
+  refreshPolicy: string;
+}): PlatformSourceDraft {
+  if (!isPlatformSourceType(input.type)) {
+    throw new PlatformLibraryRefused('unsupported_source', 'unsupported source type');
+  }
+  const location = normalizeLocation(input.type, input.location);
+  if (!location) {
+    throw new PlatformLibraryRefused('invalid_location', 'the source location is not usable');
+  }
+  if (!isRefreshPolicy(input.refreshPolicy)) {
+    throw new PlatformLibraryRefused('invalid_refresh_policy', 'unknown refresh policy');
+  }
+  return { type: input.type, location, refreshPolicy: input.refreshPolicy };
 }

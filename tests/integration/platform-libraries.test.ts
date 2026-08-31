@@ -34,6 +34,10 @@ const {
   platformLibrarySummary,
   requestPlatformLibraryRefresh,
   setPlatformLibraryLifecycle,
+  updatePlatformLibrary,
+  addPlatformLibrarySource,
+  updatePlatformLibrarySource,
+  removePlatformLibrarySource,
 } = await import('@/lib/application/administration/manage-platform-libraries');
 const { PlatformLibraryRefused } = await import('@/lib/domain/library');
 const { AdminChangeRefused } = await import('@/lib/domain/admin');
@@ -70,6 +74,9 @@ describeWithDb('platform libraries', () => {
       .delete(schema.workflowOperation)
       .where(inArray(schema.workflowOperation.libraryId, created));
     await database.delete(schema.source).where(inArray(schema.source.libraryId, created));
+    await database
+      .delete(schema.libraryAlias)
+      .where(inArray(schema.libraryAlias.libraryId, created));
     if (versionId) {
       await database
         .update(schema.library)
@@ -292,6 +299,184 @@ describeWithDb('platform libraries', () => {
       ).toBe('not_platform_library');
     } finally {
       await database.delete(schema.library).where(eq(schema.library.id, foreignId));
+    }
+  });
+
+  /**
+   * Editing and source management. Not one of requirement.md 5.3's four verbs,
+   * but the maintenance every one of them assumes: a library whose location was
+   * mistyped is otherwise unfixable except by abandoning it.
+   */
+  it('edits the catalogue fields and leaves the lifecycle alone', async () => {
+    const database = db();
+    const [before] = await database
+      .select({ lifecycleStatus: schema.library.lifecycleStatus })
+      .from(schema.library)
+      .where(eq(schema.library.id, created[0] as string));
+
+    await updatePlatformLibrary({
+      actor,
+      libraryId: created[0] as string,
+      title: 'Renamed fixture',
+      publicId,
+      description: 'Edited by the integration test.',
+      domainTag: 'testing',
+      language: 'English',
+      reason: 'integration test edit',
+    });
+
+    const [after] = await database
+      .select()
+      .from(schema.library)
+      .where(eq(schema.library.id, created[0] as string));
+
+    expect(after?.title).toBe('Renamed fixture');
+    expect(after?.description).toBe('Edited by the integration test.');
+    // Editing what the catalogue shows must not move the publication decision.
+    expect(after?.lifecycleStatus).toBe(before?.lifecycleStatus);
+  });
+
+  it('keeps a redirect when the Library ID changes', async () => {
+    const renamed = `${publicId}-renamed`;
+    const { renamed: didRename } = await updatePlatformLibrary({
+      actor,
+      libraryId: created[0] as string,
+      title: 'Renamed fixture',
+      publicId: renamed,
+      reason: 'integration test rename',
+    });
+    expect(didRename).toBe(true);
+
+    const database = db();
+    const [alias] = await database
+      .select()
+      .from(schema.libraryAlias)
+      .where(eq(schema.libraryAlias.fromPublicId, publicId));
+    // requirement.md 6.1: the old id keeps resolving, so quoted links survive.
+    expect(alias?.libraryId).toBe(created[0]);
+
+    // Put it back, so the rest of the file can keep using `publicId`.
+    await updatePlatformLibrary({
+      actor,
+      libraryId: created[0] as string,
+      title: 'Renamed fixture',
+      publicId,
+      reason: 'integration test rename back',
+    });
+  });
+
+  it('refuses an edit that would leave the source type\u2019s namespace', async () => {
+    expect(
+      await refusalOf(
+        updatePlatformLibrary({
+          actor,
+          libraryId: created[0] as string,
+          title: 'Renamed fixture',
+          publicId: '/docs/somewhere-else',
+          reason: 'integration test',
+        }),
+      ),
+    ).toBe('invalid_public_id');
+  });
+
+  it('adds, edits and removes a source, keeping the last one', async () => {
+    const database = db();
+    const libraryId = created[0] as string;
+
+    expect(
+      await refusalOf(
+        removePlatformLibrarySource({
+          actor,
+          libraryId,
+          sourceId: (
+            await database
+              .select({ id: schema.source.id })
+              .from(schema.source)
+              .where(eq(schema.source.libraryId, libraryId))
+              .limit(1)
+          )[0]?.id as string,
+          reason: 'integration test',
+        }),
+      ),
+    ).toBe('last_source');
+
+    const { sourceId } = await addPlatformLibrarySource({
+      actor,
+      libraryId,
+      type: 'github',
+      location: 'https://github.com/vercel/next.js',
+      refreshPolicy: 'weekly',
+      reason: 'integration test add',
+    });
+
+    const [added] = await database
+      .select()
+      .from(schema.source)
+      .where(eq(schema.source.id, sourceId));
+    expect(added?.type).toBe('github');
+    // Normalized on the way in, exactly as the create form does it.
+    expect(added?.location).toBe('vercel/next.js');
+
+    await updatePlatformLibrarySource({
+      actor,
+      libraryId,
+      sourceId,
+      location: 'vercel/next.js',
+      refreshPolicy: 'manual',
+      reason: 'integration test edit source',
+    });
+    const [edited] = await database
+      .select()
+      .from(schema.source)
+      .where(eq(schema.source.id, sourceId));
+    expect((edited?.refreshPolicy as { cadence?: string }).cadence).toBe('manual');
+
+    await removePlatformLibrarySource({
+      actor,
+      libraryId,
+      sourceId,
+      reason: 'integration test remove',
+    });
+    const remaining = await database
+      .select({ id: schema.source.id })
+      .from(schema.source)
+      .where(eq(schema.source.libraryId, libraryId));
+    expect(remaining).toHaveLength(1);
+  });
+
+  it('refuses a source that does not belong to the library', async () => {
+    expect(
+      await refusalOf(
+        updatePlatformLibrarySource({
+          actor,
+          libraryId: created[0] as string,
+          sourceId: uuidv7(),
+          location: 'https://example.test/docs',
+          refreshPolicy: 'daily',
+          reason: 'integration test',
+        }),
+      ),
+    ).toBe('source_not_found');
+  });
+
+  it('records every edit in the audit log with a reason', async () => {
+    const entries = await db()
+      .select({ action: schema.auditLog.action })
+      .from(schema.auditLog)
+      .where(
+        and(
+          eq(schema.auditLog.targetType, 'platform_library'),
+          eq(schema.auditLog.targetId, created[0] as string),
+        ),
+      );
+    const actions = new Set(entries.map((entry) => entry.action));
+    for (const action of [
+      'platform_library.update',
+      'platform_library.source_add',
+      'platform_library.source_update',
+      'platform_library.source_remove',
+    ]) {
+      expect(actions.has(action)).toBe(true);
     }
   });
 

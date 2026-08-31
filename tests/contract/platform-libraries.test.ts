@@ -3,6 +3,8 @@ import { en } from '@/lib/i18n/messages/en';
 import { zh } from '@/lib/i18n/messages/zh';
 import {
   draftPlatformLibrary,
+  draftPlatformSource,
+  editPlatformLibrary,
   isPlatformLifecycleAction,
   isPlatformSourceType,
   lifecycleActionAvailable,
@@ -261,9 +263,98 @@ describe('every refusal and enum value has words for it', () => {
       'platform_library.publish',
       'platform_library.suspend',
       'platform_library.refresh',
+      'platform_library.update',
+      'platform_library.source_add',
+      'platform_library.source_update',
+      'platform_library.source_remove',
     ]) {
       expect(zh.admin.audit.actions).toHaveProperty(action);
       expect(en.admin.audit.actions).toHaveProperty(action);
     }
+  });
+});
+
+/**
+ * Editing an existing library.
+ *
+ * The Library ID is the public, permanent handle other people quote, so the
+ * rules on it are the same on an edit as on a create -- and the one rule that
+ * is different, that the namespace is fixed by the source type the library
+ * already has, is the whole reason this is a separate function.
+ */
+describe('edits', () => {
+  const base = {
+    sourceType: 'website' as const,
+    title: 'Next.js Documentation',
+    publicId: '/websites/nextjs',
+  };
+
+  it('accepts a change of title and of slug within the namespace', () => {
+    const edit = editPlatformLibrary({ ...base, title: 'Next.js Docs', publicId: '/websites/next' });
+    expect(edit.title).toBe('Next.js Docs');
+    expect(edit.publicId).toBe('/websites/next');
+  });
+
+  it('normalizes the way the create form does, so the two cannot disagree', () => {
+    expect(editPlatformLibrary({ ...base, publicId: 'websites/NextJS/' }).publicId).toBe(
+      '/websites/nextjs',
+    );
+  });
+
+  it('refuses a move out of the source type\u2019s namespace', () => {
+    expect(() => editPlatformLibrary({ ...base, publicId: '/docs/nextjs' })).toThrow(
+      PlatformLibraryRefused,
+    );
+  });
+
+  it('applies the same field limits as a create', () => {
+    expect(() => editPlatformLibrary({ ...base, title: '' })).toThrow(PlatformLibraryRefused);
+    expect(() =>
+      editPlatformLibrary({ ...base, description: 'x'.repeat(401) }),
+    ).toThrow(PlatformLibraryRefused);
+  });
+
+  it('treats blank optional fields as absent rather than as empty strings', () => {
+    const edit = editPlatformLibrary({ ...base, domainTag: '   ', language: '' });
+    expect(edit.domainTag).toBeNull();
+    expect(edit.language).toBeNull();
+  });
+});
+
+describe('sources', () => {
+  it('validates one source with the same location rules as a create', () => {
+    const draft = draftPlatformSource({
+      type: 'github',
+      location: 'https://github.com/vercel/next.js.git',
+      refreshPolicy: 'weekly',
+    });
+    expect(draft).toEqual({ type: 'github', location: 'vercel/next.js', refreshPolicy: 'weekly' });
+  });
+
+  it('refuses an unusable location, an unknown type and an unknown cadence', () => {
+    const refusalOf = (input: { type: string; location: string; refreshPolicy: string }) => {
+      try {
+        draftPlatformSource(input);
+        return 'accepted';
+      } catch (error) {
+        return error instanceof PlatformLibraryRefused ? error.code : 'unexpected';
+      }
+    };
+    expect(refusalOf({ type: 'ftp', location: 'x', refreshPolicy: 'daily' })).toBe(
+      'unsupported_source',
+    );
+    expect(
+      refusalOf({ type: 'website', location: 'http://example.com', refreshPolicy: 'daily' }),
+    ).toBe('invalid_location');
+    expect(
+      refusalOf({ type: 'website', location: 'https://example.com', refreshPolicy: 'hourly' }),
+    ).toBe('invalid_refresh_policy');
+  });
+
+  it('offers the two refusals a source list needs words for', () => {
+    // `last_source` and `source_not_found` are only reachable from the source
+    // controls, so nothing else would have caught a missing sentence.
+    expect(zh.admin.platformLibraries.errors.last_source).toBeTruthy();
+    expect(en.admin.platformLibraries.errors.source_not_found).toBeTruthy();
   });
 });

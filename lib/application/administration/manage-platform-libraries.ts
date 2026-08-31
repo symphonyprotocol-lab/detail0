@@ -12,10 +12,10 @@
  *   That is complete; nothing about it waits on ingestion.
  * - refreshing creates a Refresh Operation and returns. architecture.md 8.4 is
  *   explicit that the caller does not wait for execution, so enqueueing *is*
- *   the whole of this side. The worker that drains the queue ships with
- *   ingestion (architecture.md 21, step 3), so until then the row sits pending
- *   -- which is why `requestRefresh` reports the queue position back rather
- *   than claiming a sync happened.
+ *   the whole of this side. `lib/application/ingestion` drains the queue -- the
+ *   console action starts a run after its response and the scheduled workflow
+ *   picks up whatever is left -- which is why this reports whether a row was
+ *   queued rather than claiming a sync happened.
  * - publishing refuses without a ready version. Publication is the atomic
  *   switch of `current_version_id` onto an indexed version (architecture.md
  *   8.3); with no version there is nothing to point at, and a `published` row
@@ -31,12 +31,16 @@ import { normalizeReason } from '@/lib/domain/admin';
 import { uuidv7 } from '@/lib/domain/id';
 import {
   draftPlatformLibrary,
+  draftPlatformSource,
+  editPlatformLibrary,
+  isPlatformSourceType,
   lifecycleActionAvailable,
   lifecycleTarget,
   PlatformLibraryRefused,
   type PlatformLibraryInput,
   type PlatformLifecycleAction,
   type PlatformLifecycleState,
+  type PlatformSourceType,
   type RefreshPolicy,
 } from '@/lib/domain/library';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -752,6 +756,338 @@ export async function requestPlatformLibraryRefresh(input: {
   });
 
   return { operationId, created: true };
+}
+
+/* ------------------------------------------------------------------- edit */
+
+/**
+ * Edits the fields the catalogue shows.
+ *
+ * Separate from the lifecycle verbs because it changes what a library *is*
+ * rather than whether it is being served, and separate from the source
+ * mutations below because a title is not a fetch instruction. A published
+ * library can be edited: correcting a description should not require taking it
+ * out of the catalogue first.
+ *
+ * A changed Library ID leaves a redirect behind. requirement.md 6.1 requires
+ * one, and the reason is that a Library ID is quoted in agent configuration and
+ * in other people's documentation -- a rename with no redirect breaks every one
+ * of those quietly, which is worse than refusing the rename.
+ */
+export async function updatePlatformLibrary(input: {
+  actor: PlatformActor;
+  libraryId: string;
+  title: string;
+  publicId: string;
+  description?: string;
+  domainTag?: string;
+  language?: string;
+  reason: string;
+}): Promise<{ publicId: string; renamed: boolean }> {
+  const reason = normalizeReason(input.reason);
+  const database = db();
+  const target = await loadTarget(database, input.libraryId);
+
+  if (target.lifecycleStatus === 'archived') {
+    throw new PlatformLibraryRefused('archived', 'an archived library is not edited');
+  }
+
+  const [before] = await database
+    .select({
+      title: schema.library.title,
+      publicId: schema.library.publicId,
+      description: schema.library.description,
+      domainTag: schema.library.domainTag,
+      language: schema.library.language,
+    })
+    .from(schema.library)
+    .where(eq(schema.library.id, target.id))
+    .limit(1);
+
+  if (!before) throw new PlatformLibraryRefused('not_found', 'no such library');
+
+  /*
+   * The namespace a Library ID may use is decided by the source type
+   * (requirement.md 6.1), so the edit is validated against the type this
+   * library already has. A library with no source keeps whatever namespace its
+   * current id is in, which `sourceTypeOf` recovers from the id itself.
+   */
+  const sourceType = await sourceTypeOf(database, target.id, before.publicId);
+  const edit = editPlatformLibrary({
+    sourceType,
+    title: input.title,
+    publicId: input.publicId,
+    description: input.description,
+    domainTag: input.domainTag,
+    language: input.language,
+  });
+
+  const renamed = edit.publicId !== before.publicId;
+  if (renamed) {
+    const [clash] = await database
+      .select({ id: schema.library.id })
+      .from(schema.library)
+      .where(eq(schema.library.publicId, edit.publicId))
+      .limit(1);
+    if (clash) {
+      throw new PlatformLibraryRefused('public_id_taken', 'that Library ID is already in use');
+    }
+  }
+
+  try {
+    await database.transaction(async (tx) => {
+      await tx
+        .update(schema.library)
+        .set({
+          title: edit.title,
+          publicId: edit.publicId,
+          description: edit.description,
+          domainTag: edit.domainTag,
+          language: edit.language,
+        })
+        .where(and(eq(schema.library.id, target.id), IS_PLATFORM));
+
+      if (renamed) {
+        /*
+         * The alias table is keyed on the id being left behind, so a library
+         * renamed twice keeps both redirects; `onConflictDoNothing` covers the
+         * case where an id is reclaimed by the library that once held it.
+         */
+        await tx
+          .insert(schema.libraryAlias)
+          .values({ id: uuidv7(), fromPublicId: before.publicId, libraryId: target.id })
+          .onConflictDoNothing();
+      }
+    });
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      throw new PlatformLibraryRefused('public_id_taken', 'that Library ID is already in use');
+    }
+    throw error;
+  }
+
+  await recordAudit({
+    administratorId: input.actor.administratorId,
+    action: 'platform_library.update',
+    targetType: AUDIT_TARGET,
+    targetId: target.id,
+    reason,
+    beforeValue: before,
+    afterValue: {
+      title: edit.title,
+      publicId: edit.publicId,
+      description: edit.description,
+      domainTag: edit.domainTag,
+      language: edit.language,
+    },
+    clientAddress: input.actor.clientAddress ?? null,
+    result: 'success',
+  });
+
+  return { publicId: edit.publicId, renamed };
+}
+
+/* ---------------------------------------------------------------- sources */
+
+/**
+ * Adds a source to a library. requirement.md 6.1 allows more than one.
+ *
+ * The new source's type is free to differ from the existing ones -- a project
+ * documented in a repository and on a site is one library, not two -- but the
+ * Library ID does not move, because the id is what other people have already
+ * written down.
+ */
+export async function addPlatformLibrarySource(input: {
+  actor: PlatformActor;
+  libraryId: string;
+  type: string;
+  location: string;
+  refreshPolicy: string;
+  reason: string;
+}): Promise<{ sourceId: string }> {
+  const reason = normalizeReason(input.reason);
+  const draft = draftPlatformSource(input);
+  const database = db();
+  const target = await loadTarget(database, input.libraryId);
+
+  if (target.lifecycleStatus === 'archived') {
+    throw new PlatformLibraryRefused('archived', 'an archived library takes no new sources');
+  }
+
+  const sourceId = uuidv7();
+  await database.insert(schema.source).values({
+    id: sourceId,
+    libraryId: target.id,
+    type: draft.type,
+    location: draft.location,
+    config: {},
+    refreshPolicy: { cadence: draft.refreshPolicy },
+  });
+
+  await recordAudit({
+    administratorId: input.actor.administratorId,
+    action: 'platform_library.source_add',
+    targetType: AUDIT_TARGET,
+    targetId: target.id,
+    reason,
+    beforeValue: null,
+    afterValue: { sourceId, type: draft.type, location: draft.location, refreshPolicy: draft.refreshPolicy },
+    clientAddress: input.actor.clientAddress ?? null,
+    result: 'success',
+  });
+
+  return { sourceId };
+}
+
+/**
+ * Changes where one source is fetched from, or how often.
+ *
+ * The type is not editable. A source's type decides which connector reads it
+ * and which Library ID namespace the library sits in; changing it in place
+ * would leave every version already built from the old type claiming to have
+ * come from the new one.
+ */
+export async function updatePlatformLibrarySource(input: {
+  actor: PlatformActor;
+  libraryId: string;
+  sourceId: string;
+  location: string;
+  refreshPolicy: string;
+  reason: string;
+}): Promise<void> {
+  const reason = normalizeReason(input.reason);
+  const database = db();
+  const target = await loadTarget(database, input.libraryId);
+
+  if (target.lifecycleStatus === 'archived') {
+    throw new PlatformLibraryRefused('archived', 'an archived library is not edited');
+  }
+
+  const before = await loadSource(database, target.id, input.sourceId);
+  const draft = draftPlatformSource({
+    type: before.type,
+    location: input.location,
+    refreshPolicy: input.refreshPolicy,
+  });
+
+  await database
+    .update(schema.source)
+    .set({ location: draft.location, refreshPolicy: { cadence: draft.refreshPolicy } })
+    .where(and(eq(schema.source.id, before.id), eq(schema.source.libraryId, target.id)));
+
+  await recordAudit({
+    administratorId: input.actor.administratorId,
+    action: 'platform_library.source_update',
+    targetType: AUDIT_TARGET,
+    targetId: target.id,
+    reason,
+    beforeValue: { sourceId: before.id, location: before.location, refreshPolicy: before.refreshPolicy },
+    afterValue: { sourceId: before.id, location: draft.location, refreshPolicy: draft.refreshPolicy },
+    clientAddress: input.actor.clientAddress ?? null,
+    result: 'success',
+  });
+}
+
+/**
+ * Removes a source, unless it is the last one.
+ *
+ * A library with no source cannot be refreshed and cannot be rebuilt; what it
+ * would become is a published index that nothing can ever correct. Deleting the
+ * library is a different decision, and one this console does not offer.
+ *
+ * Versions already built from the removed source are left alone. They are
+ * immutable by requirement.md 8.1, and rewriting history to match a decision
+ * made today is exactly what immutability is for preventing.
+ */
+export async function removePlatformLibrarySource(input: {
+  actor: PlatformActor;
+  libraryId: string;
+  sourceId: string;
+  reason: string;
+}): Promise<void> {
+  const reason = normalizeReason(input.reason);
+  const database = db();
+  const target = await loadTarget(database, input.libraryId);
+  const before = await loadSource(database, target.id, input.sourceId);
+
+  const [remaining] = await database
+    .select({ n: count() })
+    .from(schema.source)
+    .where(eq(schema.source.libraryId, target.id));
+
+  if ((remaining?.n ?? 0) <= 1) {
+    throw new PlatformLibraryRefused('last_source', 'a library keeps at least one source');
+  }
+
+  await database
+    .delete(schema.source)
+    .where(and(eq(schema.source.id, before.id), eq(schema.source.libraryId, target.id)));
+
+  await recordAudit({
+    administratorId: input.actor.administratorId,
+    action: 'platform_library.source_remove',
+    targetType: AUDIT_TARGET,
+    targetId: target.id,
+    reason,
+    beforeValue: { sourceId: before.id, type: before.type, location: before.location },
+    afterValue: null,
+    clientAddress: input.actor.clientAddress ?? null,
+    result: 'success',
+  });
+}
+
+async function loadSource(
+  database: ReturnType<typeof db>,
+  libraryId: string,
+  sourceId: string,
+): Promise<{ id: string; type: string; location: string; refreshPolicy: RefreshPolicy | 'unknown' }> {
+  if (!isUuid(sourceId)) throw new PlatformLibraryRefused('source_not_found', 'no such source');
+
+  const [row] = await database
+    .select({
+      id: schema.source.id,
+      type: schema.source.type,
+      location: schema.source.location,
+      refreshPolicy: schema.source.refreshPolicy,
+    })
+    .from(schema.source)
+    .where(and(eq(schema.source.id, sourceId), eq(schema.source.libraryId, libraryId)))
+    .limit(1);
+
+  if (!row) throw new PlatformLibraryRefused('source_not_found', 'no such source');
+  return {
+    id: row.id,
+    type: row.type,
+    location: row.location,
+    refreshPolicy: readRefreshPolicy(row.refreshPolicy),
+  };
+}
+
+/**
+ * The source type an edit must validate the Library ID against.
+ *
+ * Read from the library's first source, and recovered from the id's own
+ * namespace when there is none -- a library whose only source was removed by
+ * some future path still has an id in a namespace, and refusing to edit its
+ * title because of that would be a strange thing to explain.
+ */
+async function sourceTypeOf(
+  database: ReturnType<typeof db>,
+  libraryId: string,
+  publicId: string,
+): Promise<PlatformSourceType> {
+  const [row] = await database
+    .select({ type: schema.source.type })
+    .from(schema.source)
+    .where(eq(schema.source.libraryId, libraryId))
+    .orderBy(schema.source.id)
+    .limit(1);
+
+  if (row && isPlatformSourceType(row.type)) return row.type;
+  if (publicId.startsWith('/websites/')) return 'website';
+  if (publicId.startsWith('/notion/')) return 'notion';
+  if (publicId.startsWith('/docs/')) return 'openapi';
+  return 'github';
 }
 
 /* ------------------------------------------------------------------ shared */
