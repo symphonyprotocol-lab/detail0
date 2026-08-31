@@ -69,6 +69,7 @@ export const INGESTION_ERRORS = [
   'unsafe_content',
   'parse_failed',
   'embedding_unavailable',
+  'index_incomplete',
   'storage_unavailable',
   'publish_failed',
   'internal_error',
@@ -115,6 +116,24 @@ export const INGESTION_LIMITS = {
   /** How many pages a crawl or an llms.txt may pull. */
   maxCrawlPages: 200,
 } as const;
+
+/* ------------------------------------------------------------------ lookup */
+
+/**
+ * A lookup that answers only for keys the map actually declares.
+ *
+ * Every table in this module is keyed by something that arrived from outside:
+ * a file extension from a repository tree, an entity name from a fetched page,
+ * a language an operator typed. A plain `map[key]` also answers for
+ * `Object.prototype` members, so `&constructor;` in someone's HTML resolves to
+ * the source text of `Object` and gets spliced into the indexed document, and a
+ * library whose language reads `constructor` produces a `search_config` the
+ * CHECK constraint rejects. Both were real; this is why nothing here indexes a
+ * map directly.
+ */
+function lookup<T>(map: Record<string, T>, key: string): T | null {
+  return Object.hasOwn(map, key) ? (map[key] as T) : null;
+}
 
 /* --------------------------------------------------------------- documents */
 
@@ -174,7 +193,7 @@ export function extensionOf(path: string): string {
 }
 
 export function documentFormat(path: string): DocumentFormat | null {
-  return DOCUMENT_FORMATS[extensionOf(path)] ?? null;
+  return lookup(DOCUMENT_FORMATS, extensionOf(path));
 }
 
 export function isFallbackDocument(path: string): boolean {
@@ -512,8 +531,8 @@ const ENTITIES: Record<string, string> = {
 
 function decodeEntities(value: string): string {
   return value.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (all, name: string) => {
-    const known = ENTITIES[name.toLowerCase()];
-    if (known) return known;
+    const known = lookup(ENTITIES, name.toLowerCase());
+    if (known !== null) return known;
     if (/^#x/i.test(name)) {
       return String.fromCodePoint(Number.parseInt(name.slice(2), 16) || 32);
     }
@@ -1058,7 +1077,7 @@ export function textSearchConfig(language: string | null | undefined): TextSearc
   const primary = raw.split(/[-_\s,/]/)[0] ?? '';
   const folded = fold(primary);
 
-  return LANGUAGE_ALIASES[folded] ?? LANGUAGE_ALIASES[fold(raw)] ?? 'simple';
+  return lookup(LANGUAGE_ALIASES, folded) ?? lookup(LANGUAGE_ALIASES, fold(raw)) ?? 'simple';
 }
 
 /**

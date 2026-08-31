@@ -87,31 +87,59 @@ export async function fetchNotionSnapshot(input: { location: string }): Promise<
   const auth = headers();
 
   const files: FetchedFile[] = [];
-  const queue: string[] = [rootId];
+  const queue: Target[] = [{ id: rootId, kind: 'page' }];
   const seen = new Set<string>([rootId]);
   let lastModifiedAt: Date | null = null;
 
   while (queue.length > 0 && files.length < INGESTION_LIMITS.maxCrawlPages) {
-    const pageId = queue.shift() as string;
-    const page = await fetchJson<Page>(`${API}/pages/${pageId}`, { headers: auth });
+    const target = queue.shift() as Target;
+
+    /*
+     * A database is a container, not a page: `/v1/pages/{id}` does not answer
+     * for one. Its rows are pages, so it is expanded into them and contributes
+     * no document of its own.
+     */
+    if (target.kind === 'database') {
+      for (const id of await databaseRows(target.id, auth)) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        queue.push({ id, kind: 'page' });
+      }
+      continue;
+    }
+
+    let page: Page;
+    try {
+      page = await fetchJson<Page>(`${API}/pages/${target.id}`, { headers: auth });
+    } catch (error) {
+      /*
+       * One unreadable page does not end the build -- a block can link to a
+       * page the integration was never shared with. The root is different: if
+       * that is what failed there is nothing to index, and `files.length === 0`
+       * below says so.
+       */
+      if (error instanceof IngestionFailure && files.length > 0) continue;
+      throw error;
+    }
+
     const edited = page.last_edited_time ? new Date(page.last_edited_time) : null;
     if (edited && !Number.isNaN(edited.getTime())) {
       if (!lastModifiedAt || edited > lastModifiedAt) lastModifiedAt = edited;
     }
 
     const title = pageTitle(page) ?? 'Untitled';
-    const children: string[] = [];
-    const body = await renderBlocks(pageId, auth, 0, children);
+    const children: Target[] = [];
+    const body = await renderBlocks(target.id, auth, 0, children);
 
     files.push({
-      path: `${slug(title)}-${pageId.slice(0, 8)}.md`,
+      path: `${slug(title)}-${target.id.slice(0, 8)}.md`,
       url: page.url ?? input.location,
       content: `# ${title}\n\n${body}`.trim(),
     });
 
     for (const child of children) {
-      if (seen.has(child)) continue;
-      seen.add(child);
+      if (seen.has(child.id)) continue;
+      seen.add(child.id);
       queue.push(child);
     }
   }
@@ -128,6 +156,46 @@ export async function fetchNotionSnapshot(input: { location: string }): Promise<
     hasLicense: false,
     stale: false,
   };
+}
+
+/** What the queue holds: the two things a block can point at. */
+interface Target {
+  id: string;
+  kind: 'page' | 'database';
+}
+
+/**
+ * The pages that make up one database.
+ *
+ * Queried rather than skipped: an inline database is where a Notion workspace
+ * usually keeps its actual reference material, and dropping it would index the
+ * prose around the table and none of the table.
+ */
+async function databaseRows(databaseId: string, auth: Record<string, string>): Promise<string[]> {
+  const ids: string[] = [];
+  let cursor: string | null = null;
+
+  do {
+    let list: BlockList;
+    try {
+      list = await fetchJson<BlockList>(`${API}/databases/${databaseId}/query`, {
+        headers: auth,
+        method: 'POST',
+        body: cursor ? { page_size: 100, start_cursor: cursor } : { page_size: 100 },
+      });
+    } catch (error) {
+      /* A database the integration cannot read costs its rows, not the build. */
+      if (error instanceof IngestionFailure) return ids;
+      throw error;
+    }
+    for (const row of list.results ?? []) {
+      if (row.id) ids.push(row.id);
+      if (ids.length >= INGESTION_LIMITS.maxCrawlPages) return ids;
+    }
+    cursor = list.has_more ? (list.next_cursor ?? null) : null;
+  } while (cursor);
+
+  return ids;
 }
 
 function pageTitle(page: Page): string | null {
@@ -152,7 +220,7 @@ async function renderBlocks(
   blockId: string,
   auth: Record<string, string>,
   depth: number,
-  childPages: string[],
+  children: Target[],
 ): Promise<string> {
   if (depth > MAX_BLOCK_DEPTH) return '';
 
@@ -167,7 +235,12 @@ async function renderBlocks(
 
     for (const block of list.results ?? []) {
       if (block.type === 'child_page' || block.type === 'child_database') {
-        if (block.id) childPages.push(block.id);
+        if (block.id) {
+          children.push({
+            id: block.id,
+            kind: block.type === 'child_database' ? 'database' : 'page',
+          });
+        }
         continue;
       }
       const rendered = renderBlock(block);
@@ -178,7 +251,7 @@ async function renderBlocks(
        * attached to the toggle's heading when the document is chunked.
        */
       if (block.has_children && block.id) {
-        const nested = await renderBlocks(block.id, auth, depth + 1, childPages);
+        const nested = await renderBlocks(block.id, auth, depth + 1, children);
         if (nested.trim().length > 0) {
           lines.push(nested.split('\n').map((line) => (line ? `  ${line}` : line)).join('\n'));
         }

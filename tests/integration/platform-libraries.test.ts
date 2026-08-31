@@ -494,6 +494,121 @@ describeWithDb('platform libraries', () => {
     }
   });
 
+  it('refuses an id another library already redirects from', async () => {
+    const database = db();
+    const abandoned = `${publicId}-abandoned`;
+
+    // Leave a redirect behind, then try to hand that id to a second library.
+    await updatePlatformLibrary({
+      actor,
+      libraryId: created[0] as string,
+      title: 'Renamed fixture',
+      publicId: abandoned,
+      reason: 'integration test',
+    });
+    await updatePlatformLibrary({
+      actor,
+      libraryId: created[0] as string,
+      title: 'Renamed fixture',
+      publicId,
+      reason: 'integration test',
+    });
+
+    /* A slug of its own: the list test below searches for `slug`. */
+    const other = await createPlatformLibrary({
+      actor,
+      title: 'Alias clash fixture',
+      publicId: `/websites/alias-clash-${Date.now()}`,
+      sourceType: 'website',
+      location: 'https://example.test/other',
+      refreshPolicy: 'manual',
+      reason: 'integration test',
+    });
+    created.push(other.libraryId);
+
+    expect(
+      await refusalOf(
+        updatePlatformLibrary({
+          actor,
+          libraryId: other.libraryId,
+          title: 'Alias clash fixture',
+          publicId: abandoned,
+          reason: 'integration test',
+        }),
+      ),
+    ).toBe('public_id_taken');
+
+    // Reclaiming your own abandoned id is still allowed, and drops the alias
+    // rather than leaving an id that redirects to itself.
+    await updatePlatformLibrary({
+      actor,
+      libraryId: created[0] as string,
+      title: 'Renamed fixture',
+      publicId: abandoned,
+      reason: 'integration test',
+    });
+    const aliases = await database
+      .select({ from: schema.libraryAlias.fromPublicId })
+      .from(schema.libraryAlias)
+      .where(eq(schema.libraryAlias.fromPublicId, abandoned));
+    expect(aliases).toHaveLength(0);
+
+    await updatePlatformLibrary({
+      actor,
+      libraryId: created[0] as string,
+      title: 'Renamed fixture',
+      publicId,
+      reason: 'integration test',
+    });
+  });
+
+  it('will not let two concurrent removals empty a library', async () => {
+    const database = db();
+    const libraryId = created[0] as string;
+
+    const first = await addPlatformLibrarySource({
+      actor,
+      libraryId,
+      type: 'website',
+      location: 'https://example.test/a',
+      refreshPolicy: 'manual',
+      reason: 'integration test',
+    });
+    const existing = await database
+      .select({ id: schema.source.id })
+      .from(schema.source)
+      .where(eq(schema.source.libraryId, libraryId));
+    expect(existing.length).toBeGreaterThanOrEqual(2);
+
+    // Both removals see two sources; only one may win.
+    const results = await Promise.allSettled(
+      existing
+        .slice(0, 2)
+        .map((source) =>
+          removePlatformLibrarySource({ actor, libraryId, sourceId: source.id, reason: 'race' }),
+        ),
+    );
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+
+    const left = await database
+      .select({ id: schema.source.id })
+      .from(schema.source)
+      .where(eq(schema.source.libraryId, libraryId));
+    expect(left.length).toBeGreaterThanOrEqual(1);
+
+    // Tidy up whichever survived, back to the single original source.
+    for (const source of left) {
+      if (source.id === first.sourceId) {
+        await removePlatformLibrarySource({
+          actor,
+          libraryId,
+          sourceId: source.id,
+          reason: 'integration test cleanup',
+        }).catch(() => undefined);
+      }
+    }
+  });
+
   it('lists and counts only platform libraries', async () => {
     const { rows, counts } = await listPlatformLibraries({ query: slug });
     expect(rows).toHaveLength(1);

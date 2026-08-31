@@ -1016,6 +1016,7 @@ export const zh = {
       unsafe_content: '抓取到的文档全部被安全扫描隔离。',
       parse_failed: '快照里没有可解析成文本的内容。',
       embedding_unavailable: 'Embedding 服务不可用或未配置。',
+      index_incomplete: '有 Chunk 没有写入索引，该版本已丢弃。',
       storage_unavailable: '对象存储不可用或未配置。',
       publish_failed: '版本已构建，但发布事务没有提交。',
       internal_error: '任务因未预期的错误中断。',

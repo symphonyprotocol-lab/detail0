@@ -832,6 +832,27 @@ export async function updatePlatformLibrary(input: {
     if (clash) {
       throw new PlatformLibraryRefused('public_id_taken', 'that Library ID is already in use');
     }
+
+    /*
+     * An id another library redirects from is taken too.
+     *
+     * requirement.md 6.1 keeps a redirect when a slug changes, which only means
+     * something if one id has one answer. Allowing this would leave
+     * `library.public_id` and `library_alias.from_public_id` both claiming it,
+     * for two different libraries, with nothing to break the tie -- so the
+     * check covers both tables. An alias this library left behind itself is not
+     * a clash: reclaiming your own old id is how you undo a rename, and the
+     * transaction below drops that alias rather than redirecting the id to the
+     * library that now holds it.
+     */
+    const [aliased] = await database
+      .select({ libraryId: schema.libraryAlias.libraryId })
+      .from(schema.libraryAlias)
+      .where(eq(schema.libraryAlias.fromPublicId, edit.publicId))
+      .limit(1);
+    if (aliased && aliased.libraryId !== target.id) {
+      throw new PlatformLibraryRefused('public_id_taken', 'that Library ID is already in use');
+    }
   }
 
   try {
@@ -849,9 +870,18 @@ export async function updatePlatformLibrary(input: {
 
       if (renamed) {
         /*
+         * A library reclaiming its own old id must not also redirect from it:
+         * the row it is moving to is now live, and an alias pointing at the
+         * same library would be a redirect from an id to itself.
+         */
+        await tx
+          .delete(schema.libraryAlias)
+          .where(eq(schema.libraryAlias.fromPublicId, edit.publicId));
+
+        /*
          * The alias table is keyed on the id being left behind, so a library
-         * renamed twice keeps both redirects; `onConflictDoNothing` covers the
-         * case where an id is reclaimed by the library that once held it.
+         * renamed twice keeps both redirects; `onConflictDoNothing` covers a
+         * re-run that finds the redirect already recorded.
          */
         await tx
           .insert(schema.libraryAlias)
@@ -1010,18 +1040,43 @@ export async function removePlatformLibrarySource(input: {
   const target = await loadTarget(database, input.libraryId);
   const before = await loadSource(database, target.id, input.sourceId);
 
-  const [remaining] = await database
-    .select({ n: count() })
-    .from(schema.source)
-    .where(eq(schema.source.libraryId, target.id));
+  /*
+   * Serialized on the library row, because the two operators are deleting
+   * *different* rows.
+   *
+   * Counting and then deleting is two statements, and under read-committed two
+   * removals of the two sources of a two-source library each see two, each pass
+   * the guard, and the library is left with none -- unrefreshable, and exactly
+   * the state this guard exists to prevent. Row locks on `source` do not help:
+   * different rows never block each other. Locking the library they belong to
+   * is what makes the pair of statements atomic with respect to each other, and
+   * the second one then counts one and is refused.
+   */
+  const removed = await database.transaction(async (tx) => {
+    await tx
+      .select({ id: schema.library.id })
+      .from(schema.library)
+      .where(eq(schema.library.id, target.id))
+      .for('update');
 
-  if ((remaining?.n ?? 0) <= 1) {
+    const [remaining] = await tx
+      .select({ n: count() })
+      .from(schema.source)
+      .where(eq(schema.source.libraryId, target.id));
+
+    if ((remaining?.n ?? 0) <= 1) return false;
+
+    const deleted = await tx
+      .delete(schema.source)
+      .where(and(eq(schema.source.id, before.id), eq(schema.source.libraryId, target.id)))
+      .returning({ id: schema.source.id });
+
+    return deleted.length > 0;
+  });
+
+  if (!removed) {
     throw new PlatformLibraryRefused('last_source', 'a library keeps at least one source');
   }
-
-  await database
-    .delete(schema.source)
-    .where(and(eq(schema.source.id, before.id), eq(schema.source.libraryId, target.id)));
 
   await recordAudit({
     administratorId: input.actor.administratorId,

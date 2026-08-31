@@ -68,24 +68,40 @@ export interface FetchedResource {
  * `http://` or to a private address has just defeated the check on the URL the
  * operator typed. `redirect: 'manual'` is what makes every hop visible.
  */
+export interface FetchOptions {
+  accept?: string;
+  headers?: Record<string, string>;
+  maxBytes?: number;
+  /** Only a query endpoint needs anything but GET. */
+  method?: 'GET' | 'POST';
+  /** Sent as JSON. Ignored unless `method` is POST. */
+  body?: unknown;
+}
+
 export async function fetchDocument(
   target: string,
-  options: { accept?: string; headers?: Record<string, string>; maxBytes?: number } = {},
+  options: FetchOptions = {},
 ): Promise<FetchedResource> {
+  const origin = new URL(target).origin;
   let url = new URL(target);
+  let method = options.method ?? 'GET';
   const limit = options.maxBytes ?? MAX_BYTES;
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     assertFetchable(url);
 
+    const sendBody = method === 'POST' && options.body !== undefined;
     let response: Response;
     try {
       response = await fetch(url, {
+        method,
         headers: {
           accept: options.accept ?? 'text/markdown, text/plain, text/html;q=0.9, */*;q=0.5',
           'user-agent': USER_AGENT,
-          ...options.headers,
+          ...(sendBody ? { 'content-type': 'application/json' } : {}),
+          ...credentialSafe(options.headers, url, origin),
         },
+        body: sendBody ? JSON.stringify(options.body) : undefined,
         redirect: 'manual',
         signal: AbortSignal.timeout(TIMEOUT_MS),
         cache: 'no-store',
@@ -99,6 +115,13 @@ export async function fetchDocument(
       await response.body?.cancel();
       if (!location) {
         throw new IngestionFailure('source_unreachable', STAGE, 'redirect without a location');
+      }
+      /*
+       * 307 and 308 preserve the method; 301, 302 and 303 turn a POST into a
+       * GET, which is what every client does and what the endpoints expect.
+       */
+      if (method === 'POST' && response.status !== 307 && response.status !== 308) {
+        method = 'GET';
       }
       url = new URL(location, url);
       continue;
@@ -142,6 +165,33 @@ export async function fetchDocument(
 
 const USER_AGENT = 're0-ingestion/1.0 (+https://re0.com)';
 
+/**
+ * Headers that authenticate us, and must not survive a change of origin.
+ *
+ * `notion.ts` and `github.ts` both hand a bearer token to `fetchDocument`, and
+ * the loop above follows redirects itself. Replaying the header on the next hop
+ * is how a redirect -- an open one, a hijacked edge, a vendor's
+ * misconfiguration -- turns into a token handed to whoever the `Location`
+ * names. Browsers strip credentials on a cross-origin redirect for exactly this
+ * reason; following redirects by hand means doing it by hand too.
+ */
+const CREDENTIAL_HEADERS = new Set(['authorization', 'cookie', 'proxy-authorization']);
+
+function credentialSafe(
+  headers: Record<string, string> | undefined,
+  url: URL,
+  origin: string,
+): Record<string, string> {
+  if (!headers) return {};
+  if (url.origin === origin) return headers;
+
+  const carried: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (!CREDENTIAL_HEADERS.has(name.toLowerCase())) carried[name] = value;
+  }
+  return carried;
+}
+
 /** Reads a body, aborting the stream rather than buffering past the cap. */
 async function readCapped(response: Response, limit: number, url: URL): Promise<string> {
   const reader = response.body?.getReader();
@@ -171,10 +221,7 @@ async function readCapped(response: Response, limit: number, url: URL): Promise<
 }
 
 /** JSON from an API, with the same guards. */
-export async function fetchJson<T>(
-  target: string,
-  options: { headers?: Record<string, string>; maxBytes?: number } = {},
-): Promise<T> {
+export async function fetchJson<T>(target: string, options: FetchOptions = {}): Promise<T> {
   const resource = await fetchDocument(target, { ...options, accept: 'application/json' });
   try {
     return JSON.parse(resource.body) as T;

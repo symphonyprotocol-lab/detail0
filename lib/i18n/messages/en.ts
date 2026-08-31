@@ -1097,6 +1097,7 @@ export const en: Dictionary = {
       unsafe_content: 'Every fetched document was quarantined by the security scan.',
       parse_failed: 'Nothing in the snapshot parsed to text.',
       embedding_unavailable: 'The embedding provider is unavailable or unconfigured.',
+      index_incomplete: 'Not every chunk reached the index, so the version was discarded.',
       storage_unavailable: 'Object storage is unavailable or unconfigured.',
       publish_failed: 'The version was built but the publication transaction did not commit.',
       internal_error: 'The run stopped on an unexpected error.',

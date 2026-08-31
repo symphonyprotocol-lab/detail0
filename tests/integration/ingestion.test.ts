@@ -442,6 +442,67 @@ describeWithDb('ingestion', () => {
     expect(chunk?.config).toBe('simple');
   });
 
+  it('measures storage in bytes, not in UTF-16 units', async () => {
+    const chinese = [
+      {
+        path: 'README.md',
+        url: 'https://example.test/readme',
+        content: '# 知识库\n\n这是一段中文说明，用来验证容量按字节计算。',
+      },
+    ];
+    const libraryId = await fixtureLibrary(`ingest-bytes-${Date.now()}`);
+    await runOperation({
+      operationId: await queueRefresh(libraryId),
+      dependencies: dependencies({ files: chinese }),
+    });
+
+    const [record] = await db()
+      .select({ storageBytes: schema.library.storageBytes })
+      .from(schema.library)
+      .where(eq(schema.library.id, libraryId));
+
+    // requirement.md 4.1 counts content bytes; each Han character is one
+    // UTF-16 unit and three UTF-8 bytes, so a string length would report a
+    // third of this.
+    const expected = new TextEncoder().encode(chinese[0]!.content).length;
+    expect(record?.storageBytes).toBe(expected);
+    expect(expected).toBeGreaterThan(chinese[0]!.content.length);
+  });
+
+  it('leaves nothing behind when a build fails after the version row', async () => {
+    const libraryId = await fixtureLibrary(`ingest-discard-${Date.now()}`);
+
+    const outcome = await runOperation({
+      operationId: await queueRefresh(libraryId),
+      dependencies: {
+        ...dependencies(),
+        // Fails after the version and documents are written, which is what the
+        // streaming insert made reachable.
+        embeddings: () => ({
+          model: 'fixture-embed-1',
+          dimensions: EMBEDDING_DIMENSIONS,
+          async embed(): Promise<number[][]> {
+            throw new Error('provider exploded mid-build');
+          },
+        }),
+      },
+    });
+    expect(outcome.status).toBe('failed');
+
+    const database = db();
+    const versions = await database
+      .select({ id: schema.libraryVersion.id })
+      .from(schema.libraryVersion)
+      .where(eq(schema.libraryVersion.libraryId, libraryId));
+    const documents = await database
+      .select({ id: schema.document.id })
+      .from(schema.document)
+      .where(eq(schema.document.libraryId, libraryId));
+
+    expect(versions).toHaveLength(0);
+    expect(documents).toHaveLength(0);
+  });
+
   it('records a trust and benchmark score for the build', async () => {
     const libraryId = await fixtureLibrary(`ingest-score-${Date.now()}`);
     await runOperation({ operationId: await queueRefresh(libraryId), dependencies: dependencies() });

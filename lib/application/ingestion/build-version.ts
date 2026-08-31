@@ -56,6 +56,15 @@ export type BuildOutcome =
 /** Rows are inserted in batches so one build is not one enormous statement. */
 const INSERT_BATCH = 250;
 
+/**
+ * How many chunks are embedded and written before their vectors are released.
+ *
+ * Large enough that the provider still sees full batches (the adapter splits
+ * this into its own requests), small enough that peak memory is a few megabytes
+ * whatever the size of the library.
+ */
+const EMBED_WINDOW = 500;
+
 export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   const dependencies = input.dependencies ?? defaultDependencies;
   const database = db();
@@ -268,7 +277,6 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   let totalChunks = 0;
   let totalTokens = 0;
   let citedChunks = 0;
-  const bodies: string[] = [];
   const seenBodies = new Set<string>();
   let duplicates = 0;
 
@@ -286,7 +294,6 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       const key = `${draft.body.length}:${draft.body.slice(0, 200)}`;
       if (seenBodies.has(key)) duplicates += 1;
       else seenBodies.add(key);
-      bodies.push(draft.body);
       return {
         id: uuidv7(),
         ordinal: draft.ordinal,
@@ -314,14 +321,20 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
   /* ---------------------------------------------------------- embed-index */
 
-  const vectors = await adapter.embed(bodies);
-  if (vectors.length !== bodies.length) {
-    throw new IngestionFailure(
-      'embedding_unavailable',
-      'embed-index',
-      'the embedding provider returned the wrong number of vectors',
-    );
-  }
+  const pending = rows.flatMap((row) =>
+    row.chunks.map((chunk) => ({
+      id: chunk.id,
+      libraryId: library.id,
+      versionId,
+      documentId: row.document.id,
+      ordinal: chunk.ordinal,
+      body: chunk.body,
+      tokens: chunk.tokens,
+      citation: chunk.citation as Record<string, unknown>,
+      safetyStatus: 'clean',
+      searchConfig,
+    })),
+  );
 
   const leaves = await Promise.all(
     rows.flatMap((row) =>
@@ -369,36 +382,52 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     'application/json',
   );
 
-  const bytes = safe.reduce((total, file) => total + file.content.length, 0);
+  /*
+   * requirement.md 4.1 measures a library's capacity in bytes of content, and a
+   * JavaScript string length is UTF-16 code units -- one per Han character
+   * where UTF-8 spends three. Counting the encoded form is the difference
+   * between a Chinese library reporting its real size and reporting a third of
+   * it. The connectors already count this way.
+   */
+  const encoder = new TextEncoder();
+  const bytes = safe.reduce((total, file) => total + encoder.encode(file.content).length, 0);
 
   /*
    * The same source can now be built more than once -- a configuration change
    * rebuilds unchanged bytes -- so the label is numbered against what this
-   * library already has. `library_version_label_uq` is the actual guarantee;
-   * this read is what turns it into a readable label rather than a collision.
+   * library already has.
+   *
+   * One clock read for both the base and the stored label: two would let a
+   * build that crosses midnight count against yesterday's base and write
+   * today's, producing a `.2` with no `.1`. The count runs inside the
+   * transaction that inserts the row, so two builds racing here cannot both
+   * read the same number; `library_version_label_uq` is the backstop.
    */
-  const base = versionLabel(digest, new Date());
-  const [priorBuilds] = await database
-    .select({ n: count() })
-    .from(schema.libraryVersion)
-    .where(
-      and(
-        eq(schema.libraryVersion.libraryId, library.id),
-        or(eq(schema.libraryVersion.label, base), like(schema.libraryVersion.label, `${base}.%`)),
-      ),
-    );
+  const builtAt = new Date();
+  const base = versionLabel(digest, builtAt);
 
   await database.transaction(async (tx) => {
+    const [priorBuilds] = await tx
+      .select({ n: count() })
+      .from(schema.libraryVersion)
+      .where(
+        and(
+          eq(schema.libraryVersion.libraryId, library.id),
+          or(eq(schema.libraryVersion.label, base), like(schema.libraryVersion.label, `${base}.%`)),
+        ),
+      );
+
     await tx.insert(schema.libraryVersion).values({
       id: versionId,
       libraryId: library.id,
-      label: versionLabel(digest, new Date(), (priorBuilds?.n ?? 0) + 1),
+      label: versionLabel(digest, builtAt, (priorBuilds?.n ?? 0) + 1),
       sourceDigest: digest,
       parserVersion: PARSER_VERSION,
       chunkerVersion: CHUNKER_VERSION,
       embeddingModel: adapter.model,
       searchConfig,
       contentMerkleRoot: root,
+      /* Not `ready`: nothing has been embedded yet. */
       indexStatus: 'processing',
       totalTokens,
       totalChunks,
@@ -414,43 +443,85 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
         objectKey: row.document.objectKey,
       })),
     );
+  });
 
-    let cursor = 0;
-    const flat = rows.flatMap((row) =>
-      row.chunks.map((chunk) => ({
-        id: chunk.id,
-        libraryId: library.id,
-        versionId,
-        documentId: row.document.id,
-        ordinal: chunk.ordinal,
-        body: chunk.body,
-        tokens: chunk.tokens,
-        citation: chunk.citation as Record<string, unknown>,
-        safetyStatus: 'clean',
-        searchConfig,
-        embedding: vectors[cursor++] ?? [],
-      })),
-    );
+  /*
+   * Embedded and inserted a window at a time, and the vectors are dropped as
+   * soon as they are written.
+   *
+   * Holding every vector for a build is what makes a large library impossible
+   * rather than slow: the caps above permit roughly forty thousand chunks, and
+   * forty thousand 1536-dimension vectors is about half a gigabyte of live
+   * JavaScript numbers before a single row is sent. A window keeps that flat --
+   * a few megabytes -- whatever the size of the source.
+   *
+   * The chunks are therefore not written in one transaction, and they do not
+   * need to be. architecture.md 8.3 requires the *publication* to be atomic,
+   * and `publish-version.ts` is that transaction: it refuses a version that is
+   * not `ready` and counts its chunks against `total_chunks` before moving the
+   * pointer. A build interrupted here leaves a `processing` version that can
+   * never be published, which `discardVersion` then clears away.
+   */
+  try {
+    for (let offset = 0; offset < pending.length; offset += EMBED_WINDOW) {
+      const window = pending.slice(offset, offset + EMBED_WINDOW);
+      const vectors = await adapter.embed(window.map((chunk) => chunk.body));
+      if (vectors.length !== window.length) {
+        throw new IngestionFailure(
+          'embedding_unavailable',
+          'embed-index',
+          'the embedding provider returned the wrong number of vectors',
+        );
+      }
 
-    for (let offset = 0; offset < flat.length; offset += INSERT_BATCH) {
-      await tx.insert(schema.chunk).values(flat.slice(offset, offset + INSERT_BATCH));
+      for (let at = 0; at < window.length; at += INSERT_BATCH) {
+        await database.insert(schema.chunk).values(
+          window.slice(at, at + INSERT_BATCH).map((chunk, index) => ({
+            ...chunk,
+            embedding: vectors[at + index] as number[],
+          })),
+        );
+      }
     }
 
-    /* Last, so `ready` is never true of a version that is missing chunks. */
-    await tx
-      .update(schema.libraryVersion)
-      .set({ indexStatus: 'ready' })
-      .where(eq(schema.libraryVersion.id, versionId));
+    await database.transaction(async (tx) => {
+      /*
+       * Counted from the table, not from the loop above, so `ready` is a
+       * statement about rows that exist rather than about writes we believe
+       * succeeded.
+       */
+      const [written] = await tx
+        .select({ n: count() })
+        .from(schema.chunk)
+        .where(eq(schema.chunk.versionId, versionId));
 
-    await tx
-      .update(schema.library)
-      .set({
-        lastCheckedAt: new Date(),
-        lastSuccessfulRefreshAt: new Date(),
-        storageBytes: bytes,
-      })
-      .where(eq(schema.library.id, library.id));
-  });
+      if ((written?.n ?? 0) !== totalChunks) {
+        throw new IngestionFailure(
+          'index_incomplete',
+          'embed-index',
+          'the version is missing chunks',
+        );
+      }
+
+      /* Last, so `ready` is never true of a version that is missing chunks. */
+      await tx
+        .update(schema.libraryVersion)
+        .set({ indexStatus: 'ready' })
+        .where(eq(schema.libraryVersion.id, versionId));
+
+      await tx
+        .update(schema.library)
+        .set({
+          lastCheckedAt: new Date(),
+          lastSuccessfulRefreshAt: new Date(),
+          storageBytes: bytes,
+        })
+        .where(eq(schema.library.id, library.id));
+    });
+  } catch (error) {
+    await discardVersion(database, versionId);
+    throw error;
+  }
 
   /* ------------------------------------------------------------- evaluate */
 
@@ -487,6 +558,28 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   });
 
   return { changed: true, digest, versionId, documents: rows.length, chunks: totalChunks };
+}
+
+/**
+ * Clears away a version that never became `ready`.
+ *
+ * Best effort, and deliberately so: it runs while another failure is already
+ * being reported, and failing to tidy up must not replace the reason the build
+ * stopped with a reason about the tidying. What it leaves behind if it fails is
+ * a `processing` version, which nothing publishes and nothing queries.
+ */
+async function discardVersion(database: ReturnType<typeof db>, versionId: string): Promise<void> {
+  try {
+    await database.delete(schema.chunk).where(eq(schema.chunk.versionId, versionId));
+    await database.delete(schema.document).where(eq(schema.document.versionId, versionId));
+    await database.delete(schema.libraryVersion).where(eq(schema.libraryVersion.id, versionId));
+  } catch (error) {
+    console.error(
+      `could not discard incomplete version ${versionId}: ${
+        error instanceof Error ? error.message : 'unknown'
+      }`,
+    );
+  }
 }
 
 function encode(value: unknown): Uint8Array {

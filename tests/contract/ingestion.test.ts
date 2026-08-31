@@ -46,6 +46,11 @@ const markdown = (content: string) =>
 /* ------------------------------------------------------------------ files */
 
 describe('what is worth indexing', () => {
+  it('does not treat an Object.prototype member as a document format', () => {
+    expect(documentFormat('notes.constructor')).toBeNull();
+    expect(documentFormat('notes.toString')).toBeNull();
+  });
+
   it('recognises documentation formats and nothing else', () => {
     expect(documentFormat('README.md')).toBe('markdown');
     expect(documentFormat('docs/api.MDX')).toBe('markdown');
@@ -179,6 +184,20 @@ describe('parsing', () => {
     const document = markdown('# Guide\n\nIntro.\n\n## Install\n\nRun it.');
     expect(document.sections.map((section) => section.heading)).toEqual(['Guide', 'Install']);
     expect(document.body.slice(document.sections[1]!.offset)).toMatch(/^## Install/);
+  });
+
+  it('does not resolve Object.prototype members as HTML entities', () => {
+    /*
+     * A fetched page is attacker-controlled. Looking entity names up on an
+     * object literal made `&constructor;` resolve to the source text of
+     * `Object`, which was then chunked, embedded and cited as library content.
+     */
+    for (const name of ['constructor', 'toString', 'valueOf', 'hasOwnProperty']) {
+      const text = htmlToText(`<p>a &${name}; b</p>`);
+      expect(text).not.toContain('native code');
+      expect(text).not.toContain('function');
+      expect(text).toContain(`&${name};`);
+    }
   });
 
   it('drops navigation and script from HTML instead of chunking it per page', () => {
@@ -455,7 +474,10 @@ describe('language-aware indexing', () => {
   });
 
   it('only ever returns a configuration the column allows', () => {
-    for (const input of ['en', 'zh', 'Klingon', '', 'de-AT', 'PORTUGUESE', 'ru']) {
+    // `constructor` and friends used to come back as the `Object` function,
+    // which `chunk_search_config_ck` then rejected and the build died on.
+    const inputs = ['en', 'zh', 'Klingon', '', 'de-AT', 'PORTUGUESE', 'ru'];
+    for (const input of [...inputs, 'constructor', 'toString', 'valueOf', '__proto__']) {
       expect(TEXT_SEARCH_CONFIGS).toContain(textSearchConfig(input));
     }
   });

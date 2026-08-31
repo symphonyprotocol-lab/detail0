@@ -163,6 +163,7 @@ function isRetriable(code: IngestionErrorCode): boolean {
   return (
     code === 'source_unreachable' ||
     code === 'embedding_unavailable' ||
+    code === 'index_incomplete' ||
     code === 'storage_unavailable' ||
     code === 'internal_error'
   );

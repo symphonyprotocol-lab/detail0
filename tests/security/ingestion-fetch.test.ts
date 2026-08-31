@@ -14,8 +14,8 @@
  * does not expose -- so the deployment restricts egress as well. This checks
  * that the half we own does not regress.
  */
-import { describe, expect, it } from 'vitest';
-import { assertFetchable } from '@/lib/infrastructure/connectors/http';
+import { afterEach, describe, expect, it } from 'vitest';
+import { assertFetchable, fetchDocument } from '@/lib/infrastructure/connectors/http';
 import { IngestionFailure } from '@/lib/domain/ingestion';
 
 function refusalOf(url: string): string {
@@ -77,5 +77,77 @@ describe('what ingestion may fetch', () => {
   it('refuses non-http schemes outright', () => {
     expect(refusalOf('file:///etc/passwd')).toBe('source_forbidden');
     expect(refusalOf('ftp://example.com/x')).toBe('source_forbidden');
+  });
+});
+
+/**
+ * Credentials and redirects.
+ *
+ * `fetchDocument` follows redirects by hand, which means it also has to strip
+ * by hand what a browser strips for it. `notion.ts` and `github.ts` both pass a
+ * bearer token in, and a redirect is the one place that token can be handed to
+ * a host we never meant to talk to.
+ */
+describe('credentials across a redirect', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  /** Records every request, answering the first with a redirect. */
+  function redirectingTo(location: string) {
+    const seen: { url: string; authorization: string | null; method: string }[] = [];
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      seen.push({
+        url: String(input),
+        authorization: headers.get('authorization'),
+        method: init?.method ?? 'GET',
+      });
+      if (seen.length === 1) {
+        return new Response(null, { status: 302, headers: { location } });
+      }
+      return new Response('done', { status: 200, headers: { 'content-type': 'text/plain' } });
+    }) as typeof fetch;
+    return seen;
+  }
+
+  it('keeps the token on a same-origin redirect', async () => {
+    const seen = redirectingTo('https://api.notion.com/v1/other');
+    await fetchDocument('https://api.notion.com/v1/pages/x', {
+      headers: { authorization: 'Bearer secret-token' },
+    });
+    expect(seen).toHaveLength(2);
+    expect(seen[1]?.authorization).toBe('Bearer secret-token');
+  });
+
+  it('drops the token when the redirect changes origin', async () => {
+    const seen = redirectingTo('https://evil.example.com/collect');
+    await fetchDocument('https://api.notion.com/v1/pages/x', {
+      headers: { authorization: 'Bearer secret-token' },
+    });
+    expect(seen).toHaveLength(2);
+    expect(seen[1]?.url).toContain('evil.example.com');
+    expect(seen[1]?.authorization).toBeNull();
+  });
+
+  it('drops it on a redirect to a different host of the same vendor too', async () => {
+    // Same registrable domain is still a different origin, and the token is
+    // scoped to the origin it was issued for, not to the company.
+    const seen = redirectingTo('https://objects.notion.com/blob');
+    await fetchDocument('https://api.notion.com/v1/pages/x', {
+      headers: { authorization: 'Bearer secret-token' },
+    });
+    expect(seen[1]?.authorization).toBeNull();
+  });
+
+  it('turns a redirected POST into a GET unless the status preserves it', async () => {
+    const seen = redirectingTo('https://api.notion.com/v1/moved');
+    await fetchDocument('https://api.notion.com/v1/databases/x/query', {
+      method: 'POST',
+      body: { page_size: 100 },
+    });
+    expect(seen[0]?.method).toBe('POST');
+    expect(seen[1]?.method).toBe('GET');
   });
 });
