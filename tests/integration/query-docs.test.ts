@@ -32,6 +32,12 @@ const workspaces: string[] = [];
 const planVersions: string[] = [];
 const store = memoryObjectStore();
 
+const nullCache = {
+  get: async () => null,
+  set: async () => {},
+  invalidateTag: async () => {},
+};
+
 const noEmbeddings = {
   embeddings: () => {
     throw new Error('not configured');
@@ -39,6 +45,7 @@ const noEmbeddings = {
   rerank: () => {
     throw new Error('not configured');
   },
+  cache: () => nullCache,
   configured: () => ({ embeddings: false, rerank: false }),
 };
 
@@ -437,6 +444,74 @@ describeWithDb('query-docs', () => {
     expect(degraded.chunks.map((chunk) => chunk.chunkId)).toEqual(
       baseline.chunks.map((chunk) => chunk.chunkId),
     );
+  });
+
+  /**
+   * §9.4: only immutable-version results are cached, a hit short-circuits
+   * recall but still meters, and the store keys by version + query + config.
+   */
+  it('caches public results and still meters the hit', async () => {
+    const stamp = Date.now();
+    const libraryId = await publishedLibrary(`qd-cache-${stamp}`);
+    const workspaceId = await workspaceOnPlan(100);
+
+    const store = new Map<string, string>();
+    const caching = {
+      ...noEmbeddings,
+      cache: () => ({
+        get: async (key: string) => store.get(key) ?? null,
+        set: async (key: string, value: string) => {
+          store.set(key, value);
+        },
+        invalidateTag: async () => {},
+      }),
+    };
+    const input = {
+      libraryId: `/websites/qd-cache-${stamp}`,
+      query: 'moths at night',
+      maxTokens: 4000,
+      format: 'json' as const,
+    };
+
+    const first = await queryDocs(caller(workspaceId), input, caching);
+    expect(first.chunks.length).toBeGreaterThan(0);
+    expect(store.size).toBe(1);
+
+    /* Poison the entry: if the second call returns it, the hit path ran. */
+    const [key] = store.keys();
+    const sentinel = {
+      chunks: [
+        {
+          chunkId: 'cached-sentinel',
+          text: 'from the cache',
+          score: 1,
+          tokens: 3,
+          citation: {
+            sourceUrl: 'https://example.test/cached',
+            documentTitle: 'Cached',
+            section: null,
+            lines: null,
+          },
+        },
+      ],
+    };
+    store.set(key!, JSON.stringify(sentinel));
+
+    const hitCaller = caller(workspaceId);
+    const second = await queryDocs(hitCaller, input, caching);
+    expect(second.chunks[0]!.chunkId).toBe('cached-sentinel');
+    /* The hit is still a served, metered call. */
+    const events = await db()
+      .select()
+      .from(schema.usageEvent)
+      .where(eq(schema.usageEvent.requestId, hitCaller.requestId));
+    expect(events).toHaveLength(1);
+    expect(events[0]?.libraryId).toBe(libraryId);
+
+    /* A corrupt entry is a miss, never an error. */
+    store.set(key!, '{not json');
+    const third = await queryDocs(caller(workspaceId), input, caching);
+    expect(third.chunks[0]!.chunkId).not.toBe('cached-sentinel');
   });
 
   it('trims strictly to maxTokens without cutting a chunk', async () => {

@@ -37,18 +37,33 @@ import type { CallerContext } from './index';
 import { toTsquery } from './resolve-library';
 import { searchTokens } from '@/lib/domain/profile';
 import { cjkSearchTokens, containsCjk } from '@/lib/domain/cjk';
+import { sha256Hex } from '@/lib/domain/ingestion';
+import { cacheSetTagged, retrievalCache, type RetrievalCache } from '@/lib/infrastructure/cache/redis';
 
 export interface RetrievalDependencies {
   embeddings(): EmbeddingAdapter;
   rerank(): RerankAdapter;
+  cache(): RetrievalCache;
   configured(): { embeddings: boolean; rerank: boolean };
 }
 
 const defaultDependencies: RetrievalDependencies = {
   embeddings: embeddingAdapter,
   rerank: rerankAdapter,
+  cache: retrievalCache,
   configured: () => ({ embeddings: isEmbeddingConfigured(), rerank: isRerankConfigured() }),
 };
+
+/**
+ * Participates in every cache key (architecture.md 9.4): recall widths,
+ * fusion constants, rerank windows and trim rules all change what a cached
+ * result means. Bump on any change to the retrieval pipeline's behaviour.
+ */
+export const RETRIEVAL_CONFIG_VERSION = 're0-retrieval-1';
+/** Entries expire on their own; the version in the key is the invalidation. */
+const CACHE_TTL_SECONDS = 21_600;
+/** Policy versions are not implemented yet; the key carries a fixed slot. */
+const POLICY_VERSION_PLACEHOLDER = 'p0';
 
 /** Per-path recall width inside the version. §9.3: bounded, never a full scan. */
 const RECALL_LIMIT = 50;
@@ -125,6 +140,60 @@ export async function queryDocs(
     : null;
 
   try {
+    /* ----------------------------------------------------------- cache */
+
+    /*
+     * architecture.md 9.4, checked only now: a hit has already passed the
+     * same visibility, state and quota gates as a miss. Public libraries
+     * only -- a public version's chunks are identical for every caller, so
+     * one shared entry is safe, while caching private responses would demand
+     * the per-workspace encrypted partition 9.4 prescribes and is deferred
+     * with it. The canonical JSON is the only cached shape; TXT derives from
+     * it downstream, so one entry serves both response types. Metering runs
+     * on hits exactly as on misses: a cached answer is still a served call.
+     */
+    const cacheable = library.visibility === 'public';
+    const cacheKey = cacheable
+      ? `ctx:pub:${version.id}:${POLICY_VERSION_PLACEHOLDER}:${await sha256Hex(input.query)}:${input.maxTokens}:${RETRIEVAL_CONFIG_VERSION}`
+      : null;
+
+    if (cacheKey) {
+      const hit = await dependencies
+        .cache()
+        .get(cacheKey)
+        .catch(() => null);
+      if (hit) {
+        let chunks: ChunkResult[] | null = null;
+        try {
+          chunks = (JSON.parse(hit) as { chunks: ChunkResult[] }).chunks;
+        } catch {
+          chunks = null; /* a corrupt entry is a miss, never an error */
+        }
+        if (chunks) {
+          if (reservation) {
+            await commitCall({
+              reservation,
+              libraryId: library.id,
+              versionId: version.id,
+              operation: 'context',
+              entrypoint: caller.apiKeyId ? 'rest' : 'web',
+              statusCode: 200,
+              latencyMs: Date.now() - startedAt,
+              inputTokens: null,
+              returnedTokens: chunks.reduce((total, chunk) => total + chunk.tokens, 0),
+            });
+          }
+          return {
+            libraryId: library.publicId,
+            version: version.label,
+            chunks,
+            usage: usageOf(reservation),
+            requestId: caller.requestId,
+          };
+        }
+      }
+    }
+
     /* ---------------------------------------------------------- recall */
 
     /*
@@ -243,6 +312,17 @@ export async function queryDocs(
         tokens: row.tokens,
         citation,
       });
+    }
+
+    /* Stored under the library's tag so a safety suspension can revoke every
+       entry at once (9.4); best-effort, and never on the request's account. */
+    if (cacheKey) {
+      cacheSetTagged(dependencies.cache(), {
+        key: cacheKey,
+        value: JSON.stringify({ chunks }),
+        ttlSeconds: CACHE_TTL_SECONDS,
+        tag: `ctxtag:${library.id}`,
+      }).catch(() => {});
     }
 
     /* ----------------------------------------------------------- meter */

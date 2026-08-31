@@ -96,6 +96,77 @@ export function rateLimiter(): RateLimiter {
   };
 }
 
+/**
+ * The retrieval result cache. architecture.md 9.4: it only ever holds results
+ * of immutable versions, so entries never need updating -- the version in the
+ * key is the invalidation. Every operation degrades to a miss or a no-op:
+ * the cache buys p95, never correctness, and an Upstash outage must not fail
+ * a request that the database can serve (9.4: "缓存不可用时直接穿透回源").
+ *
+ * `invalidateTag` supports the safety-suspension path: set() under a tag also
+ * records the key in a Redis set (`tag -> key set`, 9.4), and revoking the
+ * tag deletes every recorded key plus the set itself.
+ */
 export function retrievalCache(): RetrievalCache {
-  throw new Error('not implemented: retrievalCache adapter');
+  const config = credentials();
+
+  const command = async (parts: string[][]): Promise<{ result: unknown }[] | null> => {
+    if (!config) return null;
+    try {
+      const response = await fetch(`${config.url}/pipeline`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${config.token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(parts),
+        signal: AbortSignal.timeout(2_000),
+        cache: 'no-store',
+      });
+      if (!response.ok) return null;
+      return (await response.json()) as { result: unknown }[];
+    } catch {
+      return null;
+    }
+  };
+
+  return {
+    async get(key) {
+      const rows = await command([['GET', key]]);
+      const value = rows?.[0]?.result;
+      return typeof value === 'string' ? value : null;
+    },
+    async set(key, value, ttlSeconds) {
+      await command([['SET', key, value, 'EX', String(ttlSeconds)]]);
+    },
+    async invalidateTag(tag) {
+      const rows = await command([['SMEMBERS', tag]]);
+      const members = Array.isArray(rows?.[0]?.result) ? (rows[0].result as string[]) : [];
+      await command([['DEL', tag, ...members]]);
+    },
+  };
+}
+
+/** set() plus tag bookkeeping, for entries a safety suspension must revoke. */
+export async function cacheSetTagged(
+  cache: RetrievalCache,
+  input: { key: string; value: string; ttlSeconds: number; tag: string },
+): Promise<void> {
+  await cache.set(input.key, input.value, input.ttlSeconds);
+  const config = credentials();
+  if (!config) return;
+  try {
+    await fetch(`${config.url}/pipeline`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${config.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify([
+        ['SADD', input.tag, input.key],
+        ['EXPIRE', input.tag, String(input.ttlSeconds * 2), 'NX'],
+      ]),
+      signal: AbortSignal.timeout(2_000),
+      cache: 'no-store',
+    });
+  } catch {
+    /* tag bookkeeping is best-effort; the entry still expires by TTL */
+  }
 }
