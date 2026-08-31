@@ -622,6 +622,20 @@ describeWithDb('platform libraries', () => {
     expect(rows[0]?.sourceType).toBe('website');
     expect(counts.suspended).toBeGreaterThanOrEqual(1);
 
+    /*
+     * Queued moments before it is counted: a drain running in a parallel
+     * suite happily claims any pending operation this file queued earlier
+     * (the teardown comment above already knows this), so asserting on one
+     * queued minutes ago is a race. One inserted here narrows the window
+     * from the file's runtime to these two statements.
+     */
+    await db().insert(schema.workflowOperation).values({
+      id: crypto.randomUUID(),
+      libraryId: created[0]!,
+      operationType: 'refresh',
+      sourceDigest: null,
+      status: 'pending',
+    });
     const summary = await platformLibrarySummary();
     expect(summary.queuedRefreshes).toBeGreaterThanOrEqual(1);
     // Nothing writes `usage_event` yet, so this is a true zero.

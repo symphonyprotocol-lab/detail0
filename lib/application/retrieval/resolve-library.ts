@@ -27,16 +27,18 @@
  * and every candidate carries evidence -- which titles and terms matched -- so
  * the calling agent can decide in one round without trusting the name.
  *
- * What is NOT here yet, by design: the scatter-gather confirmation stage,
- * which belongs to query-docs. The workspace Policy Evaluator hook lands here
- * when policies are implemented (architecture.md 10.2: Library Search applies
- * Policy at the metadata stage).
+ * The workspace policy filters candidates before ranking (architecture.md
+ * 10.2: Library Search applies policy at the metadata stage -- recall is
+ * content, admission is policy, and a blocked library must not appear at
+ * all). What is NOT here yet, by design: the scatter-gather confirmation
+ * stage, which belongs to query-docs.
  */
 import { and, desc, eq, inArray, isNotNull, or, sql, type SQL } from 'drizzle-orm';
 import type { CallerContext } from './index';
 import type { LibraryCandidate, ResolveLibraryInput, ResolveLibraryOutput } from '@/contracts/schemas';
 import { searchTokens } from '@/lib/domain/profile';
 import { containsCjk } from '@/lib/domain/cjk';
+import { pinPolicy, policyIsOpen, policyVerdicts } from '@/lib/application/policies';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import {
   embeddingAdapter,
@@ -213,7 +215,22 @@ export async function resolveLibrary(
   }
   if (fused.size === 0) return { results: [], requestId: caller.requestId };
 
-  const candidateIds = [...fused.keys()];
+  let candidateIds = [...fused.keys()];
+
+  /*
+   * §10.2: policy admission at the metadata stage, over the bounded candidate
+   * set and before any ranking or evidence assembly. Refused candidates
+   * simply do not appear; the reason codes stay server side here, because a
+   * search result is not the place to explain each absence.
+   */
+  if (caller.workspaceId) {
+    const pinned = await pinPolicy(caller.workspaceId);
+    if (!policyIsOpen(pinned.policy)) {
+      const verdicts = await policyVerdicts(pinned.policy, candidateIds);
+      candidateIds = candidateIds.filter((id) => verdicts.get(id)?.allowed !== false);
+      if (candidateIds.length === 0) return { results: [], requestId: caller.requestId };
+    }
+  }
 
   const details = await database
     .select({

@@ -139,6 +139,69 @@ export const queryDocsOutputSchema = z.object({
   requestId: z.string(),
 });
 
+// --- Policy. architecture.md 10. ---
+
+export const policyReasonSchema = z.enum([
+  'allowed',
+  'source_type_disabled',
+  'library_blocked',
+  'not_in_allowlist',
+  'unverified_library',
+  'below_trust_threshold',
+  'stale_library',
+]);
+
+export const workspacePolicySchema = z.object({
+  mode: z.enum(['quality', 'select']).nullable(),
+  sourceTypes: z.record(z.string(), z.boolean()),
+  quality: z.object({
+    requireVerified: z.boolean(),
+    minTrustScore: z.number().int().min(0).max(100).nullable(),
+    maxAgeDays: z.number().int().positive().nullable(),
+  }),
+  blockedLibraries: z.array(libraryIdSchema),
+  exceptedLibraries: z.array(libraryIdSchema),
+  allowedLibraries: z.array(libraryIdSchema),
+});
+
+const libraryIdListPatchSchema = z.object({
+  add: z.array(libraryIdSchema).max(200).optional(),
+  remove: z.array(libraryIdSchema).max(200).optional(),
+  clear: z.boolean().optional(),
+});
+
+/**
+ * PATCH /v1/policies is incremental (architecture.md 10.1): source types
+ * enable/disable, lists add/remove/clear, thresholds set or null to unset.
+ * The server materialises a complete, immutable new Policy Version.
+ */
+export const policyPatchSchema = z.object({
+  mode: z.enum(['quality', 'select', 'clear']).optional(),
+  sourceTypes: z
+    .object({
+      enable: z.array(z.string().min(1).max(40)).max(20).optional(),
+      disable: z.array(z.string().min(1).max(40)).max(20).optional(),
+    })
+    .optional(),
+  quality: z
+    .object({
+      requireVerified: z.boolean().optional(),
+      minTrustScore: z.number().int().min(0).max(100).nullable().optional(),
+      maxAgeDays: z.number().int().positive().nullable().optional(),
+    })
+    .optional(),
+  blocked: libraryIdListPatchSchema.optional(),
+  excepted: libraryIdListPatchSchema.optional(),
+  allowed: libraryIdListPatchSchema.optional(),
+});
+
+export const policyResponseSchema = z.object({
+  policyVersionId: z.string().nullable(),
+  policy: workspacePolicySchema,
+  accessibleLibraryCount: z.number().int().nonnegative(),
+  requestId: z.string(),
+});
+
 // --- Claim. requirement.md 7.3 ---
 
 export const startClaimInputSchema = z.object({
@@ -188,6 +251,9 @@ export type ResolveLibraryOutput = z.infer<typeof resolveLibraryOutputSchema>;
 export type QueryDocsInput = z.infer<typeof queryDocsInputSchema>;
 export type QueryDocsOutput = z.infer<typeof queryDocsOutputSchema>;
 export type LibraryCandidate = z.infer<typeof libraryCandidateSchema>;
+export type WorkspacePolicyView = z.infer<typeof workspacePolicySchema>;
+export type PolicyPatch = z.infer<typeof policyPatchSchema>;
+export type PolicyResponse = z.infer<typeof policyResponseSchema>;
 export type ChunkResult = z.infer<typeof chunkResultSchema>;
 export type Citation = z.infer<typeof citationSchema>;
 export type Usage = z.infer<typeof usageSchema>;

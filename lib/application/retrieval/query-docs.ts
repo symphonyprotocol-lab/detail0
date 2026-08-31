@@ -14,16 +14,15 @@
  * the text-search configuration frozen on the version, so query stemming
  * always matches how the chunks were indexed.
  *
- * Not in this increment, recorded rather than implied: the workspace Policy
- * Evaluator (architecture.md 10.2 -- its check belongs between visibility and
- * reservation), the Redis result cache (9.4 -- correctness never depended on
- * it), and the earning event (11.4 -- lands with publisher accounting).
+ * Not in this increment, recorded rather than implied: the earning event
+ * (11.4 -- lands with publisher accounting).
  */
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import type { ChunkResult, QueryDocsInput, QueryDocsOutput } from '@/contracts/schemas';
 import { isQueryable } from '@/lib/domain';
 import { commitCall, releaseCall, reserveCall, type ReservedCall } from '@/lib/application/plans';
+import { pinPolicy, policyIsOpen, policyVerdictFor } from '@/lib/application/policies';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import {
   embeddingAdapter,
@@ -62,8 +61,8 @@ const defaultDependencies: RetrievalDependencies = {
 export const RETRIEVAL_CONFIG_VERSION = 're0-retrieval-1';
 /** Entries expire on their own; the version in the key is the invalidation. */
 const CACHE_TTL_SECONDS = 21_600;
-/** Policy versions are not implemented yet; the key carries a fixed slot. */
-const POLICY_VERSION_PLACEHOLDER = 'p0';
+/** The key's policy slot for callers with no workspace and hence no policy. */
+const NO_POLICY = 'p0';
 
 /** Per-path recall width inside the version. §9.3: bounded, never a full scan. */
 const RECALL_LIMIT = 50;
@@ -124,6 +123,22 @@ export async function queryDocs(
     throw new AppError('library_not_ready', 'the library has no queryable version');
   }
 
+  /*
+   * §10.2: the workspace policy is pinned and enforced before the version is
+   * pinned, before anything is reserved, and before any embedding is built.
+   * A refusal carries only the stable reason code. Anonymous callers have no
+   * workspace and therefore no policy.
+   */
+  const pinnedPolicy = caller.workspaceId
+    ? await pinPolicy(caller.workspaceId)
+    : { versionId: null, policy: null };
+  if (pinnedPolicy.policy && !policyIsOpen(pinnedPolicy.policy)) {
+    const verdict = await policyVerdictFor(pinnedPolicy.policy, library.id);
+    if (!verdict.allowed) {
+      throw new AppError('access_rule_blocked', verdict.reason);
+    }
+  }
+
   const version = versionLabel
     ? await pinLabeledVersion(database, library.id, versionLabel)
     : await pinVersion(database, library.currentVersionId);
@@ -154,7 +169,7 @@ export async function queryDocs(
      */
     const cacheable = library.visibility === 'public';
     const cacheKey = cacheable
-      ? `ctx:pub:${version.id}:${POLICY_VERSION_PLACEHOLDER}:${await sha256Hex(input.query)}:${input.maxTokens}:${RETRIEVAL_CONFIG_VERSION}`
+      ? `ctx:pub:${version.id}:${pinnedPolicy.versionId ?? NO_POLICY}:${await sha256Hex(input.query)}:${input.maxTokens}:${RETRIEVAL_CONFIG_VERSION}`
       : null;
 
     if (cacheKey) {
