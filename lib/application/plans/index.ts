@@ -1,5 +1,12 @@
 /** Plan use cases. Route Handlers, server actions and MCP tools enter here. */
-export { chooseDebitSource, reserveCall, type QuotaState } from './quota';
+export {
+  chooseDebitSource,
+  commitCall,
+  releaseCall,
+  reserveCall,
+  type QuotaState,
+  type ReservedCall,
+} from './quota';
 export {
   PLAN_VERSION_NEWEST_FIRST,
   createPlanVersion,

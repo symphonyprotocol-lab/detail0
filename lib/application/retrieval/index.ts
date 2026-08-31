@@ -1,5 +1,6 @@
 import type { QueryDocsInput, QueryDocsOutput, ResolveLibraryInput, ResolveLibraryOutput } from '@/contracts/schemas';
-import { AppError } from '@/contracts/errors';
+import { resolveLibrary } from './resolve-library';
+import { queryDocs as queryDocsUseCase } from './query-docs';
 
 /**
  * The single retrieval implementation. REST, MCP and the web playground all
@@ -22,15 +23,15 @@ export interface CallerContext {
 }
 
 export async function resolveLibraryId(
-  _caller: CallerContext,
-  _input: ResolveLibraryInput,
+  caller: CallerContext,
+  input: ResolveLibraryInput,
 ): Promise<ResolveLibraryOutput> {
-  throw new AppError('not_implemented', 'resolveLibraryId is not implemented yet');
+  return resolveLibrary(caller, input);
 }
 
 export async function queryDocs(
-  _caller: CallerContext,
-  _input: QueryDocsInput,
+  caller: CallerContext,
+  input: QueryDocsInput,
 ): Promise<QueryDocsOutput> {
-  throw new AppError('not_implemented', 'queryDocs is not implemented yet');
+  return queryDocsUseCase(caller, input);
 }
