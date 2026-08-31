@@ -133,10 +133,20 @@ export async function runOperation(input: {
         );
     }
 
+    /*
+     * The stage and the code for an expected refusal; the exception message as
+     * well for anything else. architecture.md 17.1 keeps fetched content out of
+     * logs, and an `IngestionFailure`'s message can quote a host -- but an
+     * unexpected error is a bug or a misconfiguration, its message describes our
+     * own code or a provider's response, and swallowing it leaves whoever is on
+     * call with `internal_error` and nothing to go on.
+     */
     console.error(
-      `ingestion ${operation.id} failed at ${
-        error instanceof IngestionFailure ? error.stage : 'unknown'
-      }: ${code}`,
+      error instanceof IngestionFailure
+        ? `ingestion ${operation.id} failed at ${error.stage}: ${code}`
+        : `ingestion ${operation.id} failed: ${code}: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
     );
     return { status: 'failed', error: code };
   }

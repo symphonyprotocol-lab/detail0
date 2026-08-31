@@ -153,14 +153,25 @@ class S3Store implements ObjectStore {
 }
 
 /**
- * The store's own error, with the status but never the body.
+ * The store's own error: the status, the S3 error code, and never the body.
  *
- * An S3 error body echoes the key and sometimes the bucket policy; both are
- * fine in a trace and neither belongs in a message that may reach a screen.
+ * An S3 error body echoes the key and sometimes the bucket policy; neither
+ * belongs in a message that may reach a screen. The `<Code>` element is a
+ * different thing -- a fixed vocabulary (`NoSuchBucket`, `AccessDenied`,
+ * `SignatureDoesNotMatch`) that carries no content of ours -- and it is the
+ * difference between "404" and "the bucket does not exist", which is the whole
+ * of what someone reading this needs to know.
  */
 async function storeError(operation: string, key: string, response: Response): Promise<Error> {
-  await response.body?.cancel();
-  return new Error(`object store ${operation} failed with ${response.status} for ${key}`);
+  let code = '';
+  try {
+    const body = await response.text();
+    code = /<Code>([^<]{1,64})<\/Code>/.exec(body)?.[1] ?? '';
+  } catch {
+    /* A body we cannot read is not worth failing differently over. */
+  }
+  const detail = code ? `${response.status} ${code}` : String(response.status);
+  return new Error(`object store ${operation} failed with ${detail} for ${key}`);
 }
 
 /* ------------------------------------------------------------------ sigv4 */
