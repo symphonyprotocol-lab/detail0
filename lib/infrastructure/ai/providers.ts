@@ -158,8 +158,64 @@ async function backoff(attempt: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** (attempt - 1)));
 }
 
+const DEFAULT_RERANK_MODEL = 'rerank-v3.5';
+const RERANK_TIMEOUT_MS = 5_000;
+
+export function isRerankConfigured(): boolean {
+  return Boolean(process.env.RERANK_PROVIDER_API_KEY && process.env.RERANK_PROVIDER_BASE_URL);
+}
+
+/**
+ * Speaks the Cohere-compatible `/rerank` shape (Cohere, Jina, and most
+ * hosted rerankers accept it): query + documents in, `{index,
+ * relevance_score}` pairs out. The base URL is configuration, so a different
+ * provider is an environment change.
+ *
+ * One attempt, tight timeout, no retries -- unlike embeddings, a rerank is an
+ * ordering refinement on an already-correct candidate list, and the caller
+ * degrades to fusion order rather than waiting out a backoff.
+ */
 export function rerankAdapter(): RerankAdapter {
-  throw new ProviderUnavailable('rerank', 'not implemented: rerankAdapter');
+  const apiKey = process.env.RERANK_PROVIDER_API_KEY;
+  const baseUrl = process.env.RERANK_PROVIDER_BASE_URL?.replace(/\/+$/, '');
+  if (!apiKey || !baseUrl) {
+    throw new ProviderUnavailable('rerank', 'RERANK_PROVIDER_API_KEY / _BASE_URL are not set');
+  }
+  const model = process.env.RERANK_MODEL ?? DEFAULT_RERANK_MODEL;
+
+  return {
+    async rerank(query: string, candidates: string[]): Promise<number[]> {
+      const response = await fetch(`${baseUrl}/rerank`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ model, query, documents: candidates }),
+        signal: AbortSignal.timeout(RERANK_TIMEOUT_MS),
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        throw new ProviderUnavailable('rerank', `provider answered ${response.status}`);
+      }
+
+      const payload = (await response.json()) as {
+        results?: { index?: number; relevance_score?: number }[];
+      };
+      const scores = new Array<number>(candidates.length).fill(0);
+      for (const result of payload.results ?? []) {
+        if (
+          typeof result.index === 'number' &&
+          result.index >= 0 &&
+          result.index < candidates.length &&
+          typeof result.relevance_score === 'number'
+        ) {
+          scores[result.index] = result.relevance_score;
+        }
+      }
+      return scores;
+    },
+  };
 }
 
 export function llmAdapter(): LlmAdapter {

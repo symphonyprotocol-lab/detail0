@@ -36,7 +36,10 @@ const noEmbeddings = {
   embeddings: () => {
     throw new Error('not configured');
   },
-  configured: () => ({ embeddings: false }),
+  rerank: () => {
+    throw new Error('not configured');
+  },
+  configured: () => ({ embeddings: false, rerank: false }),
 };
 
 const FILES = [
@@ -386,6 +389,54 @@ describeWithDb('query-docs', () => {
     expect(output.chunks.length).toBeGreaterThan(0);
     expect(output.chunks[0]!.text).toContain('隐翅虫');
     expect(output.chunks[0]!.citation.sourceUrl).toBe('https://example.test/beetles-zh');
+  });
+
+  /**
+   * §9.2 rerank refines the fused head; §9.3 says it sees only the limited
+   * candidates. A reranker that inverts the scores must invert the order --
+   * and one that throws must leave fusion order standing, not fail the call.
+   */
+  it('applies the reranker over the fused head, and degrades without it', async () => {
+    const stamp = Date.now();
+    await publishedLibrary(`qd-rerank-${stamp}`);
+    const input = {
+      libraryId: `/websites/qd-rerank-${stamp}`,
+      query: 'rove beetle moths moonlight',
+      maxTokens: 4000,
+      format: 'json' as const,
+    };
+
+    const baseline = await queryDocs(caller(null), input, noEmbeddings);
+    expect(baseline.chunks.length).toBeGreaterThan(1);
+
+    const inverting = {
+      ...noEmbeddings,
+      rerank: () => ({
+        async rerank(_query: string, candidates: string[]) {
+          /* Later candidates score higher: fusion order must invert. */
+          return candidates.map((_, at) => at + 1);
+        },
+      }),
+      configured: () => ({ embeddings: false, rerank: true }),
+    };
+    const inverted = await queryDocs(caller(null), input, inverting);
+    expect(inverted.chunks.map((chunk) => chunk.chunkId)).toEqual(
+      [...baseline.chunks.map((chunk) => chunk.chunkId)].reverse(),
+    );
+
+    const failing = {
+      ...noEmbeddings,
+      rerank: () => ({
+        async rerank(): Promise<number[]> {
+          throw new Error('provider down');
+        },
+      }),
+      configured: () => ({ embeddings: false, rerank: true }),
+    };
+    const degraded = await queryDocs(caller(null), input, failing);
+    expect(degraded.chunks.map((chunk) => chunk.chunkId)).toEqual(
+      baseline.chunks.map((chunk) => chunk.chunkId),
+    );
   });
 
   it('trims strictly to maxTokens without cutting a chunk', async () => {

@@ -16,9 +16,8 @@
  *
  * Not in this increment, recorded rather than implied: the workspace Policy
  * Evaluator (architecture.md 10.2 -- its check belongs between visibility and
- * reservation), the rerank stage (the adapter is not implemented; RRF order
- * stands), the Redis result cache (9.4 -- correctness never depended on it),
- * and the earning event (11.4 -- lands with publisher accounting).
+ * reservation), the Redis result cache (9.4 -- correctness never depended on
+ * it), and the earning event (11.4 -- lands with publisher accounting).
  */
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
@@ -29,7 +28,10 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
 import {
   embeddingAdapter,
   isEmbeddingConfigured,
+  isRerankConfigured,
+  rerankAdapter,
   type EmbeddingAdapter,
+  type RerankAdapter,
 } from '@/lib/infrastructure/ai/providers';
 import type { CallerContext } from './index';
 import { toTsquery } from './resolve-library';
@@ -38,17 +40,23 @@ import { cjkSearchTokens, containsCjk } from '@/lib/domain/cjk';
 
 export interface RetrievalDependencies {
   embeddings(): EmbeddingAdapter;
-  configured(): { embeddings: boolean };
+  rerank(): RerankAdapter;
+  configured(): { embeddings: boolean; rerank: boolean };
 }
 
 const defaultDependencies: RetrievalDependencies = {
   embeddings: embeddingAdapter,
-  configured: () => ({ embeddings: isEmbeddingConfigured() }),
+  rerank: rerankAdapter,
+  configured: () => ({ embeddings: isEmbeddingConfigured(), rerank: isRerankConfigured() }),
 };
 
 /** Per-path recall width inside the version. §9.3: bounded, never a full scan. */
 const RECALL_LIMIT = 50;
 const RRF_K = 60;
+/** §9.3: rerank only touches the fused head, never the whole recall. */
+const RERANK_WINDOW = 30;
+/** Enough of a chunk for a reranker to judge it; the rest is cost. */
+const RERANK_DOCUMENT_CHARS = 1_500;
 
 export async function queryDocs(
   caller: CallerContext,
@@ -191,11 +199,35 @@ export async function queryDocs(
       });
     }
 
+    let ordered = [...fused.values()].sort((a, b) => b.score - a.score);
+
+    /*
+     * §9.2 rerank, over the fused head only. A failure keeps fusion order:
+     * rerank refines an already-correct list, so it is never worth an error
+     * or a retry -- the adapter carries a tight timeout for the same reason.
+     */
+    if (dependencies.configured().rerank && ordered.length > 1) {
+      const head = ordered.slice(0, RERANK_WINDOW);
+      try {
+        const scores = await dependencies
+          .rerank()
+          .rerank(input.query, head.map((entry) => entry.row.body.slice(0, RERANK_DOCUMENT_CHARS)));
+        if (scores.length === head.length) {
+          const reranked = head
+            .map((entry, at) => ({ ...entry, score: scores[at]! }))
+            .sort((a, b) => b.score - a.score);
+          ordered = [...reranked, ...ordered.slice(RERANK_WINDOW)];
+        }
+      } catch {
+        /* fusion order stands */
+      }
+    }
+
     const seenBodies = new Set<string>();
     const chunks: ChunkResult[] = [];
     let budget = input.maxTokens;
 
-    for (const { score, row } of [...fused.values()].sort((a, b) => b.score - a.score)) {
+    for (const { score, row } of ordered) {
       /* §9.3: near-duplicates collapse; the key mirrors the builder's. */
       const bodyKey = `${row.body.length}:${row.body.slice(0, 200)}`;
       if (seenBodies.has(bodyKey)) continue;
