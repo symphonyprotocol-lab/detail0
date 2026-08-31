@@ -355,6 +355,39 @@ describeWithDb('query-docs', () => {
     }
   });
 
+  /**
+   * The gap migration 0011 recorded, closed: under `simple` a Han run is one
+   * token and Chinese keyword recall is silently zero. With the pre-segmented
+   * CJK vector, a Chinese question recalls by keywords alone -- no embedding
+   * provider in this test, so the vector path cannot be carrying it.
+   */
+  it('recalls Chinese content by keywords alone', async () => {
+    const stamp = Date.now();
+    await publishedLibrary(`qd-cjk-${stamp}`, [
+      {
+        path: 'docs/beetles.md',
+        url: 'https://example.test/beetles-zh',
+        content:
+          '# 常见甲虫\n\n隐翅虫的防治与危害:隐翅虫体液含隐翅虫素,接触皮肤会引起皮炎。远离灯光可以减少接触。',
+      },
+      {
+        path: 'docs/moths.md',
+        url: 'https://example.test/moths-zh',
+        content: '# 蛾类\n\n蛾类依靠月光导航,夜间常被灯光吸引。',
+      },
+    ]);
+
+    const output = await queryDocs(
+      caller(null),
+      { libraryId: `/websites/qd-cjk-${stamp}`, query: '隐翅虫的防治', maxTokens: 4000, format: 'json' },
+      noEmbeddings,
+    );
+
+    expect(output.chunks.length).toBeGreaterThan(0);
+    expect(output.chunks[0]!.text).toContain('隐翅虫');
+    expect(output.chunks[0]!.citation.sourceUrl).toBe('https://example.test/beetles-zh');
+  });
+
   it('trims strictly to maxTokens without cutting a chunk', async () => {
     const stamp = Date.now();
     await publishedLibrary(`qd-trim-${stamp}`);

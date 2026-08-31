@@ -613,10 +613,31 @@ export const chunk = pgTable(
         when 'yiddish' then to_tsvector('yiddish', "body")
         else to_tsvector('simple', "body")
       end`),
+    /**
+     * The pre-segmented form of `body`'s Han runs (space-joined bigrams, see
+     * lib/domain/cjk.ts), written by the build for chunks that contain CJK
+     * text and null otherwise. Stored rather than generated because Postgres
+     * cannot compute it: segmentation is exactly what stock Postgres lacks
+     * (migration 0011). Immutable like the rest of the row; changing the
+     * segmentation scheme requires a CHUNKER_VERSION bump so every affected
+     * version rebuilds instead of holding rows two schemes wrote.
+     */
+    bodySegmented: text('body_segmented'),
+    /**
+     * The CJK keyword index: `simple` is finally correct here because the
+     * text arrives pre-segmented. Empty (not null) for non-CJK rows, so the
+     * retrieval predicate can OR the two vectors without a null guard.
+     */
+    searchVectorCjk: customType<{ data: string; driverData: string; notNull: false }>({
+      dataType: () => 'tsvector',
+    })('search_vector_cjk').generatedAlwaysAs(
+      sql`to_tsvector('simple', coalesce("body_segmented", ''))`,
+    ),
     embedding: vector('embedding', { dimensions: 1536 }),
   },
   (t) => [
     index('chunk_library_version_idx').on(t.libraryId, t.versionId),
+    index('chunk_search_vector_cjk_idx').using('gin', t.searchVectorCjk),
     /*
      * No ANN index on `embedding` -- deliberately. architecture.md 9.1:
      * retrieval always pins one version first, so vector recall is an exact

@@ -1075,7 +1075,7 @@ Upstash Redis 不在此列：它替代的是上一版运行平台自带的限流
 
 ### 待验证事项
 
-- 全文检索的中文分词方案：Postgres 原生 FTS 需要 `zhparser`、`pg_bigm` 或退回 trigram，需先确认 Neon 的扩展支持范围。**该项是 §9.6 库级发现的前置依赖，优先级高于路由实现**——当前 `search_config` 无中文路径，中文内容落到 `simple` 后库内 FTS 即失效。若 Neon 不支持相应扩展，退路是 ingestion 侧预分词（jieba 类）后以 `simple` 配置索引，需与 `search_vector` 生成列「不可漂移」的设计协调（预分词文本需独立存列或改为写入时计算）；
+- ~~全文检索的中文分词方案~~ **已解决**：采用 ingestion 侧无词典 bigram 预切分（`lib/domain/cjk.ts`），Han 文本切成重叠二元组存 `chunk.body_segmented` 独立列，`search_vector_cjk` 生成列以 `simple` 配置索引预切分文本——`simple` 在这里是正确的，因为切分发生在 Postgres 之前。查询侧对含 Han 的问题走同一切分器并与主向量 OR 召回。选无词典方案是为了确定性（重建版本必须产出相同行，词典文件会漂移）与零原生依赖；`zhparser` 类词典分词器仍是记录在案的升级路径，切换方案必须随 `CHUNKER_VERSION` 升版触发重建；
 - BM25 排序的实现路径：使用扩展提供的 BM25 还是在应用层实现，需比较可用性与成熟度；
 - 画像层实体抽取与聚类质心的实现选型（统计 vs LLM）及其在 ingestion 流水线中的成本与时长；
 - scatter-gather 确认层（10–20 库并行库内召回）在 Vercel Functions 时长限制与 Neon 连接池下的 p95 表现；

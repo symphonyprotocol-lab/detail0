@@ -34,6 +34,7 @@ import {
 import type { CallerContext } from './index';
 import { toTsquery } from './resolve-library';
 import { searchTokens } from '@/lib/domain/profile';
+import { cjkSearchTokens, containsCjk } from '@/lib/domain/cjk';
 
 export interface RetrievalDependencies {
   embeddings(): EmbeddingAdapter;
@@ -123,30 +124,41 @@ export async function queryDocs(
      * demand every word in one chunk, and a question's words usually straddle
      * chunks. Each quoted token is still normalised through the version's
      * frozen configuration, so stemming matches how the chunks were indexed.
+     *
+     * A query with Han text also matches the pre-segmented CJK vector
+     * (lib/domain/cjk.ts) -- the main vector cannot see inside a Han run, and
+     * without this branch Chinese keyword recall is silently zero.
      */
     const tsquery = toTsquery(searchTokens(input.query));
-    const keyword = tsquery
-      ? await database
-          .select({
-            id: schema.chunk.id,
-            body: schema.chunk.body,
-            tokens: schema.chunk.tokens,
-            citation: schema.chunk.citation,
-          })
-          .from(schema.chunk)
-          .where(
-            and(
-              scopedTo(library.id, version.id),
-              sql`${schema.chunk.searchVector} @@ to_tsquery(${version.searchConfig}::regconfig, ${tsquery})`,
-            ),
-          )
-          .orderBy(
-            desc(
-              sql`ts_rank(${schema.chunk.searchVector}, to_tsquery(${version.searchConfig}::regconfig, ${tsquery}))`,
-            ),
-          )
-          .limit(RECALL_LIMIT)
-      : [];
+    const cjkQuery = containsCjk(input.query) ? toTsquery(cjkSearchTokens(input.query)) : null;
+
+    const matches = tsquery
+      ? cjkQuery
+        ? sql`(${schema.chunk.searchVector} @@ to_tsquery(${version.searchConfig}::regconfig, ${tsquery})
+              or ${schema.chunk.searchVectorCjk} @@ to_tsquery('simple', ${cjkQuery}))`
+        : sql`${schema.chunk.searchVector} @@ to_tsquery(${version.searchConfig}::regconfig, ${tsquery})`
+      : null;
+    const rank = tsquery
+      ? cjkQuery
+        ? sql`ts_rank(${schema.chunk.searchVector}, to_tsquery(${version.searchConfig}::regconfig, ${tsquery}))
+              + ts_rank(${schema.chunk.searchVectorCjk}, to_tsquery('simple', ${cjkQuery}))`
+        : sql`ts_rank(${schema.chunk.searchVector}, to_tsquery(${version.searchConfig}::regconfig, ${tsquery}))`
+      : null;
+
+    const keyword =
+      matches && rank
+        ? await database
+            .select({
+              id: schema.chunk.id,
+              body: schema.chunk.body,
+              tokens: schema.chunk.tokens,
+              citation: schema.chunk.citation,
+            })
+            .from(schema.chunk)
+            .where(and(scopedTo(library.id, version.id), matches))
+            .orderBy(desc(rank))
+            .limit(RECALL_LIMIT)
+        : [];
 
     let semantic: typeof keyword = [];
     if (dependencies.configured().embeddings) {

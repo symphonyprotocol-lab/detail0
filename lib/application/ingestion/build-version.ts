@@ -37,6 +37,7 @@ import {
   type ParsedDocument,
 } from '@/lib/domain/ingestion';
 import { uuidv7 } from '@/lib/domain/id';
+import { segmentCjkForIndex } from '@/lib/domain/cjk';
 import {
   CentroidAccumulator,
   extractTerms,
@@ -340,6 +341,9 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       citation: chunk.citation as Record<string, unknown>,
       safetyStatus: 'clean',
       searchConfig,
+      /* Pre-segmented CJK for the keyword index Postgres cannot build itself.
+         lib/domain/cjk.ts; null for chunks with no Han text. */
+      bodySegmented: segmentCjkForIndex(chunk.body),
     })),
   );
 
