@@ -1,0 +1,65 @@
+# The whole suite on every push and pull request. architecture.md 18.
+#
+# Two jobs on purpose: `unit` fails fast with no infrastructure, `integration`
+# runs the same vitest entrypoint against a disposable pgvector Postgres --
+# the database-backed suites skip themselves unless TEST_DATABASE_URL is set,
+# which is exactly how they behave locally. The local equivalent of the
+# integration job is scripts/test-integration.sh; keep the two in lockstep.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npx vitest run
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: pw
+          POSTGRES_DB: re0
+        ports:
+          - 5439:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply migrations
+        run: |
+          for migration in db/migrations/00*.sql; do
+            psql -q -v ON_ERROR_STOP=1 "postgres://postgres:pw@127.0.0.1:5439/re0" \
+              < "$migration" > /dev/null
+          done
+      - name: Start the WebSocket proxy
+        run: |
+          WSPROXY_PORT=5440 WSPROXY_TARGET=127.0.0.1:5439 \
+            node tests/fixtures/wsproxy.mjs &
+          sleep 1
+      - name: Run the suite against the database
+        env:
+          TEST_DATABASE_URL: postgres://postgres:pw@127.0.0.1:5439/re0
+          TEST_WS_PROXY: 127.0.0.1:5440/v2
+        run: npx vitest run
