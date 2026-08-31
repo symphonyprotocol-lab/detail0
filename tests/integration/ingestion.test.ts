@@ -20,7 +20,7 @@
  *   TEST_DATABASE_URL='postgres://...' npx vitest run tests/integration
  */
 import { afterAll, describe, expect, it } from 'vitest';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -105,7 +105,7 @@ function dependencies(options: { files?: typeof FILES; fail?: boolean } = {}) {
   };
 }
 
-async function fixtureLibrary(slug: string): Promise<string> {
+async function fixtureLibrary(slug: string, language?: string): Promise<string> {
   const { libraryId } = await createPlatformLibrary({
     actor,
     title: `Ingestion fixture ${slug}`,
@@ -113,6 +113,7 @@ async function fixtureLibrary(slug: string): Promise<string> {
     sourceType: 'website',
     location: 'https://example.test/docs',
     refreshPolicy: 'manual',
+    language,
     reason: 'integration test fixture',
   });
   created.push(libraryId);
@@ -346,6 +347,99 @@ describeWithDb('ingestion', () => {
     const outcomes = await drainOperations({ limit: 5, dependencies: dependencies() });
     expect(outcomes.length).toBeGreaterThan(0);
     expect(outcomes.some((outcome) => outcome.status === 'succeeded')).toBe(true);
+  });
+
+  /**
+   * The keyword half, in the library's own language.
+   *
+   * `search_vector` is generated from `body` and `search_config`, so this is
+   * the only place the whole arrangement can be checked: that the build stamped
+   * the right configuration, that Postgres stemmed with it, and that a chunk
+   * never ends up with a NULL vector it could not be found by.
+   */
+  it('indexes with the stemmer the library\u2019s language names', async () => {
+    const libraryId = await fixtureLibrary(`ingest-lang-${Date.now()}`, 'en-US');
+    await runOperation({ operationId: await queueRefresh(libraryId), dependencies: dependencies() });
+
+    const database = db();
+    const chunks = await database
+      .select({ config: schema.chunk.searchConfig })
+      .from(schema.chunk)
+      .where(eq(schema.chunk.libraryId, libraryId));
+
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(new Set(chunks.map((chunk) => chunk.config))).toEqual(new Set(['english']));
+
+    // `installer` stems to `instal`, so the plural in the query still matches
+    // the singular in the fixture -- which `simple` could not do.
+    const [stemmed] = await database
+      .select({ n: sql`count(*)::int` })
+      .from(schema.chunk)
+      .where(
+        sql`${schema.chunk.libraryId} = ${libraryId}
+            and ${schema.chunk.searchVector} @@ plainto_tsquery('english', 'installers')`,
+      );
+    expect(Number(stemmed?.n ?? 0)).toBeGreaterThan(0);
+
+    // Nothing generated a NULL vector, which the CHECK constraint exists to
+    // make impossible and this confirms end to end.
+    const [empty] = await database
+      .select({ n: sql`count(*)::int` })
+      .from(schema.chunk)
+      .where(sql`${schema.chunk.libraryId} = ${libraryId} and ${schema.chunk.searchVector} is null`);
+    expect(Number(empty?.n ?? 0)).toBe(0);
+  });
+
+  it('rebuilds an unchanged source when the build configuration moved', async () => {
+    const libraryId = await fixtureLibrary(`ingest-recfg-${Date.now()}`);
+    await runOperation({ operationId: await queueRefresh(libraryId), dependencies: dependencies() });
+
+    const database = db();
+    const [before] = await database
+      .select({ id: schema.library.currentVersionId })
+      .from(schema.library)
+      .where(eq(schema.library.id, libraryId));
+
+    // Same source, different embedding model: requirement.md 8.1 freezes the
+    // model on a version, so the current one no longer describes what today's
+    // build would produce and "unchanged" would be the wrong answer.
+    const outcome = await runOperation({
+      operationId: await queueRefresh(libraryId),
+      dependencies: { ...dependencies(), embeddings: fakeEmbeddings('fixture-embed-2') },
+    });
+    expect(outcome.status).toBe('succeeded');
+
+    const [after] = await database
+      .select({ id: schema.library.currentVersionId })
+      .from(schema.library)
+      .where(eq(schema.library.id, libraryId));
+    expect(after?.id).not.toBe(before?.id);
+
+    const [version] = await database
+      .select({ model: schema.libraryVersion.embeddingModel, label: schema.libraryVersion.label })
+      .from(schema.libraryVersion)
+      .where(eq(schema.libraryVersion.id, after?.id ?? ''));
+    expect(version?.model).toBe('fixture-embed-2');
+
+    // Same digest, same day, so the label has to say which build this is.
+    expect(version?.label).toMatch(/\.2$/);
+    const labels = await database
+      .select({ label: schema.libraryVersion.label })
+      .from(schema.libraryVersion)
+      .where(eq(schema.libraryVersion.libraryId, libraryId));
+    expect(new Set(labels.map((row) => row.label)).size).toBe(labels.length);
+  });
+
+  it('falls back to simple for a language with no stemmer', async () => {
+    const libraryId = await fixtureLibrary(`ingest-cjk-${Date.now()}`, '中文');
+    await runOperation({ operationId: await queueRefresh(libraryId), dependencies: dependencies() });
+
+    const [chunk] = await db()
+      .select({ config: schema.chunk.searchConfig })
+      .from(schema.chunk)
+      .where(eq(schema.chunk.libraryId, libraryId))
+      .limit(1);
+    expect(chunk?.config).toBe('simple');
   });
 
   it('records a trust and benchmark score for the build', async () => {

@@ -8,6 +8,7 @@
  * that moves a boundary is meant to fail one of these tests and then bump the
  * constant, not to slip through unnoticed.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { en } from '@/lib/i18n/messages/en';
 import { zh } from '@/lib/i18n/messages/zh';
@@ -33,6 +34,8 @@ import {
   sha256Hex,
   snapshotDigest,
   structuredToText,
+  TEXT_SEARCH_CONFIGS,
+  textSearchConfig,
   versionLabel,
   type ScoreInputs,
 } from '@/lib/domain/ingestion';
@@ -334,6 +337,15 @@ describe('digests', () => {
       '20260304-abcdef01',
     );
   });
+
+  it('numbers a rebuild of the same source, and only a rebuild', () => {
+    // A configuration change rebuilds unchanged bytes, so a label from the
+    // digest alone would put two indistinguishable rows in the version list.
+    const at = new Date('2026-03-04T05:06:07Z');
+    expect(versionLabel('abcdef0123456789', at, 1)).toBe('20260304-abcdef01');
+    expect(versionLabel('abcdef0123456789', at, 2)).toBe('20260304-abcdef01.2');
+    expect(versionLabel('abcdef0123456789', at, 3)).toBe('20260304-abcdef01.3');
+  });
 });
 
 /* ---------------------------------------------------------------- scoring */
@@ -399,5 +411,75 @@ describe('every ingestion failure has words for it', () => {
       expect(typeof en.admin.ingestionErrors[code]).toBe('string');
       expect(typeof zh.admin.ingestionErrors[code]).toBe('string');
     }
+  });
+});
+
+/**
+ * Which stemmer a library's chunks are indexed with.
+ *
+ * `library.language` is free text an operator typed into a form, not a code
+ * from a list, so this has to cope with what people actually write -- and to
+ * fall back rather than guess, because a wrong stemmer returns wrong results
+ * while no stemmer only returns fewer.
+ */
+describe('language-aware indexing', () => {
+  it('reads an ISO code, an English name and the language\u2019s own name', () => {
+    expect(textSearchConfig('en')).toBe('english');
+    expect(textSearchConfig('English')).toBe('english');
+    expect(textSearchConfig('Deutsch')).toBe('german');
+    expect(textSearchConfig('Fran\u00e7ais')).toBe('french');
+    expect(textSearchConfig('svenska')).toBe('swedish');
+  });
+
+  it('decides on the first subtag of a locale', () => {
+    expect(textSearchConfig('en-US')).toBe('english');
+    expect(textSearchConfig('pt_BR')).toBe('portuguese');
+    expect(textSearchConfig('es-419')).toBe('spanish');
+  });
+
+  it('falls back to simple rather than guessing', () => {
+    expect(textSearchConfig(null)).toBe('simple');
+    expect(textSearchConfig('')).toBe('simple');
+    expect(textSearchConfig('   ')).toBe('simple');
+    expect(textSearchConfig('Klingon')).toBe('simple');
+  });
+
+  it('falls back for CJK, which stock Postgres has no configuration for', () => {
+    // Not an oversight: `zhparser` / `pg_jieba` are extensions a managed
+    // Postgres will not install, and `simple` does not segment Han text at all.
+    // Recorded as a test so the gap is visible rather than discovered.
+    expect(textSearchConfig('zh')).toBe('simple');
+    expect(textSearchConfig('\u4e2d\u6587')).toBe('simple');
+    expect(textSearchConfig('ja')).toBe('simple');
+    expect(textSearchConfig('ko')).toBe('simple');
+  });
+
+  it('only ever returns a configuration the column allows', () => {
+    for (const input of ['en', 'zh', 'Klingon', '', 'de-AT', 'PORTUGUESE', 'ru']) {
+      expect(TEXT_SEARCH_CONFIGS).toContain(textSearchConfig(input));
+    }
+  });
+
+  /**
+   * The migration writes one `CASE` branch per configuration and constrains the
+   * column to the same list. A configuration that passed the constraint with no
+   * branch would generate a NULL vector -- a chunk that exists and can never be
+   * found -- so the two lists are checked against each other rather than
+   * maintained in parallel and hoped about.
+   */
+  it('keeps the migration and this list in step', () => {
+    const migration = readFileSync('db/migrations/0011_language_aware_index.sql', 'utf8');
+
+    const branches = [...migration.matchAll(/WHEN '([a-z]+)' THEN to_tsvector\('([a-z]+)'/g)];
+    for (const [, when, config] of branches) expect(when).toBe(config);
+
+    const branched = new Set(branches.map(([, when]) => when));
+    // `simple` is the ELSE, not a branch; everything else must have one.
+    branched.add('simple');
+    expect([...branched].sort()).toEqual([...TEXT_SEARCH_CONFIGS].sort());
+
+    const allowed = /CHECK \("search_config" IN \(([^)]+)\)\)/.exec(migration)?.[1] ?? '';
+    const constrained = [...allowed.matchAll(/'([a-z]+)'/g)].map(([, name]) => name);
+    expect(constrained.sort()).toEqual([...TEXT_SEARCH_CONFIGS].sort());
   });
 });

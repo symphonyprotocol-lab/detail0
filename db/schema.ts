@@ -453,6 +453,16 @@ export const libraryVersion = pgTable(
     parserVersion: text('parser_version').notNull(),
     chunkerVersion: text('chunker_version').notNull(),
     embeddingModel: text('embedding_model').notNull(),
+    /**
+     * The text-search configuration its chunks were indexed with, resolved from
+     * the library's language at build time.
+     *
+     * Frozen here alongside the parser, chunker and embedding model
+     * (requirement.md 8.1) because it is the fourth thing that decides what a
+     * version is -- and because a build compares all four against the current
+     * version to decide whether an unchanged source still needs rebuilding.
+     */
+    searchConfig: text('search_config').notNull().default('simple'),
     /** Merkle root over ordered chunk digests, input to Version Anchor. */
     contentMerkleRoot: text('content_merkle_root'),
     indexStatus: indexStatusEnum('index_status').notNull(),
@@ -461,7 +471,11 @@ export const libraryVersion = pgTable(
     publishedAt: timestamp('published_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('library_version_library_idx').on(t.libraryId, t.createdAt.desc())],
+  (t) => [
+    index('library_version_library_idx').on(t.libraryId, t.createdAt.desc()),
+    /** One build per label: the console's version list is chosen from by label. */
+    uniqueIndex('library_version_label_uq').on(t.libraryId, t.label),
+  ],
 );
 
 export const libraryReview = pgTable('library_review', {
@@ -548,13 +562,57 @@ export const chunk = pgTable(
     citation: jsonb('citation').$type<Record<string, unknown>>().notNull(),
     safetyStatus: text('safety_status').notNull().default('clean'),
     /**
-     * Generated from `body`, never written. A stored generated column cannot
-     * drift from the text it indexes, and chunks are immutable once inserted
-     * (requirement.md 8.1 freezes a published Version), so it is computed once.
+     * The Postgres text-search configuration this chunk was indexed with,
+     * resolved from `library.language` at build time.
+     *
+     * Denormalized because a generated column may only read its own row -- and
+     * because editing the library's language afterwards must not restate what
+     * an already published Version means. See `lib/domain/ingestion.ts`.
+     */
+    searchConfig: text('search_config').notNull().default('simple'),
+    /**
+     * Generated from `body` and `search_config`, never written. A stored
+     * generated column cannot drift from the text it indexes, and chunks are
+     * immutable once inserted (requirement.md 8.1 freezes a published Version),
+     * so it is computed once.
+     *
+     * A `case` over literal configurations rather than a `::regconfig` cast:
+     * the cast is a catalogue lookup, which makes it STABLE, and Postgres
+     * refuses a non-IMMUTABLE generation expression outright.
      */
     searchVector: customType<{ data: string; driverData: string; notNull: false }>({
       dataType: () => 'tsvector',
-    })('search_vector').generatedAlwaysAs(sql`to_tsvector('simple', "body")`),
+    })('search_vector').generatedAlwaysAs(sql`case "search_config"
+        when 'arabic' then to_tsvector('arabic', "body")
+        when 'armenian' then to_tsvector('armenian', "body")
+        when 'basque' then to_tsvector('basque', "body")
+        when 'catalan' then to_tsvector('catalan', "body")
+        when 'danish' then to_tsvector('danish', "body")
+        when 'dutch' then to_tsvector('dutch', "body")
+        when 'english' then to_tsvector('english', "body")
+        when 'finnish' then to_tsvector('finnish', "body")
+        when 'french' then to_tsvector('french', "body")
+        when 'german' then to_tsvector('german', "body")
+        when 'greek' then to_tsvector('greek', "body")
+        when 'hindi' then to_tsvector('hindi', "body")
+        when 'hungarian' then to_tsvector('hungarian', "body")
+        when 'indonesian' then to_tsvector('indonesian', "body")
+        when 'irish' then to_tsvector('irish', "body")
+        when 'italian' then to_tsvector('italian', "body")
+        when 'lithuanian' then to_tsvector('lithuanian', "body")
+        when 'nepali' then to_tsvector('nepali', "body")
+        when 'norwegian' then to_tsvector('norwegian', "body")
+        when 'portuguese' then to_tsvector('portuguese', "body")
+        when 'romanian' then to_tsvector('romanian', "body")
+        when 'russian' then to_tsvector('russian', "body")
+        when 'serbian' then to_tsvector('serbian', "body")
+        when 'spanish' then to_tsvector('spanish', "body")
+        when 'swedish' then to_tsvector('swedish', "body")
+        when 'tamil' then to_tsvector('tamil', "body")
+        when 'turkish' then to_tsvector('turkish', "body")
+        when 'yiddish' then to_tsvector('yiddish', "body")
+        else to_tsvector('simple', "body")
+      end`),
     embedding: vector('embedding', { dimensions: 1536 }),
   },
   (t) => [
@@ -566,6 +624,12 @@ export const chunk = pgTable(
     index('chunk_search_vector_idx').using('gin', t.searchVector),
     /** One chunk per position, so a retried build cannot duplicate one. */
     uniqueIndex('chunk_position_uq').on(t.versionId, t.documentId, t.ordinal),
+    /**
+     * Every stored value has a `case` branch above. Without this a config with
+     * no branch would generate a NULL vector -- a chunk that exists and can
+     * never be found.
+     */
+    check('chunk_search_config_ck', sql`${t.searchConfig} in ('simple', 'arabic', 'armenian', 'basque', 'catalan', 'danish', 'dutch', 'english', 'finnish', 'french', 'german', 'greek', 'hindi', 'hungarian', 'indonesian', 'irish', 'italian', 'lithuanian', 'nepali', 'norwegian', 'portuguese', 'romanian', 'russian', 'serbian', 'spanish', 'swedish', 'tamil', 'turkish', 'yiddish')`),
   ],
 );
 

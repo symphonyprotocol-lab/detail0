@@ -13,7 +13,7 @@
  * `current_version` before a version is completely ready, and the cheapest way
  * to keep that promise is for "ready" to be the last thing written.
  */
-import { eq } from 'drizzle-orm';
+import { and, count, eq, like, or } from 'drizzle-orm';
 import {
   CHUNKER_VERSION,
   chunkDocument,
@@ -31,6 +31,7 @@ import {
   scoreLibrary,
   sha256Hex,
   snapshotDigest,
+  textSearchConfig,
   versionLabel,
   type Citation,
   type ParsedDocument,
@@ -85,6 +86,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       isPlatformLibrary: schema.library.isPlatformLibrary,
       lifecycleStatus: schema.library.lifecycleStatus,
       currentVersionId: schema.library.currentVersionId,
+      language: schema.library.language,
     })
     .from(schema.library)
     .where(eq(schema.library.id, input.libraryId))
@@ -148,20 +150,53 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   const digest = await snapshotDigest(files);
 
   /*
-   * architecture.md 8.4: an unchanged digest updates `last_checked_at` and
-   * stops. Not creating an empty version is the point -- a library that is
-   * checked hourly and changes yearly would otherwise accumulate thousands of
-   * identical versions, each one anchored and each one a superseded row.
+   * Which stemmer the keyword index uses, decided once and stamped on every
+   * chunk. `library.language` is free text an operator typed, so the mapping
+   * is deliberately forgiving and falls back to `simple` rather than guessing.
    */
+  const searchConfig = textSearchConfig(library.language);
+  const adapter = dependencies.embeddings();
+
   const current = library.currentVersionId
     ? await database
-        .select({ digest: schema.libraryVersion.sourceDigest })
+        .select({
+          digest: schema.libraryVersion.sourceDigest,
+          parserVersion: schema.libraryVersion.parserVersion,
+          chunkerVersion: schema.libraryVersion.chunkerVersion,
+          embeddingModel: schema.libraryVersion.embeddingModel,
+          searchConfig: schema.libraryVersion.searchConfig,
+        })
         .from(schema.libraryVersion)
         .where(eq(schema.libraryVersion.id, library.currentVersionId))
         .limit(1)
     : [];
 
-  if (current[0]?.digest === digest) {
+  /*
+   * The source is only half of what decides whether a rebuild is needed.
+   *
+   * requirement.md 8.1 freezes the parser, chunker, embedding model and search
+   * configuration on a Version, which is a statement that those four decide
+   * what the version *is*. So an unchanged digest is a reason to stop only when
+   * today's build would produce the same thing: correcting a library's language
+   * or shipping a new chunker must rebuild, and without this check both would
+   * be reported as "unchanged" and quietly do nothing.
+   */
+  const built = current[0];
+  const sameBuild =
+    built !== undefined &&
+    built.digest === digest &&
+    built.parserVersion === PARSER_VERSION &&
+    built.chunkerVersion === CHUNKER_VERSION &&
+    built.embeddingModel === adapter.model &&
+    built.searchConfig === searchConfig;
+
+  /*
+   * architecture.md 8.4: an unchanged digest updates `last_checked_at` and
+   * stops. Not creating an empty version is the point -- a library that is
+   * checked hourly and changes yearly would otherwise accumulate thousands of
+   * identical versions, each one anchored and each one a superseded row.
+   */
+  if (sameBuild) {
     await database
       .update(schema.library)
       .set({ lastCheckedAt: new Date() })
@@ -279,7 +314,6 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
   /* ---------------------------------------------------------- embed-index */
 
-  const adapter = dependencies.embeddings();
   const vectors = await adapter.embed(bodies);
   if (vectors.length !== bodies.length) {
     throw new IngestionFailure(
@@ -326,21 +360,44 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   );
   await store.put(
     objectKeys.vectorManifest(library.id, versionId),
-    encode({ model: adapter.model, dimensions: adapter.dimensions, leaves }),
+    encode({
+      model: adapter.model,
+      dimensions: adapter.dimensions,
+      searchConfig,
+      leaves,
+    }),
     'application/json',
   );
 
   const bytes = safe.reduce((total, file) => total + file.content.length, 0);
 
+  /*
+   * The same source can now be built more than once -- a configuration change
+   * rebuilds unchanged bytes -- so the label is numbered against what this
+   * library already has. `library_version_label_uq` is the actual guarantee;
+   * this read is what turns it into a readable label rather than a collision.
+   */
+  const base = versionLabel(digest, new Date());
+  const [priorBuilds] = await database
+    .select({ n: count() })
+    .from(schema.libraryVersion)
+    .where(
+      and(
+        eq(schema.libraryVersion.libraryId, library.id),
+        or(eq(schema.libraryVersion.label, base), like(schema.libraryVersion.label, `${base}.%`)),
+      ),
+    );
+
   await database.transaction(async (tx) => {
     await tx.insert(schema.libraryVersion).values({
       id: versionId,
       libraryId: library.id,
-      label: versionLabel(digest, new Date()),
+      label: versionLabel(digest, new Date(), (priorBuilds?.n ?? 0) + 1),
       sourceDigest: digest,
       parserVersion: PARSER_VERSION,
       chunkerVersion: CHUNKER_VERSION,
       embeddingModel: adapter.model,
+      searchConfig,
       contentMerkleRoot: root,
       indexStatus: 'processing',
       totalTokens,
@@ -370,6 +427,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
         tokens: chunk.tokens,
         citation: chunk.citation as Record<string, unknown>,
         safetyStatus: 'clean',
+        searchConfig,
         embedding: vectors[cursor++] ?? [],
       })),
     );

@@ -879,10 +879,196 @@ export async function merkleRoot(leaves: readonly string[]): Promise<string | nu
   return level[0] ?? null;
 }
 
-/** A version label a person can read, derived from the digest it froze. */
-export function versionLabel(digest: string, at: Date): string {
+/**
+ * A version label a person can read, derived from the digest it froze.
+ *
+ * `sequence` disambiguates rebuilds of an unchanged source. Those became
+ * possible once a build compares the parser, chunker, embedding model and
+ * search configuration as well as the digest: correcting a library's language
+ * rebuilds the same bytes under a different configuration, and two rows reading
+ * `20260831-8e0734c3` in the console's version list would be indistinguishable
+ * to the operator choosing between them.
+ *
+ * The first build of a digest keeps the bare label, so the common case is
+ * unchanged and no existing label has to move.
+ */
+export function versionLabel(digest: string, at: Date, sequence = 1): string {
   const stamp = at.toISOString().slice(0, 10).replace(/-/g, '');
-  return `${stamp}-${digest.slice(0, 8)}`;
+  const base = `${stamp}-${digest.slice(0, 8)}`;
+  return sequence > 1 ? `${base}.${sequence}` : base;
+}
+
+/* ------------------------------------------------------- text search config */
+
+/**
+ * The Postgres text-search configurations `chunk.search_vector` may be built
+ * with -- every stemmer a stock Postgres ships, plus `simple`.
+ *
+ * This list is load-bearing twice over. `chunk.search_config` is constrained to
+ * it, and the generated column has one `CASE` branch per entry; a value that
+ * passed the constraint but had no branch would produce a NULL vector, which is
+ * a chunk that exists and can never be found. `tests/contract/ingestion.test.ts`
+ * reads the migration and checks the two agree.
+ *
+ * No Chinese, Japanese or Korean configuration appears here because stock
+ * Postgres has none -- they need a segmenter extension (`zhparser`, `pg_jieba`)
+ * that a managed Postgres will not install. CJK text therefore falls back to
+ * `simple`, which does not segment: an entire run of Han characters becomes one
+ * token, so only an exact match on the whole run hits it. Keyword retrieval is
+ * effectively unavailable for those libraries and the vector half carries them.
+ * Pretending otherwise by picking a European stemmer would be worse.
+ */
+export const TEXT_SEARCH_CONFIGS = [
+  'simple',
+  'arabic',
+  'armenian',
+  'basque',
+  'catalan',
+  'danish',
+  'dutch',
+  'english',
+  'finnish',
+  'french',
+  'german',
+  'greek',
+  'hindi',
+  'hungarian',
+  'indonesian',
+  'irish',
+  'italian',
+  'lithuanian',
+  'nepali',
+  'norwegian',
+  'portuguese',
+  'romanian',
+  'russian',
+  'serbian',
+  'spanish',
+  'swedish',
+  'tamil',
+  'turkish',
+  'yiddish',
+] as const;
+
+export type TextSearchConfig = (typeof TEXT_SEARCH_CONFIGS)[number];
+
+export function isTextSearchConfig(value: unknown): value is TextSearchConfig {
+  return typeof value === 'string' && (TEXT_SEARCH_CONFIGS as readonly string[]).includes(value);
+}
+
+/**
+ * What an operator might have typed into `library.language`, and what it means.
+ *
+ * The column is free text (requirement.md 6.1 lists a language, not a code), so
+ * this accepts the three things people actually write: an ISO 639-1 code, the
+ * English name, and the language's own name. Anything else falls through to
+ * `simple`, which indexes without stemming -- worse recall, never wrong
+ * results, which is the right way round for a guess.
+ */
+const LANGUAGE_ALIASES: Record<string, TextSearchConfig> = {
+  ar: 'arabic',
+  arabic: 'arabic',
+  hy: 'armenian',
+  armenian: 'armenian',
+  eu: 'basque',
+  basque: 'basque',
+  ca: 'catalan',
+  catalan: 'catalan',
+  da: 'danish',
+  danish: 'danish',
+  dansk: 'danish',
+  nl: 'dutch',
+  dutch: 'dutch',
+  nederlands: 'dutch',
+  en: 'english',
+  english: 'english',
+  fi: 'finnish',
+  finnish: 'finnish',
+  suomi: 'finnish',
+  fr: 'french',
+  french: 'french',
+  'francais': 'french',
+  de: 'german',
+  german: 'german',
+  deutsch: 'german',
+  el: 'greek',
+  greek: 'greek',
+  hi: 'hindi',
+  hindi: 'hindi',
+  hu: 'hungarian',
+  hungarian: 'hungarian',
+  magyar: 'hungarian',
+  id: 'indonesian',
+  indonesian: 'indonesian',
+  ga: 'irish',
+  irish: 'irish',
+  it: 'italian',
+  italian: 'italian',
+  italiano: 'italian',
+  lt: 'lithuanian',
+  lithuanian: 'lithuanian',
+  ne: 'nepali',
+  nepali: 'nepali',
+  nb: 'norwegian',
+  nn: 'norwegian',
+  no: 'norwegian',
+  norwegian: 'norwegian',
+  norsk: 'norwegian',
+  pt: 'portuguese',
+  portuguese: 'portuguese',
+  'portugues': 'portuguese',
+  ro: 'romanian',
+  romanian: 'romanian',
+  ru: 'russian',
+  russian: 'russian',
+  sr: 'serbian',
+  serbian: 'serbian',
+  es: 'spanish',
+  spanish: 'spanish',
+  'espanol': 'spanish',
+  castellano: 'spanish',
+  sv: 'swedish',
+  swedish: 'swedish',
+  svenska: 'swedish',
+  ta: 'tamil',
+  tamil: 'tamil',
+  tr: 'turkish',
+  turkish: 'turkish',
+  'turkce': 'turkish',
+  yi: 'yiddish',
+  yiddish: 'yiddish',
+};
+
+/**
+ * The configuration one library's chunks are indexed with.
+ *
+ * Resolved once per build and stored on every chunk it writes, rather than
+ * looked up at query time. Two reasons: a generated column cannot read another
+ * table, and -- more importantly -- editing `library.language` afterwards must
+ * not silently change what an already published Version means. Chunks are
+ * immutable (requirement.md 8.1); the new language takes effect on the next
+ * build, and until then `chunk.search_config` is an accurate record of how the
+ * rows that exist were actually indexed.
+ */
+export function textSearchConfig(language: string | null | undefined): TextSearchConfig {
+  const raw = (language ?? '').trim().toLowerCase();
+  if (raw.length === 0) return 'simple';
+
+  /* `en-US`, `pt_BR` and `zh-Hans` all decide on their first subtag. */
+  const primary = raw.split(/[-_\s,/]/)[0] ?? '';
+  const folded = fold(primary);
+
+  return LANGUAGE_ALIASES[folded] ?? LANGUAGE_ALIASES[fold(raw)] ?? 'simple';
+}
+
+/**
+ * Strips the accents an endonym is usually written with.
+ *
+ * `Français` and `francais` are the same answer, and an operator typing either
+ * should not get a different index from the other.
+ */
+function fold(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
 /* ----------------------------------------------------------------- scoring */

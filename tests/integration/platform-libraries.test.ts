@@ -77,15 +77,29 @@ describeWithDb('platform libraries', () => {
     await database
       .delete(schema.libraryAlias)
       .where(inArray(schema.libraryAlias.libraryId, created));
-    if (versionId) {
-      await database
-        .update(schema.library)
-        .set({ currentVersionId: null })
-        .where(inArray(schema.library.id, created));
-      await database
-        .delete(schema.libraryVersion)
-        .where(eq(schema.libraryVersion.id, versionId));
-    }
+
+    /*
+     * Everything a version drags with it, not just the one this file wrote.
+     *
+     * These fixtures queue real refresh operations, and a drain running
+     * anywhere -- the ingestion suite's own test, a worker, the console --
+     * will happily pick one up and build it a version with documents and
+     * chunks. That is the drain behaving correctly; a teardown that only knew
+     * about rows this file inserted would then fail on a foreign key and leave
+     * the fixtures behind.
+     */
+    await database
+      .update(schema.library)
+      .set({ currentVersionId: null })
+      .where(inArray(schema.library.id, created));
+    await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, created));
+    await database.delete(schema.document).where(inArray(schema.document.libraryId, created));
+    await database
+      .delete(schema.libraryScore)
+      .where(inArray(schema.libraryScore.libraryId, created));
+    await database
+      .delete(schema.libraryVersion)
+      .where(inArray(schema.libraryVersion.libraryId, created));
     await database.delete(schema.library).where(inArray(schema.library.id, created));
     await database
       .delete(schema.auditLog)
