@@ -87,26 +87,40 @@ describeWithDb('platform libraries', () => {
      * chunks. That is the drain behaving correctly; a teardown that only knew
      * about rows this file inserted would then fail on a foreign key and leave
      * the fixtures behind.
+     *
+     * Retried, for the same reason: a drain that claimed one of these
+     * operations before the rows above were deleted is still mid-build, and
+     * can insert a fresh profile or chunk between our dependent-table sweep
+     * and the version delete. Builds finish in well under a second; a few
+     * passes outlast any straggler.
      */
-    await database
-      .update(schema.library)
-      .set({ currentVersionId: null })
-      .where(inArray(schema.library.id, created));
-    await database
-      .delete(schema.libraryProfileVector)
-      .where(inArray(schema.libraryProfileVector.libraryId, created));
-    await database
-      .delete(schema.libraryProfile)
-      .where(inArray(schema.libraryProfile.libraryId, created));
-    await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, created));
-    await database.delete(schema.document).where(inArray(schema.document.libraryId, created));
-    await database
-      .delete(schema.libraryScore)
-      .where(inArray(schema.libraryScore.libraryId, created));
-    await database
-      .delete(schema.libraryVersion)
-      .where(inArray(schema.libraryVersion.libraryId, created));
-    await database.delete(schema.library).where(inArray(schema.library.id, created));
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await database
+          .update(schema.library)
+          .set({ currentVersionId: null })
+          .where(inArray(schema.library.id, created));
+        await database
+          .delete(schema.libraryProfileVector)
+          .where(inArray(schema.libraryProfileVector.libraryId, created));
+        await database
+          .delete(schema.libraryProfile)
+          .where(inArray(schema.libraryProfile.libraryId, created));
+        await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, created));
+        await database.delete(schema.document).where(inArray(schema.document.libraryId, created));
+        await database
+          .delete(schema.libraryScore)
+          .where(inArray(schema.libraryScore.libraryId, created));
+        await database
+          .delete(schema.libraryVersion)
+          .where(inArray(schema.libraryVersion.libraryId, created));
+        await database.delete(schema.library).where(inArray(schema.library.id, created));
+        break;
+      } catch (error) {
+        if (attempt >= 5) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
     await database
       .delete(schema.auditLog)
       .where(

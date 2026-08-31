@@ -146,6 +146,10 @@ async function workspaceWithKey(): Promise<{ workspaceId: string; key: string }>
     apiKeyLimit: 5,
     shareRateBps: 2000,
     capabilities: {},
+    /* Backdated so the live catalogue's newest 'pro' version stays the seeded
+       one -- these fixture rows must not win currentPlanVersion() races with
+       the plan-configuration suite running in a parallel worker. */
+    createdAt: new Date('2000-01-01T00:00:00Z'),
   });
   await database.insert(schema.subscription).values({
     id: uuidv7(),

@@ -164,7 +164,13 @@ describeWithDb('console sign-in', () => {
 
   it('counts parallel failures instead of letting them overwrite each other', async () => {
     await resetAccount();
-    const bursts = 6;
+    /*
+     * Exactly the lockout threshold, not one more: the lock lands with the
+     * final increment, so no attempt in this burst can observe it before
+     * incrementing -- one more attempt could, legitimately short-circuit on
+     * the lock, and turn a correct behaviour into a flaky assertion.
+     */
+    const bursts = ADMIN_MAX_FAILED_ATTEMPTS;
     await Promise.all(
       Array.from({ length: bursts }, () =>
         signInAdmin({ email, password: 'wrong password', mfaCode: '000000' }).catch(() => null),

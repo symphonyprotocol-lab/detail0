@@ -196,6 +196,8 @@ export async function queryDocs(
               latencyMs: Date.now() - startedAt,
               inputTokens: null,
               returnedTokens: chunks.reduce((total, chunk) => total + chunk.tokens, 0),
+              /* A cache hit is still a served call, and it still earns. */
+              libraryFacts: library,
             });
           }
           return {
@@ -354,6 +356,7 @@ export async function queryDocs(
         latencyMs: Date.now() - startedAt,
         inputTokens: null,
         returnedTokens,
+        libraryFacts: library,
       });
     }
 
@@ -383,6 +386,7 @@ const librarySelection = {
   lifecycleStatus: schema.library.lifecycleStatus,
   indexStatus: schema.library.indexStatus,
   ownerWorkspaceId: schema.library.ownerWorkspaceId,
+  isPlatformLibrary: schema.library.isPlatformLibrary,
   currentVersionId: schema.library.currentVersionId,
 };
 

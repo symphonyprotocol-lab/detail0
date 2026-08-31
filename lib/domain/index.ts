@@ -78,6 +78,24 @@ export function isQueryable(input: {
  * Platform libraries, private libraries and unclaimed libraries do not,
  * and unclaimed traffic must not dilute other publishers either.
  */
+/**
+ * publisher-revenue-share.md 5: a caller workspace's attributable calls to
+ * one library are capped per day; calls past the cap bill normally but earn
+ * nothing, so buying traffic to one's own catalogue stops paying at the cap.
+ * The share doc leaves the number open until real distributions exist and
+ * says to launch conservative -- this is that conservative value.
+ */
+export const DAILY_ATTRIBUTABLE_CALL_CAP = 200;
+
+/**
+ * The earning period an event lands in: the platform's revenue period, a UTC
+ * calendar month (revenue_period rows key settlement by it). Not the
+ * caller's subscription period -- the pool is computed platform-wide.
+ */
+export function revenuePeriodId(at: Date): string {
+  return `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
 export function isRevenueEligible(input: {
   visibility: Visibility;
   lifecycleStatus: LifecycleStatus;

@@ -19,7 +19,15 @@
 import { and, asc, desc, eq, gte, lt, lte, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { uuidv7 } from '@/lib/domain/id';
-import { nextDebitSource, type DebitSource } from '@/lib/domain';
+import {
+  DAILY_ATTRIBUTABLE_CALL_CAP,
+  isRevenueEligible,
+  nextDebitSource,
+  revenuePeriodId,
+  type DebitSource,
+  type LifecycleStatus,
+  type Visibility,
+} from '@/lib/domain';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
 export interface QuotaState {
@@ -42,6 +50,14 @@ export interface ReservedCall {
   debitSource: DebitSource;
   /** The oldest grant with balance, chosen now, consumed at commit. */
   addonGrantId: string | null;
+  /**
+   * The plan version the call bills against, pinned at reservation. The
+   * earning event freezes this id and its share rate (11.4: historical
+   * periods settle at the values of their time). Null only when no plan
+   * version exists at all, in which case nothing can earn either.
+   */
+  planVersionId: string | null;
+  shareRateBps: number;
   /** Remaining after this reservation -- what the response reports. */
   planAllowanceRemaining: number;
   addonBalanceRemaining: number;
@@ -67,7 +83,10 @@ export async function reserveCall(input: {
       .for('update');
     if (!locked) throw new AppError('access_denied', 'no such workspace');
 
-    const { allowance, periodStart, periodEnd } = await planWindow(tx, input.workspaceId);
+    const { allowance, periodStart, periodEnd, planVersionId, shareRateBps } = await planWindow(
+      tx,
+      input.workspaceId,
+    );
 
     const [counted] = await tx
       .select({
@@ -134,6 +153,8 @@ export async function reserveCall(input: {
       requestId: input.requestId,
       debitSource,
       addonGrantId,
+      planVersionId,
+      shareRateBps,
       planAllowanceRemaining: debitSource === 'plan' ? planRemaining - 1 : planRemaining,
       addonBalanceRemaining: debitSource === 'addon' ? addonRemaining - 1 : addonRemaining,
     };
@@ -141,9 +162,24 @@ export async function reserveCall(input: {
 }
 
 /**
- * Finalise a served call: one usage event, the reservation committed, and an
- * addon deduction when that is the source -- one transaction, replay-safe via
- * the event's unique `request_id`. architecture.md 11.1.
+ * What the earning decision needs to know about the target library -- loaded
+ * by the caller before the call was admitted, so the judgment inside the
+ * transaction uses fields already determined and never a post-hoc query
+ * (architecture.md 11.4).
+ */
+export interface EarningLibraryFacts {
+  visibility: Visibility;
+  lifecycleStatus: LifecycleStatus;
+  ownerWorkspaceId: string | null;
+  isPlatformLibrary: boolean;
+}
+
+/**
+ * Finalise a served call: one usage event, the reservation committed, an
+ * addon deduction when that is the source, and -- when the target library is
+ * eligible -- one earning event, all in one transaction and replay-safe via
+ * unique `request_id`s. architecture.md 11.1 and 11.4: the earning event is a
+ * billing fact and must never be an asynchronous afterthought.
  */
 export async function commitCall(input: {
   reservation: ReservedCall;
@@ -155,6 +191,8 @@ export async function commitCall(input: {
   latencyMs: number | null;
   inputTokens: number | null;
   returnedTokens: number | null;
+  /** Omitted by operations that never earn (nothing but query-docs earns). */
+  libraryFacts?: EarningLibraryFacts;
 }): Promise<void> {
   const database = db();
   const { reservation } = input;
@@ -198,6 +236,55 @@ export async function commitCall(input: {
           ),
         );
     }
+
+    /*
+     * The earning event, gated exactly as publisher-revenue-share.md 3.1
+     * lists: eligible library (public, published, claimed, not the
+     * platform's), not the owner calling their own library, an existing plan
+     * version to freeze the rate from -- and under the caller's daily
+     * attributable cap for this library, counted here in the same
+     * transaction. Over the cap the call bills normally and earns nothing.
+     * `written.length > 0` plus the unique request id keep replays at one.
+     */
+    const facts = input.libraryFacts;
+    if (
+      written.length > 0 &&
+      facts &&
+      reservation.planVersionId &&
+      facts.ownerWorkspaceId !== reservation.workspaceId &&
+      isRevenueEligible(facts)
+    ) {
+      const dayStart = new Date();
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const [today] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.earningEvent)
+        .innerJoin(schema.usageEvent, eq(schema.usageEvent.requestId, schema.earningEvent.requestId))
+        .where(
+          and(
+            eq(schema.earningEvent.libraryId, input.libraryId),
+            eq(schema.usageEvent.workspaceId, reservation.workspaceId),
+            gte(schema.earningEvent.createdAt, dayStart),
+          ),
+        );
+
+      if ((today?.n ?? 0) < DAILY_ATTRIBUTABLE_CALL_CAP) {
+        await tx
+          .insert(schema.earningEvent)
+          .values({
+            id: uuidv7(),
+            requestId: reservation.requestId,
+            libraryId: input.libraryId,
+            versionId: input.versionId,
+            /* isRevenueEligible refused null owners above. */
+            ownerWorkspaceId: facts.ownerWorkspaceId!,
+            planVersionId: reservation.planVersionId,
+            shareRateBps: reservation.shareRateBps,
+            periodId: revenuePeriodId(new Date()),
+          })
+          .onConflictDoNothing({ target: schema.earningEvent.requestId });
+      }
+    }
   });
 }
 
@@ -225,7 +312,13 @@ type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
 async function planWindow(
   tx: Tx,
   workspaceId: string,
-): Promise<{ allowance: number; periodStart: Date; periodEnd: Date }> {
+): Promise<{
+  allowance: number;
+  periodStart: Date;
+  periodEnd: Date;
+  planVersionId: string | null;
+  shareRateBps: number;
+}> {
   const [active] = await tx
     .select({
       planVersionId: schema.subscription.planVersionId,
@@ -246,18 +339,27 @@ async function planWindow(
 
   if (active) {
     const [version] = await tx
-      .select({ monthlyCalls: schema.planVersion.monthlyCalls })
+      .select({
+        monthlyCalls: schema.planVersion.monthlyCalls,
+        shareRateBps: schema.planVersion.shareRateBps,
+      })
       .from(schema.planVersion)
       .where(eq(schema.planVersion.id, active.planVersionId));
     return {
       allowance: version?.monthlyCalls ?? 0,
       periodStart: active.periodStart,
       periodEnd: active.periodEnd,
+      planVersionId: active.planVersionId,
+      shareRateBps: version?.shareRateBps ?? 0,
     };
   }
 
   const [free] = await tx
-    .select({ monthlyCalls: schema.planVersion.monthlyCalls })
+    .select({
+      id: schema.planVersion.id,
+      monthlyCalls: schema.planVersion.monthlyCalls,
+      shareRateBps: schema.planVersion.shareRateBps,
+    })
     .from(schema.planVersion)
     .where(eq(schema.planVersion.planId, 'free'))
     .orderBy(desc(schema.planVersion.createdAt))
@@ -266,7 +368,13 @@ async function planWindow(
   const now = new Date();
   const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-  return { allowance: free?.monthlyCalls ?? 0, periodStart, periodEnd };
+  return {
+    allowance: free?.monthlyCalls ?? 0,
+    periodStart,
+    periodEnd,
+    planVersionId: free?.id ?? null,
+    shareRateBps: free?.shareRateBps ?? 0,
+  };
 }
 
 async function oldestGrantWithBalance(tx: Tx, workspaceId: string): Promise<string | null> {

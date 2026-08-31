@@ -4,6 +4,7 @@ export {
   commitCall,
   releaseCall,
   reserveCall,
+  type EarningLibraryFacts,
   type QuotaState,
   type ReservedCall,
 } from './quota';
