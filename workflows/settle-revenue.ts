@@ -1,9 +1,20 @@
 /**
  * Workflow: settle-revenue
  *
- * Every step must be idempotent and resumable, deduped by digest and operation id.
- * architecture.md 8.2.
+ * Cron-triggered (architecture.md 11.4: settlement is a batch outside the
+ * request path). Closes the previous UTC month's revenue period -- the close
+ * itself is a single idempotent transaction (close-period.ts), so a retried
+ * or doubly-scheduled run returns the frozen numbers instead of recomputing.
+ * Stage 1 of publisher-revenue-share.md 9: accounting only, no payouts.
  */
+import { revenuePeriodId } from '@/lib/domain';
+import { closePeriod } from '@/lib/application/revenue';
+
 export async function run(): Promise<void> {
-  throw new Error('not implemented: settle-revenue workflow');
+  const now = new Date();
+  const previousMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const closed = await closePeriod(revenuePeriodId(previousMonth));
+  console.log(
+    `settle-revenue: period ${closed.periodId} ${closed.alreadyLocked ? 'was already locked' : 'locked'}, pool ${closed.poolMinor} minor across ${closed.allocations.length} publishers`,
+  );
 }

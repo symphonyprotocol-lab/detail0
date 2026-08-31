@@ -1,4 +1,3 @@
-import { AppError } from '@/contracts/errors';
 import { allocatablePoolMinor, isRevenueEligible, settlementAmountMinor } from '@/lib/domain';
 
 /**
@@ -46,6 +45,4 @@ export function isAttributableCall(input: {
   return input.callerWorkspaceId !== input.library.ownerWorkspaceId;
 }
 
-export async function closePeriod(_periodId: string): Promise<never> {
-  throw new AppError('not_implemented', 'closePeriod is not implemented yet');
-}
+export { closePeriod, type ClosedPeriod, type PeriodAllocation } from './close-period';
