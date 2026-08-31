@@ -244,6 +244,40 @@ describeWithDb('library-level discovery', () => {
     }
   });
 
+  /**
+   * The paragraph-level net. The profile keeps at most 256 terms, so a term
+   * mentioned once in one paragraph of a term-rich library falls out of it --
+   * and the profile FTS path misses. The rare-term path probes the chunk
+   * table's own inverted index and still routes the query.
+   */
+  it('finds a term the profile extractor dropped', async () => {
+    const stamp = Date.now();
+    const filler = Array.from(
+      { length: 300 },
+      (_, i) => `commonword${i} `.repeat(5),
+    ).join(' ');
+    const id = await publishedLibrary(`resolve-rare-${stamp}`, `词条大全 ${stamp}`, [
+      {
+        path: 'docs/appendix.md',
+        url: 'https://example.test/appendix',
+        content: `# Appendix\n\n${filler}\n\nThe zqxwvium compound appears exactly once, here.`,
+      },
+    ]);
+
+    const database = db();
+    const [profile] = await database
+      .select({ terms: schema.libraryProfile.terms })
+      .from(schema.libraryProfile)
+      .where(eq(schema.libraryProfile.libraryId, id));
+    // The premise of this test: the extractor really did drop the term.
+    expect(profile!.terms).not.toContain('zqxwvium');
+
+    const output = await resolveLibrary(anonymous, { query: 'zqxwvium' }, noEmbeddings);
+    expect(output.results.map((candidate) => candidate.libraryId)).toContain(
+      `/websites/resolve-rare-${stamp}`,
+    );
+  });
+
   it('returns empty results for a query nothing matches', async () => {
     const output = await resolveLibrary(anonymous, { query: 'zzz-nonexistent-zzz' }, noEmbeddings);
     expect(output.results).toHaveLength(0);

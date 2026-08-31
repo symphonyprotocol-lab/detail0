@@ -14,15 +14,20 @@
  *   2. profile ANN  -- the query embedding against the centroid vectors, when
  *                      an embedding provider is configured. Semantic fallback
  *                      for synonyms and paraphrase;
- *   3. name hint    -- optional `libraryName`, for Context7-style callers.
+ *   3. rare terms   -- the query's specific tokens against the chunk table's
+ *                      own inverted indexes, bounded by a row-sample cap. The
+ *                      paragraph-level net under the profile: a term that
+ *                      lives in one chapter of one library reaches the
+ *                      profile only if the extractor kept it, and this path
+ *                      does not depend on that;
+ *   4. name hint    -- optional `libraryName`, for Context7-style callers.
  *
  * Ranking folds in Trust/Benchmark deliberately (architecture.md 9.6: routing
  * over content invites entity-stuffing, and quality scores are the counter),
  * and every candidate carries evidence -- which titles and terms matched -- so
  * the calling agent can decide in one round without trusting the name.
  *
- * What is NOT here yet, by design: the rare-term global GIN path (needs the
- * corpus word-frequency table) and the scatter-gather confirmation stage,
+ * What is NOT here yet, by design: the scatter-gather confirmation stage,
  * which belongs to query-docs. The workspace Policy Evaluator hook lands here
  * when policies are implemented (architecture.md 10.2: Library Search applies
  * Policy at the metadata stage).
@@ -31,6 +36,7 @@ import { and, desc, eq, inArray, isNotNull, or, sql, type SQL } from 'drizzle-or
 import type { CallerContext } from './index';
 import type { LibraryCandidate, ResolveLibraryInput, ResolveLibraryOutput } from '@/contracts/schemas';
 import { searchTokens } from '@/lib/domain/profile';
+import { containsCjk } from '@/lib/domain/cjk';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import {
   embeddingAdapter,
@@ -50,6 +56,16 @@ const defaultDependencies: ResolveDependencies = {
 
 /** Per-path recall width; the fusion sees at most this many per path. */
 const RECALL_LIMIT = 24;
+/**
+ * The rare-term path reads at most this many chunk rows, whatever the term's
+ * frequency. That cap is the whole cost model (architecture.md 9.6): an
+ * inverted-index probe is priced by posting-list length, so a genuinely rare
+ * term is covered completely, and a common one stops at the sample instead of
+ * walking the corpus -- no word-frequency table needed to know which is which.
+ */
+const RARE_SAMPLE_CAP = 400;
+/** Specific tokens per query; longest first, the rest add little. */
+const RARE_TOKEN_CAP = 8;
 /** Candidates returned to the caller. */
 const RESULT_LIMIT = 10;
 /** Standard reciprocal-rank-fusion constant. */
@@ -125,7 +141,50 @@ export async function resolveLibrary(
     }
   }
 
-  /* -------------------------------------------------------- path 3: name hint */
+  /* -------------------------------------------------------- path 3: rare terms */
+
+  /*
+   * The query's most specific tokens, probed against the chunk table's own
+   * inverted indexes and grouped by library. This is what finds the term that
+   * lives in one paragraph of one chapter: the profile only carries what the
+   * extractor kept, the sample cap makes the probe affordable regardless, and
+   * only chunks of a library's *current* version may route to it.
+   */
+  let rare: { libraryId: string }[] = [];
+  const rareQuery = rareTsquery(tokens);
+  if (rareQuery) {
+    const sampled = database
+      .select({ libraryId: schema.chunk.libraryId })
+      .from(schema.chunk)
+      .innerJoin(
+        schema.library,
+        and(
+          eq(schema.library.id, schema.chunk.libraryId),
+          eq(schema.library.currentVersionId, schema.chunk.versionId),
+        ),
+      )
+      .where(
+        and(
+          visible,
+          sql`(${schema.chunk.searchVector} @@ to_tsquery('simple', ${rareQuery})
+               or ${schema.chunk.searchVectorCjk} @@ to_tsquery('simple', ${rareQuery}))`,
+        ),
+      )
+      .limit(RARE_SAMPLE_CAP)
+      .as('sampled');
+
+    rare = await database
+      .select({
+        libraryId: sampled.libraryId,
+        hits: sql<number>`count(*)::int`,
+      })
+      .from(sampled)
+      .groupBy(sampled.libraryId)
+      .orderBy(desc(sql`count(*)`), sampled.libraryId)
+      .limit(RECALL_LIMIT);
+  }
+
+  /* -------------------------------------------------------- path 4: name hint */
 
   const named = input.libraryName
     ? await database
@@ -147,7 +206,7 @@ export async function resolveLibrary(
   /* ------------------------------------------------------------------- fusion */
 
   const fused = new Map<string, number>();
-  for (const list of [keyword, semantic, named]) {
+  for (const list of [keyword, semantic, rare, named]) {
     list.forEach((row, index) => {
       fused.set(row.libraryId, (fused.get(row.libraryId) ?? 0) + 1 / (RRF_K + index + 1));
     });
@@ -266,4 +325,35 @@ export function toTsquery(tokens: readonly string[]): string | null {
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+/**
+ * The query's specific tokens as one OR tsquery, or null when it has none.
+ *
+ * Specific means long enough to carry routing signal on its own: Han grams of
+ * three or more characters, latin words of four or more. A Han gram is
+ * rewritten as a phrase of its consecutive bigrams (「影翅虫」 becomes
+ * 影翅 <-> 翅虫), which is exactly how the CJK chunk index stores text --
+ * adjacent bigram positions -- so the phrase matches the precise character
+ * sequence. Latin tokens are quoted as-is; rare identifiers stem to
+ * themselves, and a stemmed miss only costs this one path its vote.
+ */
+function rareTsquery(tokens: readonly string[]): string | null {
+  const clean = (token: string) => token.replace(/['\\]/g, '');
+  const specific = tokens
+    .map(clean)
+    .filter((token) => (containsCjk(token) ? token.length >= 3 : token.length >= 4))
+    .sort((a, b) => b.length - a.length || a.localeCompare(b))
+    .slice(0, RARE_TOKEN_CAP);
+  if (specific.length === 0) return null;
+
+  const parts = specific.map((token) => {
+    if (!containsCjk(token)) return `'${token}'`;
+    const bigrams: string[] = [];
+    for (let at = 0; at + 2 <= token.length; at += 1) {
+      bigrams.push(`'${token.slice(at, at + 2)}'`);
+    }
+    return `(${bigrams.join(' <-> ')})`;
+  });
+  return parts.join(' | ');
 }
