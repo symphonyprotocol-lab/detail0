@@ -6,6 +6,7 @@
  */
 import { and, desc, eq, isNotNull, sql, type SQL } from 'drizzle-orm';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { ref } from '@/lib/application/administration/column-ref';
 
 export interface CatalogEntry {
   publicId: string;
@@ -47,7 +48,7 @@ export async function listPublicLibraries(input: {
       totalChunks: schema.libraryVersion.totalChunks,
       trustScore: sql<number>`coalesce((
         select s.trust_score from ${schema.libraryScore} s
-        where s.library_id = ${schema.library.id}
+        where s.library_id = ${ref(schema.library.id)}
         order by s.computed_at desc limit 1
       ), 0)`,
     })
@@ -60,7 +61,7 @@ export async function listPublicLibraries(input: {
         : [
             desc(sql`coalesce((
               select s.trust_score from ${schema.libraryScore} s
-              where s.library_id = ${schema.library.id}
+              where s.library_id = ${ref(schema.library.id)}
               order by s.computed_at desc limit 1
             ), 0)`),
             desc(schema.library.createdAt),

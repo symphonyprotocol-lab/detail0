@@ -42,6 +42,7 @@ import { searchTokens } from '@/lib/domain/profile';
 import { cjkSearchTokens, containsCjk } from '@/lib/domain/cjk';
 import { sha256Hex } from '@/lib/domain/ingestion';
 import { cacheSetTagged, retrievalCache, type RetrievalCache } from '@/lib/infrastructure/cache/redis';
+import { ref } from '@/lib/application/administration/column-ref';
 
 export interface RetrievalDependencies {
   embeddings(): EmbeddingAdapter;
@@ -427,6 +428,25 @@ const librarySelection = {
   ownerWorkspaceId: schema.library.ownerWorkspaceId,
   isPlatformLibrary: schema.library.isPlatformLibrary,
   currentVersionId: schema.library.currentVersionId,
+  /*
+   * The earning gate's rights fact (requirement.md 7.3): true when no source
+   * needs a claim, or when one has verified. Computed here so commitCall
+   * judges on fields already determined, never a post-hoc query (11.4).
+   */
+  rightsVerified: sql`(
+    not exists(
+      select 1 from ${schema.source} s
+      where s.library_id = ${ref(schema.library.id)}
+        and s.type in ('github', 'website', 'llms_txt')
+    )
+    or exists(
+      select 1 from ${schema.libraryClaim} c
+      where c.library_id = ${ref(schema.library.id)} and c.status = 'verified'
+    )
+  )`.mapWith(
+    /* The driver may hand a raw-SQL boolean back as 't'/'f' text. */
+    (value): boolean => value === true || value === 't',
+  ),
 };
 
 /** §9.1: every chunk read is scoped, and unsafe rows are excluded in the same predicate. */

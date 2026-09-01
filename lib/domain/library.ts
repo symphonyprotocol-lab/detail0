@@ -72,6 +72,11 @@ const ID_NAMESPACE: Record<PlatformSourceType, 'repository' | 'websites' | 'noti
   notion: 'notion',
 };
 
+/** The raw id namespace a non-repository source publishes under. */
+export function idNamespace(type: PlatformSourceType): 'repository' | 'websites' | 'notion' | 'docs' {
+  return ID_NAMESPACE[type];
+}
+
 export function namespaceFor(type: PlatformSourceType): string {
   const namespace = ID_NAMESPACE[type];
   return namespace === 'repository' ? '/owner/repository' : `/${namespace}/slug`;

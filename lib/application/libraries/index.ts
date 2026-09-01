@@ -17,3 +17,8 @@ export {
   type CatalogEntry,
   type PublicLibraryDetail,
 } from './catalog';
+export {
+  createWorkspaceLibrary,
+  type CreateWorkspaceLibraryInput,
+  type CreateWorkspaceLibraryResult,
+} from './create';

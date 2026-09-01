@@ -148,7 +148,8 @@ async function userLibrary(slug: string, ownerWorkspaceId: string | null): Promi
   await database.insert(schema.source).values({
     id: uuidv7(),
     libraryId,
-    type: 'website',
+    /* Self-owned type: rights-verified by creation (requirement.md 7.3.2). */
+    type: 'openapi',
     location: `https://example.test/${slug}`,
   });
   const built = await buildVersion({ libraryId, operationId: uuidv7(), dependencies: dependencies() });
@@ -172,6 +173,9 @@ describeWithDb('earning events', () => {
   afterAll(async () => {
     const database = db();
     if (created.length > 0) {
+      await database
+        .delete(schema.libraryClaim)
+        .where(inArray(schema.libraryClaim.libraryId, created));
       await database
         .delete(schema.earningEvent)
         .where(inArray(schema.earningEvent.libraryId, created));
@@ -285,6 +289,53 @@ describeWithDb('earning events', () => {
         .where(eq(schema.earningEvent.libraryId, ownLibrary)),
     ).toHaveLength(0);
     void unclaimed;
+  });
+
+  /**
+   * requirement.md 7.3: owner_workspace_id proves access, not rights. A
+   * claim-gated source (website) earns nothing until a claim verifies --
+   * otherwise a workspace could mint a library over someone else's site and
+   * collect its share without ever passing the claim.
+   */
+  it('refuses claim-gated sources until a claim verifies', async () => {
+    const stamp = Date.now();
+    const owner = await workspace('earning-rights-owner');
+    const libraryId = await userLibrary(`earn-rights-${stamp}`, owner);
+    await db()
+      .update(schema.source)
+      .set({ type: 'website' })
+      .where(eq(schema.source.libraryId, libraryId));
+    const reader = await workspace('earning-rights-reader');
+    await subscribed(reader);
+
+    const unverified = caller(reader);
+    await queryDocs(unverified, input(`earn-rights-${stamp}`), noEmbeddings);
+    expect(
+      await db()
+        .select()
+        .from(schema.earningEvent)
+        .where(eq(schema.earningEvent.requestId, unverified.requestId)),
+    ).toHaveLength(0);
+
+    await db().insert(schema.libraryClaim).values({
+      id: uuidv7(),
+      libraryId,
+      claimantWorkspaceId: owner,
+      method: 'dns_txt',
+      challengeTokenHash: 'fixture-hash',
+      status: 'verified',
+      expiresAt: new Date(Date.now() + 86_400_000),
+      verifiedAt: new Date(),
+    });
+
+    const verified = caller(reader);
+    await queryDocs(verified, input(`earn-rights-${stamp}`), noEmbeddings);
+    expect(
+      await db()
+        .select()
+        .from(schema.earningEvent)
+        .where(eq(schema.earningEvent.requestId, verified.requestId)),
+    ).toHaveLength(1);
   });
 
   it('stops earning at the daily cap while billing continues', async () => {

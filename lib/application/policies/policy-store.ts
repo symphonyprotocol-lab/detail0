@@ -13,6 +13,7 @@ import type { PolicyPatch, PolicyResponse, WorkspacePolicyView } from '@/contrac
 import { OPEN_POLICY, type WorkspacePolicy } from '@/lib/domain/policy';
 import { uuidv7 } from '@/lib/domain/id';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { ref } from '@/lib/application/administration/column-ref';
 
 export interface PinnedPolicy {
   versionId: string | null;
@@ -192,7 +193,7 @@ async function accessibleLibraryCount(policy: WorkspacePolicy): Promise<number> 
           threshold !== null
             ? sql`and coalesce((
                 select s.trust_score from ${schema.libraryScore} s
-                where s.library_id = ${schema.library.id}
+                where s.library_id = ${ref(schema.library.id)}
                 order by s.computed_at desc limit 1
               ), 0) >= ${threshold}`
             : sql``
