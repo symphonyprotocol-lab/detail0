@@ -54,12 +54,14 @@ export function cjkSearchTokens(text: string): string[] {
 }
 
 function pushBigrams(run: string, into: string[]): void {
+  /* By code point, not UTF-16 unit: astral Han (U+20000+) must not split. */
+  const chars = Array.from(run);
   /* A lone character has no bigram; it is its own token, or it is lost. */
-  if (run.length === 1) {
+  if (chars.length === 1) {
     into.push(run);
     return;
   }
-  for (let at = 0; at + 2 <= run.length; at += 1) {
-    into.push(run.slice(at, at + 2));
+  for (let at = 0; at + 2 <= chars.length; at += 1) {
+    into.push(chars[at]! + chars[at + 1]!);
   }
 }

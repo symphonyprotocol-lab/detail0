@@ -386,8 +386,10 @@ function rareTsquery(tokens: readonly string[]): string | null {
   const parts = specific.map((token) => {
     if (!containsCjk(token)) return `'${token}'`;
     const bigrams: string[] = [];
-    for (let at = 0; at + 2 <= token.length; at += 1) {
-      bigrams.push(`'${token.slice(at, at + 2)}'`);
+    /* By code point: slicing UTF-16 units would split astral Han characters. */
+    const chars = Array.from(token);
+    for (let at = 0; at + 2 <= chars.length; at += 1) {
+      bigrams.push(`'${chars[at]!}${chars[at + 1]!}'`);
     }
     return `(${bigrams.join(' <-> ')})`;
   });

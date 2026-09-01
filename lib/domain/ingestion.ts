@@ -535,13 +535,25 @@ function decodeEntities(value: string): string {
     const known = lookup(ENTITIES, name.toLowerCase());
     if (known !== null) return known;
     if (/^#x/i.test(name)) {
-      return String.fromCodePoint(Number.parseInt(name.slice(2), 16) || 32);
+      return codePointText(Number.parseInt(name.slice(2), 16));
     }
     if (name.startsWith('#')) {
-      return String.fromCodePoint(Number.parseInt(name.slice(1), 10) || 32);
+      return codePointText(Number.parseInt(name.slice(1), 10));
     }
     return all;
   });
+}
+
+/**
+ * A numeric character reference, decoded defensively: `String.fromCodePoint`
+ * throws on anything past U+10FFFF or in the surrogate range, and one
+ * malformed entity must not fail a whole build. Invalid references become a
+ * space, the same fallback an unparsable one gets.
+ */
+function codePointText(point: number): string {
+  if (!Number.isFinite(point) || point <= 0 || point > 0x10ffff) return ' ';
+  if (point >= 0xd800 && point <= 0xdfff) return ' ';
+  return String.fromCodePoint(point);
 }
 
 /**

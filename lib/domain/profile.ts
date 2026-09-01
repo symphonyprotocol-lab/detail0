@@ -79,10 +79,11 @@ export function extractTerms(
       bump(word, 1);
     }
     for (const match of text.matchAll(HAN_RUN)) {
-      const run = match[0];
+      /* By code point: UTF-16 slicing would split astral Han characters. */
+      const chars = Array.from(match[0]);
       for (let size = 2; size <= 4; size += 1) {
-        for (let at = 0; at + size <= run.length; at += 1) {
-          bump(run.slice(at, at + size), size);
+        for (let at = 0; at + size <= chars.length; at += 1) {
+          bump(chars.slice(at, at + size).join(''), size);
         }
       }
     }
@@ -140,9 +141,11 @@ function collectTokens(text: string, into: Set<string>): void {
     const run = match[0];
     if (HAS_HAN.test(run)) {
       into.add(run);
+      /* By code point: UTF-16 slicing would split astral Han characters. */
+      const chars = Array.from(run);
       for (let size = 2; size <= 4; size += 1) {
-        for (let at = 0; at + size <= run.length; at += 1) {
-          into.add(run.slice(at, at + size));
+        for (let at = 0; at + size <= chars.length; at += 1) {
+          into.add(chars.slice(at, at + size).join(''));
         }
       }
     } else {
