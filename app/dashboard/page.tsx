@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ApiQuickstart } from '@/components/dashboard/api-quickstart';
 import { CopyButton } from '@/components/dashboard/copy-button';
-import { UsageChart } from '@/components/dashboard/usage-chart';
+import { UsageChart, type UsageChartDay } from '@/components/dashboard/usage-chart';
 import {
   ActionButton,
   ArrowLink,
@@ -11,23 +11,90 @@ import {
   PanelHeading,
 } from '@/components/dashboard/ui';
 import { PlusIcon, TerminalIcon } from '@/components/ui/icons';
-import { dashboardCopy, INSTALL_COMMAND } from '@/lib/dashboard/demo-data';
-import { getMessages } from '@/lib/i18n/server';
+import { listApiKeys } from '@/lib/application/auth';
+import { countWorkspaceLibraries } from '@/lib/application/libraries';
+import { usageOverview } from '@/lib/application/plans';
+import { INSTALL_COMMAND } from '@/lib/dashboard/demo-data';
+import { requireSession } from '@/lib/http/session';
+import { getMessages, translations } from '@/lib/i18n/server';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).dashboard.overview.title };
 }
 
+const CHART_DAYS = 10;
+
+/**
+ * The overview, on the ledger: quota and volume from the rebuilt usage
+ * summary (architecture.md 11.1), library and key counts from the rows
+ * themselves. The install and quickstart panels stay copy -- they document
+ * the product, not this workspace.
+ */
 export default async function DashboardOverviewPage() {
-  const t = await getMessages();
+  const [session, { locale, t }] = await Promise.all([
+    requireSession('/dashboard'),
+    translations(),
+  ]);
   const o = t.dashboard.overview;
-  const d = dashboardCopy(t);
+  const workspaceId = session.workspace.id;
+
+  const [overview, keys, libraryCount] = await Promise.all([
+    usageOverview(workspaceId),
+    listApiKeys(workspaceId),
+    countWorkspaceLibraries(workspaceId),
+  ]);
+
+  const number = new Intl.NumberFormat(locale);
+  const stats: {
+    label: string;
+    value: string;
+    caption?: string;
+    quota?: { used: number; limit: number };
+  }[] = [
+    {
+      label: o.stats.calls,
+      value: `${number.format(overview.callsThisPeriod)} / ${number.format(overview.planAllowance)}`,
+      quota: { used: overview.callsThisPeriod, limit: Math.max(1, overview.planAllowance) },
+    },
+    {
+      label: o.stats.tokens,
+      value: number.format(overview.returnedTokensThisPeriod),
+      caption: o.stats.tokensCaption,
+    },
+    {
+      label: o.stats.libraries,
+      value: number.format(libraryCount),
+      caption: o.stats.librariesCaption,
+    },
+    {
+      label: o.stats.addon,
+      value: number.format(overview.addonBalanceRemaining),
+      caption: o.stats.addonCaption,
+    },
+  ];
+
+  const byDate = new Map(overview.buckets.map((bucket) => [bucket.date, bucket.calls]));
+  const dayFormat = new Intl.DateTimeFormat(locale, {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+  const days: UsageChartDay[] = Array.from({ length: CHART_DAYS }, (_, index) => {
+    const at = new Date(Date.now() - (CHART_DAYS - 1 - index) * 86_400_000);
+    return {
+      label: dayFormat.format(at),
+      calls: byDate.get(at.toISOString().slice(0, 10)) ?? 0,
+    };
+  });
+
+  const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
+  const dateTime = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
 
   return (
     <div className="flex flex-col gap-[18px]">
       {/* Page header -- design source `MWSfb`. */}
       <PageHeader
-        eyebrow={d.workspace.name}
+        eyebrow={session.workspace.name}
         title={o.title}
         description={o.description}
         action={
@@ -40,7 +107,7 @@ export default async function DashboardOverviewPage() {
 
       {/* Metric strip -- design source `J5PPjZ`. */}
       <section className={`${PANEL} grid grid-cols-2 gap-y-5 p-5 sm:grid-cols-4 sm:gap-y-0`}>
-        {d.stats.map((stat, index) => (
+        {stats.map((stat, index) => (
           <article
             key={stat.label}
             /* One divider between columns: every odd cell when wrapped to two, every cell but the first on wide. */
@@ -81,7 +148,7 @@ export default async function DashboardOverviewPage() {
             <ArrowLink href="/pricing">{o.usageUpgrade}</ArrowLink>
           </span>
         </div>
-        <UsageChart />
+        <UsageChart days={days} />
       </section>
 
       {/* API keys -- design source `DQVXY`. */}
@@ -115,8 +182,8 @@ export default async function DashboardOverviewPage() {
               </tr>
             </thead>
             <tbody>
-              {d.apiKeys.map((key) => (
-                <tr key={key.masked} className="border-b-2 border-line">
+              {keys.map((key) => (
+                <tr key={key.id} className="border-b-2 border-line">
                   <td className="py-3.5 text-[12px] font-semibold tracking-[-0.023em] text-steel">
                     {key.name}
                   </td>
@@ -126,13 +193,23 @@ export default async function DashboardOverviewPage() {
                     </code>
                   </td>
                   <td className="py-3.5 text-[12px] tracking-[-0.023em] text-steel">
-                    {key.createdAt}
+                    {date.format(new Date(key.createdAt))}
                   </td>
                   <td className="py-3.5 text-[12px] tracking-[-0.023em] text-steel">
-                    {key.lastUsed}
+                    {key.lastUsedAt ? dateTime.format(new Date(key.lastUsedAt)) : '—'}
                   </td>
                 </tr>
               ))}
+              {keys.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={o.keyColumns.length}
+                    className="py-6 text-center text-[12px] text-muted"
+                  >
+                    {o.keysEmpty}
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>

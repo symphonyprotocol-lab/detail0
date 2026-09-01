@@ -2,22 +2,49 @@
 
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { Badge, PANEL, SearchField, StatusLabel } from '@/components/dashboard/ui';
-import { ArrowRightIcon, BadgeCheckIcon } from '@/components/ui/icons';
-import { dashboardCopy } from '@/lib/dashboard/demo-data';
+import { Badge, PANEL, SearchField, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
+import { ArrowRightIcon } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
 
-/** Library table with its toolbar -- design source frame `fiSE2`. */
-export function LibraryList() {
+/** One row of the live list, mapped by the page from the workspace's rows. */
+export interface LibraryListRow {
+  slug: string;
+  title: string;
+  version: string | null;
+  scope: 'public' | 'private';
+  chunks: number;
+  /** StatusLabel tone + its translated label, derived from lifecycle+index. */
+  status: StatusTone;
+  statusLabel: string;
+  updated: string;
+  initial: string;
+}
+
+/** Deterministic tile colour from the slug: stable across renders and rows. */
+const TILE_COLORS = ['#0f9d77', '#5865f2', '#d97706', '#0ea5e9', '#9333ea', '#e11d48'];
+function tileColor(slug: string): string {
+  let hash = 0;
+  for (const char of slug) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return TILE_COLORS[hash % TILE_COLORS.length]!;
+}
+
+/** Library table with its toolbar -- design source frame `fiSE2`, live rows. */
+export function LibraryList({ rows: allRows }: { rows: LibraryListRow[] }) {
   const { t } = useI18n();
   const l = t.dashboard.libraries;
-  const { libraries, libraryFilters } = dashboardCopy(t);
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState<'all' | StatusTone>('all');
   const [term, setTerm] = useState('');
+
+  const filters: { id: 'all' | StatusTone; label: string }[] = [
+    { id: 'all', label: l.filters.all },
+    { id: 'live', label: l.filters.live },
+    { id: 'pending', label: l.filters.pending },
+    { id: 'blocked', label: l.filters.blocked },
+  ];
 
   const rows = useMemo(() => {
     const needle = term.trim().toLowerCase();
-    return libraries.filter((library) => {
+    return allRows.filter((library) => {
       const matchesFilter = filter === 'all' || library.status === filter;
       const matchesTerm =
         needle === '' ||
@@ -25,7 +52,7 @@ export function LibraryList() {
         library.slug.toLowerCase().includes(needle);
       return matchesFilter && matchesTerm;
     });
-  }, [filter, term, libraries]);
+  }, [filter, term, allRows]);
 
   return (
     <section className={`${PANEL} overflow-hidden p-0.5`}>
@@ -34,7 +61,7 @@ export function LibraryList() {
           <SearchField placeholder={l.searchPlaceholder} value={term} onChange={setTerm} />
         </div>
         <div className="flex gap-0 rounded-[7px] bg-mutedbg p-[3px]">
-          {libraryFilters.map((option) => (
+          {filters.map((option) => (
             <button
               key={option.id}
               type="button"
@@ -71,17 +98,17 @@ export function LibraryList() {
                 <span
                   aria-hidden
                   className="flex size-[34px] shrink-0 items-center justify-center rounded-lg text-[13px] font-medium text-white"
-                  style={{ backgroundColor: library.color }}
+                  style={{ backgroundColor: tileColor(library.slug) }}
                 >
                   {library.initial}
                 </span>
                 <span className="flex min-w-0 flex-col gap-1">
                   <span className="flex items-center gap-1 text-[13px] tracking-[-0.023em] text-ink">
                     <span className="truncate">{library.title}</span>
-                    <BadgeCheckIcon size={13} className="text-brand" />
                   </span>
                   <span className="truncate text-[10px] tracking-[-0.023em] text-muted">
-                    {library.slug} · {library.version}
+                    {library.slug}
+                    {library.version ? ` · ${library.version}` : ''}
                   </span>
                 </span>
               </span>
@@ -90,7 +117,6 @@ export function LibraryList() {
                 <Badge tone={library.scope === 'public' ? 'public' : 'private'}>
                   {library.scope === 'public' ? l.scopePublic : l.scopePrivate}
                 </Badge>
-                {library.revenueShare ? <Badge tone="outline">{l.revenueShare}</Badge> : null}
               </span>
 
               <span className="text-[12px] tracking-[-0.023em] text-steel">

@@ -4,3 +4,9 @@ import { AppError } from '@/contracts/errors';
 export function notImplemented(name: string): never {
   throw new AppError('not_implemented', `${name} is not implemented yet`);
 }
+
+export {
+  countWorkspaceLibraries,
+  listWorkspaceLibraries,
+  type WorkspaceLibraryRow,
+} from './workspace';

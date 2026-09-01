@@ -1,13 +1,12 @@
 import type { Metadata } from 'next';
-import { LibraryList } from '@/components/dashboard/library-list';
+import { LibraryList, type LibraryListRow } from '@/components/dashboard/library-list';
 import {
   ActionButton,
   ArrowLink,
-  Meter,
   Notice,
-  PANEL,
   PageHeader,
   StatTile,
+  type StatusTone,
 } from '@/components/dashboard/ui';
 import {
   BadgeCheckIcon,
@@ -17,8 +16,9 @@ import {
   PlusIcon,
   ShieldCheckIcon,
 } from '@/components/ui/icons';
-import { dashboardCopy } from '@/lib/dashboard/demo-data';
-import { getMessages } from '@/lib/i18n/server';
+import { listWorkspaceLibraries, type WorkspaceLibraryRow } from '@/lib/application/libraries';
+import { requireSession } from '@/lib/http/session';
+import { getMessages, translations } from '@/lib/i18n/server';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).dashboard.libraries.title };
@@ -26,15 +26,78 @@ export async function generateMetadata(): Promise<Metadata> {
 
 const STAT_ICONS = [DatabaseIcon, BadgeCheckIcon, ClockIcon, FileTextIcon];
 
+/**
+ * Lifecycle plus index state collapse to the design's four-way marker: live
+ * (published and queryable), pending (anywhere in review or still indexing),
+ * blocked (suspended, rejected or failed), exempt (a private draft that never
+ * enters review).
+ */
+function statusOf(row: WorkspaceLibraryRow): StatusTone {
+  if (row.lifecycleStatus === 'suspended' || row.indexStatus === 'failed') return 'blocked';
+  if (row.lifecycleStatus === 'published' && row.indexStatus === 'ready') return 'live';
+  if (row.lifecycleStatus === 'changes_requested') return 'blocked';
+  if (
+    row.lifecycleStatus === 'submitted' ||
+    row.lifecycleStatus === 'reviewing' ||
+    row.indexStatus === 'processing' ||
+    row.indexStatus === 'pending'
+  ) {
+    return 'pending';
+  }
+  return 'exempt';
+}
+
 export default async function DashboardLibrariesPage() {
-  const t = await getMessages();
+  const [session, { locale, t }] = await Promise.all([
+    requireSession('/dashboard/libraries'),
+    translations(),
+  ]);
   const l = t.dashboard.libraries;
-  const d = dashboardCopy(t);
+
+  const libraries = await listWorkspaceLibraries(session.workspace.id);
+  const number = new Intl.NumberFormat(locale);
+  const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
+
+  const published = libraries.filter(
+    (row) => row.lifecycleStatus === 'published' && row.indexStatus === 'ready',
+  ).length;
+  const inReview = libraries.filter(
+    (row) => row.lifecycleStatus === 'submitted' || row.lifecycleStatus === 'reviewing',
+  ).length;
+  const totalChunks = libraries.reduce((sum, row) => sum + row.totalChunks, 0);
+
+  const stats = [
+    { key: 'total', value: number.format(libraries.length), label: l.stats.total },
+    { key: 'published', value: number.format(published), label: l.stats.published },
+    { key: 'review', value: number.format(inReview), label: l.stats.review },
+    { key: 'chunks', value: number.format(totalChunks), label: l.stats.chunks },
+  ];
+
+  const statusLabels: Record<StatusTone, string> = {
+    live: l.statuses.live,
+    pending: l.statuses.pending,
+    blocked: l.statuses.blocked,
+    exempt: l.statuses.exempt,
+  };
+  const rows: LibraryListRow[] = libraries.map((row) => {
+    const status = statusOf(row);
+    return {
+      slug: row.publicId,
+      title: row.title,
+      version: row.versionLabel,
+      scope: row.visibility,
+      chunks: row.totalChunks,
+      status,
+      statusLabel: statusLabels[status],
+      updated: row.updatedAt ? date.format(new Date(row.updatedAt)) : '—',
+      initial: (row.title.trim()[0] ?? '?').toUpperCase(),
+    };
+  });
 
   return (
     <div className="flex flex-col gap-[18px]">
       <PageHeader
-        eyebrow={d.workspace.name}
+        eyebrow={session.workspace.name}
         title={l.title}
         description={l.description}
         action={
@@ -47,7 +110,7 @@ export default async function DashboardLibrariesPage() {
 
       {/* Counters -- design source `fiSE2`. */}
       <section className="grid grid-cols-2 gap-[9px] sm:grid-cols-4">
-        {d.libraryStats.map((stat, index) => {
+        {stats.map((stat, index) => {
           const Icon = STAT_ICONS[index] ?? DatabaseIcon;
           return (
             <StatTile key={stat.key} icon={<Icon size={17} />} value={stat.value} label={stat.label} />
@@ -69,43 +132,7 @@ export default async function DashboardLibrariesPage() {
         action={<ArrowLink href="/docs">{l.anchorNoticeLink}</ArrowLink>}
       />
 
-      <LibraryList />
-
-      <section className="grid gap-3 lg:grid-cols-[1fr_234px]">
-        <article className={`${PANEL} flex flex-col gap-[7px] p-[22px]`}>
-          <div className="flex items-center gap-2.5">
-            <ClockIcon size={18} className="text-brand" />
-            <span className="flex flex-col gap-[3px]">
-              <span className="text-[14px] tracking-[-0.023em] text-ink">
-                {d.reviewQueue.title}
-              </span>
-              <span className="text-[11px] tracking-[-0.023em] text-muted">
-                {d.reviewQueue.note}
-              </span>
-            </span>
-          </div>
-          <div className="mt-2 flex flex-wrap justify-between gap-2 text-[11px] tracking-[-0.023em] text-steel">
-            <span>{d.reviewQueue.item}</span>
-            <span>{d.reviewQueue.stage}</span>
-          </div>
-          <Meter value={d.reviewQueue.percent} />
-        </article>
-
-        <article className={`${PANEL} flex flex-col px-[22px] pt-8 pb-[26px]`}>
-          <p className="text-[11px] font-bold tracking-[-0.023em] text-brand">
-            {d.libraryPlan.eyebrow}
-          </p>
-          <p className="mt-3 text-[15px] leading-[1.4] tracking-[-0.025em] text-ink">
-            {d.libraryPlan.usage}
-          </p>
-          <p className="mt-2 text-[11px] leading-[1.5] tracking-[-0.023em] text-muted">
-            {d.libraryPlan.note}
-          </p>
-          <div className="mt-4">
-            <ArrowLink href="/pricing">{l.viewPlans}</ArrowLink>
-          </div>
-        </article>
-      </section>
+      <LibraryList rows={rows} />
     </div>
   );
 }
