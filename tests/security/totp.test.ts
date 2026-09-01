@@ -54,10 +54,18 @@ describe('verifyTotp', () => {
 
   it('accepts one step of clock drift either side, and no more', async () => {
     const at = new Date(1111111109 * 1000);
+    const oneStepEarlier = new Date(at.getTime() - TOTP_STEP_SECONDS * 1000);
     const oneStepLater = new Date(at.getTime() + TOTP_STEP_SECONDS * 1000);
+    const twoStepsEarlier = new Date(at.getTime() - 2 * TOTP_STEP_SECONDS * 1000);
+    const twoStepsLater = new Date(at.getTime() + 2 * TOTP_STEP_SECONDS * 1000);
     const threeStepsLater = new Date(at.getTime() + 3 * TOTP_STEP_SECONDS * 1000);
 
+    // One step of drift in either direction is inside the window...
+    await expect(verifyTotp(RFC_SECRET, '081804', oneStepEarlier)).resolves.toBe(true);
     await expect(verifyTotp(RFC_SECRET, '081804', oneStepLater)).resolves.toBe(true);
+    // ...and exactly two steps, either side, is already outside it.
+    await expect(verifyTotp(RFC_SECRET, '081804', twoStepsEarlier)).resolves.toBe(false);
+    await expect(verifyTotp(RFC_SECRET, '081804', twoStepsLater)).resolves.toBe(false);
     await expect(verifyTotp(RFC_SECRET, '081804', threeStepsLater)).resolves.toBe(false);
   });
 

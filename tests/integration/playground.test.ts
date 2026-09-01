@@ -33,6 +33,10 @@ const { uuidv7 } = await import('@/lib/domain/id');
 
 const actor = { administratorId: null as unknown as string, email: 'ops@example.test' };
 const created: string[] = [];
+/* Every llm_config row this suite mints; cost events reference them, so the
+   teardown can scope both deletes to fixture rows and leave a shared dev
+   database's live configuration and cost ledger alone. */
+const createdConfigIds: string[] = [];
 const store = memoryObjectStore();
 
 const nullCache = {
@@ -153,8 +157,14 @@ async function publishedLibrary(slug: string): Promise<string> {
 describeWithDb('playground', () => {
   afterAll(async () => {
     const database = db();
-    await database.delete(schema.llmCostEvent);
-    await database.delete(schema.llmConfig);
+    if (createdConfigIds.length > 0) {
+      await database
+        .delete(schema.llmCostEvent)
+        .where(inArray(schema.llmCostEvent.configId, createdConfigIds));
+      await database
+        .delete(schema.llmConfig)
+        .where(inArray(schema.llmConfig.id, createdConfigIds));
+    }
     if (created.length > 0) {
       await database
         .update(schema.library)
@@ -191,6 +201,7 @@ describeWithDb('playground', () => {
       .insert(schema.llmConfig)
       .values({ ...CONFIG, id: uuidv7() })
       .returning();
+    createdConfigIds.push(config!.id);
 
     const output = await askPlayground(
       asAnonymous(),
@@ -308,6 +319,7 @@ describeWithDb('playground', () => {
         enabled: true,
         reason: 'switch model',
       });
+      createdConfigIds.push(first.configId, second.configId);
       expect(second.configId).not.toBe(first.configId);
 
       const active = await activeLlmConfig();
@@ -346,11 +358,14 @@ describeWithDb('playground', () => {
 });
 
 async function ensureConfig() {
+  /* Reuse only a config this suite created itself: cost events must never be
+     recorded against (and later deleted with) a live configuration. */
   const existing = await activeLlmConfig();
-  if (existing) return existing;
+  if (existing && createdConfigIds.includes(existing.id)) return existing;
   const [row] = await db()
     .insert(schema.llmConfig)
     .values({ ...CONFIG, id: uuidv7() })
     .returning();
+  createdConfigIds.push(row!.id);
   return row!;
 }

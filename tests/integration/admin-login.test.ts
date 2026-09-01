@@ -10,7 +10,7 @@
  *   TEST_DATABASE_URL='postgres://...' npx vitest run tests/integration
  */
 import { afterAll, describe, expect, it } from 'vitest';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -26,6 +26,9 @@ const { resolveAdminSession } = await import(
 );
 const { hashAdminPassword } = await import('@/lib/application/administration/password');
 const { sessionTokenHash } = await import('@/lib/application/auth/session-token');
+const { completeOAuth } = await import('@/lib/application/auth/complete-oauth');
+const { resolveSession } = await import('@/lib/application/auth/resolve-session');
+const { OAUTH_STATE_TTL_MS } = await import('@/lib/domain/auth');
 const { seal } = await import('@/lib/infrastructure/crypto/sealed');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { ADMIN_MAX_FAILED_ATTEMPTS } = await import('@/lib/domain/admin');
@@ -205,10 +208,87 @@ describeWithDb('console sign-in', () => {
   });
 
   it('does not accept a product session token as a console session', async () => {
-    const userToken = 'a-product-session-token';
-    // Same random string, hashed into the product namespace: matches nothing here.
-    expect(await sessionTokenHash(userToken)).not.toBe(userToken);
-    expect(await resolveAdminSession(userToken)).toBeNull();
+    /* A real product login, the same way login.test.ts mints one: the
+       handshake is genuine, only the provider's network call is not. */
+    const subject = `console-cross-${Date.now()}`;
+    const profile: import('@/lib/domain/auth').IdentityProfile = {
+      provider: 'github',
+      subject,
+      email: `${subject}@example.test`,
+      emailVerified: true,
+      displayName: 'Product User',
+      avatarUrl: null,
+    };
+    const state = 'state-for-console-cross-check';
+    const now = new Date();
+    const { sessionToken } = await completeOAuth({
+      provider: 'github',
+      code: 'code',
+      state,
+      sealedHandshake: await seal({
+        provider: 'github',
+        state,
+        nonce: 'nonce',
+        codeVerifier: 'verifier',
+        returnTo: '/dashboard',
+        expiresAt: now.getTime() + OAUTH_STATE_TTL_MS,
+      }),
+      redirectUri: 'https://example.test/api/auth/github/callback',
+      workspaceNaming: { personalWorkspace: '{owner} 的空间', fallbackOwner: '个人' },
+      adapter: {
+        supportsPkce: () => false,
+        authorizeUrl: () => 'https://example.test/authorize',
+        exchange: async () => profile,
+      },
+      now,
+    });
+
+    try {
+      // The token really is a live product session...
+      expect(await resolveSession(sessionToken)).not.toBeNull();
+      // ...hashed into the product namespace, never stored raw...
+      expect(await sessionTokenHash(sessionToken)).not.toBe(sessionToken);
+      // ...and the console refuses it outright.
+      expect(await resolveAdminSession(sessionToken)).toBeNull();
+    } finally {
+      const database = db();
+      const [account] = await database
+        .select({ userId: schema.oauthAccount.userId })
+        .from(schema.oauthAccount)
+        .where(
+          and(
+            eq(schema.oauthAccount.provider, 'github'),
+            eq(schema.oauthAccount.providerSubject, subject),
+          ),
+        );
+      if (account) {
+        const memberships = await database
+          .select({ workspaceId: schema.workspaceMember.workspaceId })
+          .from(schema.workspaceMember)
+          .where(eq(schema.workspaceMember.userId, account.userId));
+        const workspaceIds = memberships.map((member) => member.workspaceId);
+        await database
+          .delete(schema.userSession)
+          .where(eq(schema.userSession.userId, account.userId));
+        if (workspaceIds.length > 0) {
+          await database
+            .delete(schema.subscription)
+            .where(inArray(schema.subscription.workspaceId, workspaceIds));
+        }
+        await database
+          .delete(schema.workspaceMember)
+          .where(eq(schema.workspaceMember.userId, account.userId));
+        if (workspaceIds.length > 0) {
+          await database
+            .delete(schema.workspace)
+            .where(inArray(schema.workspace.id, workspaceIds));
+        }
+        await database
+          .delete(schema.oauthAccount)
+          .where(eq(schema.oauthAccount.userId, account.userId));
+        await database.delete(schema.user).where(eq(schema.user.id, account.userId));
+      }
+    }
   });
 
   it('kills the session on sign-out', async () => {

@@ -8,7 +8,7 @@
  *
  * Runs only when TEST_DATABASE_URL points at a disposable database.
  */
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
@@ -340,58 +340,76 @@ describeWithDb('earning events', () => {
 
   it('stops earning at the daily cap while billing continues', async () => {
     const stamp = Date.now();
-    const owner = await workspace('earning-cap-owner');
-    const libraryId = await userLibrary(`earn-cap-${stamp}`, owner);
-    const reader = await workspace('earning-cap-reader');
-    const planVersionId = await subscribed(reader);
+    /*
+     * The cap counter derives its UTC day start from the JS clock
+     * (lib/application/plans/quota.ts), so pin that clock to mid-day and seed
+     * the prior events with explicit createdAt values from it -- otherwise a
+     * run crossing UTC midnight between seeding and the capped call would put
+     * the seeded rows in yesterday's window and the cap would not bind.
+     * Date-only faking keeps database I/O and timeouts on real timers.
+     */
+    const seededAt = new Date();
+    seededAt.setUTCHours(12, 0, 0, 0);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(seededAt);
+    try {
+      const owner = await workspace('earning-cap-owner');
+      const libraryId = await userLibrary(`earn-cap-${stamp}`, owner);
+      const reader = await workspace('earning-cap-reader');
+      const planVersionId = await subscribed(reader);
 
-    /* The reader has already earned the library its daily cap, synthetically. */
-    const database = db();
-    const versionRow = await database
-      .select({ id: schema.libraryVersion.id })
-      .from(schema.libraryVersion)
-      .where(eq(schema.libraryVersion.libraryId, libraryId));
-    const priorIds = Array.from({ length: DAILY_ATTRIBUTABLE_CALL_CAP }, () => `req_cap_${uuidv7()}`);
-    await database.insert(schema.usageEvent).values(
-      priorIds.map((requestId) => ({
-        id: uuidv7(),
-        workspaceId: reader,
-        requestId,
-        libraryId,
-        versionId: versionRow[0]!.id,
-        operation: 'context',
-        entrypoint: 'rest',
-        debitSource: 'plan',
-        statusCode: 200,
-      })),
-    );
-    await database.insert(schema.earningEvent).values(
-      priorIds.map((requestId) => ({
-        id: uuidv7(),
-        requestId,
-        libraryId,
-        versionId: versionRow[0]!.id,
-        ownerWorkspaceId: owner,
-        planVersionId,
-        shareRateBps: 2_000,
-        periodId: revenuePeriodId(new Date()),
-      })),
-    );
+      /* The reader has already earned the library its daily cap, synthetically. */
+      const database = db();
+      const versionRow = await database
+        .select({ id: schema.libraryVersion.id })
+        .from(schema.libraryVersion)
+        .where(eq(schema.libraryVersion.libraryId, libraryId));
+      const priorIds = Array.from({ length: DAILY_ATTRIBUTABLE_CALL_CAP }, () => `req_cap_${uuidv7()}`);
+      await database.insert(schema.usageEvent).values(
+        priorIds.map((requestId) => ({
+          id: uuidv7(),
+          workspaceId: reader,
+          requestId,
+          libraryId,
+          versionId: versionRow[0]!.id,
+          operation: 'context',
+          entrypoint: 'rest',
+          debitSource: 'plan',
+          statusCode: 200,
+          createdAt: seededAt,
+        })),
+      );
+      await database.insert(schema.earningEvent).values(
+        priorIds.map((requestId) => ({
+          id: uuidv7(),
+          requestId,
+          libraryId,
+          versionId: versionRow[0]!.id,
+          ownerWorkspaceId: owner,
+          planVersionId,
+          shareRateBps: 2_000,
+          periodId: revenuePeriodId(new Date()),
+          createdAt: seededAt,
+        })),
+      );
 
-    const capped = caller(reader);
-    const output = await queryDocs(capped, input(`earn-cap-${stamp}`), noEmbeddings);
-    expect(output.chunks.length).toBeGreaterThan(0); // billed and served as normal
+      const capped = caller(reader);
+      const output = await queryDocs(capped, input(`earn-cap-${stamp}`), noEmbeddings);
+      expect(output.chunks.length).toBeGreaterThan(0); // billed and served as normal
 
-    const [usage] = await database
-      .select()
-      .from(schema.usageEvent)
-      .where(eq(schema.usageEvent.requestId, capped.requestId));
-    expect(usage).toBeDefined(); // the call was metered...
-    expect(
-      await database
+      const [usage] = await database
         .select()
-        .from(schema.earningEvent)
-        .where(eq(schema.earningEvent.requestId, capped.requestId)),
-    ).toHaveLength(0); // ...but past the cap it earns nothing
+        .from(schema.usageEvent)
+        .where(eq(schema.usageEvent.requestId, capped.requestId));
+      expect(usage).toBeDefined(); // the call was metered...
+      expect(
+        await database
+          .select()
+          .from(schema.earningEvent)
+          .where(eq(schema.earningEvent.requestId, capped.requestId)),
+      ).toHaveLength(0); // ...but past the cap it earns nothing
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
