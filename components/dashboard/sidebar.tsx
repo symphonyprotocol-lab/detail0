@@ -13,7 +13,7 @@ import {
   SettingsIcon,
   ShieldCheckIcon,
 } from '@/components/ui/icons';
-import { MONTHLY_CALLS, WORKSPACE_INITIAL } from '@/lib/dashboard/demo-data';
+import { WORKSPACE_INITIAL } from '@/lib/dashboard/demo-data';
 import { useI18n } from '@/lib/i18n/client';
 
 /** Workspace rail -- design source frame `E4GWD`, aside `itqF4`. */
@@ -21,13 +21,17 @@ export function DashboardSidebar({
   workspaceName,
   workspaceInitial = WORKSPACE_INITIAL,
   planName,
+  usage,
 }: {
   workspaceName: string;
   workspaceInitial?: string;
   planName: string;
+  /** This period's metered calls against the plan allowance, from the ledger. */
+  usage: { used: number; limit: number };
 }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const pathname = usePathname();
+  const number = new Intl.NumberFormat(locale);
 
   const nav = [
     { href: '/dashboard', label: t.dashboard.nav.overview, Icon: LayoutDashboardIcon },
@@ -38,7 +42,7 @@ export function DashboardSidebar({
     { href: '/dashboard/policies', label: t.dashboard.nav.policies, Icon: ShieldCheckIcon },
     { href: '/dashboard/settings', label: t.dashboard.nav.settings, Icon: SettingsIcon },
   ];
-  const percent = Math.min(100, Math.round((MONTHLY_CALLS.used / MONTHLY_CALLS.limit) * 100));
+  const percent = Math.min(100, Math.round((usage.used / Math.max(1, usage.limit)) * 100));
 
   return (
     <aside className="flex w-full shrink-0 flex-col gap-4 rounded-xl border-2 border-line bg-card/92 p-4 lg:sticky lg:top-[102px] lg:w-[210px]">
@@ -79,7 +83,7 @@ export function DashboardSidebar({
           {t.dashboard.shell.monthlyCalls}
         </p>
         <p className="mt-1 text-[13px] tracking-[-0.023em] text-ink">
-          {MONTHLY_CALLS.used.toLocaleString()} / {MONTHLY_CALLS.limit.toLocaleString()}
+          {number.format(usage.used)} / {number.format(usage.limit)}
         </p>
         <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-mutedbg">
           <div className="h-full rounded-full bg-brand" style={{ width: `${percent}%` }} />

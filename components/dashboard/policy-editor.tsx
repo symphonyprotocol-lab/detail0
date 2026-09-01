@@ -161,7 +161,7 @@ function ListEditor({
 
 /** Access-rule editor -- design source frames `yOmm8` and `Eznsd`. */
 export function PolicyEditor() {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const p = t.dashboard.policies;
   const { sourceGroups, qualityFilterGroups } = dashboardCopy(t);
   const allSources = sourceGroups.flatMap((group) => group.items.map((item) => item.id));
@@ -355,7 +355,7 @@ export function PolicyEditor() {
           <div className="flex min-w-[240px] flex-1 items-center justify-between gap-4 rounded-lg border-2 border-[#8ed5cf] bg-[#ecf6f6] px-[15px] py-0.5">
             <span className="text-[12px] tracking-[-0.023em] text-brandink">{p.reachable}</span>
             <span className="text-[18px] leading-[1.5] font-semibold tracking-[-0.025em] text-brandink">
-              {POLICY_REACHABLE.toLocaleString()}
+              {new Intl.NumberFormat(locale).format(POLICY_REACHABLE)}
             </span>
           </div>
           <p className="text-[10px] tracking-[-0.023em] text-muted">

@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useState, type ReactNode } from 'react';
+import { submitOn } from '@/components/admin/platform-library-shared';
 import {
   ConsoleButton,
   IconButton,
@@ -283,7 +284,10 @@ function ActionForm({
   const [state, submit, pending] = useActionState(action, null);
 
   return (
-    <form action={submit} className="flex flex-col gap-2 rounded-[8px] border-2 border-line bg-card p-3">
+    <form
+      onSubmit={submitOn(submit)}
+      className="flex flex-col gap-2 rounded-[8px] border-2 border-line bg-card p-3"
+    >
       <input type="hidden" name="administratorId" value={administratorId} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-[12px] font-semibold tracking-[-0.023em] text-ink">{title}</span>

@@ -2,6 +2,7 @@
 
 import { useActionState, useId, useState, type ReactNode } from 'react';
 import { ConsoleDialog } from '@/components/admin/console-dialog';
+import { submitOn } from '@/components/admin/platform-library-shared';
 import { ConsoleButton, Pill } from '@/components/admin/ui';
 import { CircleCheckIcon, CircleXIcon, PencilIcon, SpinnerIcon } from '@/components/ui/icons';
 import { shortPlanVersionId, type PlanTierId } from '@/lib/domain/plans';
@@ -158,7 +159,7 @@ function PlanVersionDialog({
             : fill(p.doneBodyFirst, { id: shortPlanVersionId(state?.planVersionId ?? '') })}
         </p>
       ) : (
-        <form id={formId} action={submit} className="flex flex-col gap-3">
+        <form id={formId} onSubmit={submitOn(submit)} className="flex flex-col gap-3">
           <input type="hidden" name="planId" value={target.planId} />
           <input type="hidden" name="currency" value="USD" />
           {/* What this form is a diff against. The server refuses the submit if

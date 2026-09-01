@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useId, useState } from 'react';
 import { ConsoleDialog } from '@/components/admin/console-dialog';
+import { submitOn } from '@/components/admin/platform-library-shared';
 import { ConsoleButton, IconButton, Monogram } from '@/components/admin/ui';
 import { BanIcon, CircleCheckIcon, CircleXIcon, SpinnerIcon } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
@@ -161,7 +162,7 @@ function StatusDialog({
         </>
       )}
     >
-      <form id={formId} action={submit} className="flex flex-col gap-3">
+      <form id={formId} onSubmit={submitOn(submit)} className="flex flex-col gap-3">
         <input type="hidden" name="userId" value={target.id} />
         <input type="hidden" name="status" value={suspending ? 'suspended' : 'active'} />
 

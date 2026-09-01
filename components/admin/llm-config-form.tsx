@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState } from 'react';
+import { submitOn } from '@/components/admin/platform-library-shared';
 import { ConsoleButton } from '@/components/admin/ui';
 import type { LlmConfigActionResult } from '@/app/admin/(console)/llm/actions';
 import { useI18n } from '@/lib/i18n/client';
@@ -35,7 +36,7 @@ export function LlmConfigForm({
   const [state, formAction, pending] = useActionState(action, null);
 
   return (
-    <form action={formAction} className="flex flex-col gap-4 px-[19px] py-4">
+    <form onSubmit={submitOn(formAction)} className="flex flex-col gap-4 px-[19px] py-4">
       <Field label={p.baseUrl}>
         <input name="baseUrl" defaultValue={prefill.baseUrl} className={FIELD} required />
       </Field>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState } from 'react';
+import { submitOn } from '@/components/admin/platform-library-shared';
 import { CopyButton } from '@/components/dashboard/copy-button';
 import { PANEL } from '@/components/dashboard/ui';
 import type { CreateKeyResult } from '@/app/dashboard/api-keys/actions';
@@ -23,7 +24,10 @@ export function ApiKeyCreate({
   return (
     <section className={`${PANEL} flex flex-col gap-3 p-[22px]`}>
       <p className="text-[14px] tracking-[-0.023em] text-ink">{k.create.title}</p>
-      <form action={formAction} className="flex flex-wrap items-center gap-2">
+      {/* `onSubmit` via submitOn, not `action=`: React resets an uncontrolled
+          form when a function action settles, which would clear the typed name
+          on a refused create. */}
+      <form onSubmit={submitOn(formAction)} className="flex flex-wrap items-center gap-2">
         <input
           name="name"
           required

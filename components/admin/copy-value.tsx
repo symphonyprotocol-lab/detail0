@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
 import { CheckIcon, CopyIcon } from '@/components/ui/icons';
+import { useCopied } from '@/components/ui/use-copied';
 
 /**
  * A console control that copies one identifier -- design source `DiUMB`.
@@ -25,17 +25,7 @@ export function CopyValue({
   label: string;
   copiedLabel: string;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    } catch {
-      /* Clipboard unavailable; the id is still selectable on the page itself. */
-    }
-  }
+  const { copied, copy } = useCopied(value);
 
   return (
     <button
