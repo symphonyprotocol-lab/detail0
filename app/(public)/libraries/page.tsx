@@ -1,21 +1,64 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { Button, SectionHeading } from '@/components/ui/primitives';
-import { LibraryTable } from '@/components/site/library-table';
-import { catalog, CATALOG_TOTAL } from '@/lib/site/demo-data';
+import { LibraryTable, type LibraryTableEntry } from '@/components/site/library-table';
+import { countPublicLibraries, listPublicLibraries } from '@/lib/application/libraries';
+import { resolveLibrary } from '@/lib/application/retrieval/resolve-library';
 import { fill } from '@/lib/i18n/format';
-import { getMessages } from '@/lib/i18n/server';
+import { getMessages, translations } from '@/lib/i18n/server';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { catalog: c } = await getMessages();
   return { title: c.metaTitle, description: c.metaDescription };
 }
 
-export default async function CatalogPage() {
-  const t = await getMessages();
+type Search = { searchParams: Promise<{ q?: string; sort?: string }> };
+
+/**
+ * The public directory, on the real rows. Browsing lists routable libraries
+ * (the same predicate retrieval admits); a search query runs the same
+ * content-based resolve the MCP tool uses (architecture.md 9.6), so what the
+ * directory finds is exactly what an agent would find. Server-side and
+ * unmetered: resolve never counts a Call.
+ */
+export default async function CatalogPage({ searchParams }: Search) {
+  const [{ q, sort }, { locale, t }] = await Promise.all([searchParams, translations()]);
   const c = t.catalog;
-  const entries = catalog(t);
-  const total = CATALOG_TOTAL.toLocaleString('en-US');
-  const pages = [c.previous, '1', '2', '3', '…', '1554', c.next];
+
+  const query = (q ?? '').trim().slice(0, 200);
+  const recent = sort === 'recent';
+  const number = new Intl.NumberFormat(locale);
+  const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
+
+  let entries: LibraryTableEntry[];
+  if (query) {
+    const resolved = await resolveLibrary(
+      { workspaceId: null, apiKeyId: null, requestId: crypto.randomUUID(), anonymous: true },
+      { query },
+    );
+    entries = resolved.results.map((candidate) => ({
+      libraryId: candidate.libraryId,
+      title: candidate.title,
+      domain: candidate.description ?? candidate.libraryId,
+      trustScore: candidate.trustScore,
+      chunks: number.format(candidate.chunks),
+      updated: date.format(new Date(candidate.updatedAt)),
+      anchored: false,
+    }));
+  } else {
+    const rows = await listPublicLibraries({ sort: recent ? 'recent' : 'popular' });
+    entries = rows.map((row) => ({
+      libraryId: row.publicId,
+      title: row.title,
+      domain: row.domainTag ?? row.publicId,
+      trustScore: row.trustScore,
+      chunks: number.format(row.totalChunks),
+      updated: row.updatedAt ? date.format(new Date(row.updatedAt)) : '—',
+      anchored: false,
+    }));
+  }
+
+  const total = number.format(await countPublicLibraries());
 
   return (
     <section className="mx-auto w-full max-w-[918px] px-5 pt-11 pb-16">
@@ -35,41 +78,47 @@ export default async function CatalogPage() {
       <p className="mt-4 max-w-[80ch] text-[13px] leading-[1.7] text-muted">{c.lede}</p>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
-        <label className="flex h-[46px] min-w-0 flex-1 items-center gap-2.5 rounded-lg border-2 border-line bg-card px-4 shadow-[0_4px_10px_rgba(45,45,83,0.06)]">
+        <form
+          method="get"
+          className="flex h-[46px] min-w-0 flex-1 items-center gap-2.5 rounded-lg border-2 border-line bg-card px-4 shadow-[0_4px_10px_rgba(45,45,83,0.06)]"
+        >
           <span aria-hidden className="text-muted">
             ⌕
           </span>
           <input
+            name="q"
+            defaultValue={query}
             placeholder={c.searchPlaceholder}
             className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-muted/70"
           />
-          <kbd className="rounded border-2 border-line bg-mutedbg px-1.5 py-0.5 text-[11px] text-muted">
-            ⌘ K
-          </kbd>
-        </label>
-        <div className="flex h-[46px] items-center gap-1 rounded-lg border-2 border-line bg-card p-1">
-          <span className="rounded-md bg-brandsoft px-3 py-1.5 text-[12px] font-medium text-brandink">
-            {c.popular}
-          </span>
-          <span className="rounded-md px-3 py-1.5 text-[12px] font-medium text-muted">
-            {c.recentlyUpdated}
-          </span>
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2.5">
-        {c.filters.map((f) => (
+          {recent ? <input type="hidden" name="sort" value="recent" /> : null}
           <button
-            key={f}
-            type="button"
-            className="flex h-[34px] items-center gap-2 rounded-lg border-2 border-line bg-card px-3 text-[12px] font-medium text-muted transition-colors hover:bg-subtle"
+            type="submit"
+            className="rounded border-2 border-line bg-mutedbg px-1.5 py-0.5 text-[11px] text-muted"
           >
-            {f}
-            <span aria-hidden className="text-[10px] text-faint">
-              ▾
-            </span>
+            ⏎
           </button>
-        ))}
+        </form>
+        <div className="flex h-[46px] items-center gap-1 rounded-lg border-2 border-line bg-card p-1">
+          <Link
+            href={query ? `/libraries?q=${encodeURIComponent(query)}` : '/libraries'}
+            className={`rounded-md px-3 py-1.5 text-[12px] font-medium ${
+              recent ? 'text-muted' : 'bg-brandsoft text-brandink'
+            }`}
+          >
+            {c.popular}
+          </Link>
+          <Link
+            href={
+              query ? `/libraries?sort=recent&q=${encodeURIComponent(query)}` : '/libraries?sort=recent'
+            }
+            className={`rounded-md px-3 py-1.5 text-[12px] font-medium ${
+              recent ? 'bg-brandsoft text-brandink' : 'text-muted'
+            }`}
+          >
+            {c.recentlyUpdated}
+          </Link>
+        </div>
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-[12px]">
@@ -85,18 +134,6 @@ export default async function CatalogPage() {
         <p className="text-[12px] text-muted">
           {fill(c.rangeLine, { shown: entries.length, total })}
         </p>
-        <nav className="flex items-center gap-1.5">
-          {pages.map((p) => (
-            <span
-              key={p}
-              className={`inline-flex h-[30px] items-center rounded-md px-2.5 text-[12px] font-medium ${
-                p === '1' ? 'bg-brand text-white' : 'border-2 border-line bg-card text-muted'
-              }`}
-            >
-              {p}
-            </span>
-          ))}
-        </nav>
       </div>
     </section>
   );

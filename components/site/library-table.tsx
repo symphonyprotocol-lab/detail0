@@ -1,7 +1,17 @@
 import Link from 'next/link';
 import { ArrowUpRightIcon, BadgeCheckIcon, ShieldCheckIcon } from '@/components/ui/icons';
-import type { CatalogEntry } from '@/lib/site/demo-data';
 import { getMessages } from '@/lib/i18n/server';
+
+/** One catalogue row, mapped by the page from the live rows. */
+export interface LibraryTableEntry {
+  libraryId: string;
+  title: string;
+  domain: string;
+  trustScore: number;
+  chunks: string;
+  updated: string;
+  anchored: boolean;
+}
 
 /**
  * Column track widths and paddings are taken from the design source table
@@ -14,7 +24,7 @@ export async function LibraryTable({
   entries,
   showAnchor = true,
 }: {
-  entries: CatalogEntry[];
+  entries: LibraryTableEntry[];
   showAnchor?: boolean;
 }) {
   const { table } = (await getMessages()).catalog;
@@ -73,6 +83,9 @@ export async function LibraryTable({
               )}
             </Link>
           ))}
+          {entries.length === 0 ? (
+            <p className="px-[15px] py-10 text-center text-[13px] text-muted">{table.empty}</p>
+          ) : null}
         </div>
       </div>
     </div>

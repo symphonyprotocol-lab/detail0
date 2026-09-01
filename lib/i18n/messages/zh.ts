@@ -481,6 +481,7 @@ export const zh = {
       anchored: '已存证',
       unanchored: '待存证',
       public: '公开',
+      empty: '没有匹配的知识库。',
     },
   },
 

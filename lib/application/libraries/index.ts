@@ -10,3 +10,10 @@ export {
   listWorkspaceLibraries,
   type WorkspaceLibraryRow,
 } from './workspace';
+export {
+  countPublicLibraries,
+  listPublicLibraries,
+  publicLibraryDetail,
+  type CatalogEntry,
+  type PublicLibraryDetail,
+} from './catalog';

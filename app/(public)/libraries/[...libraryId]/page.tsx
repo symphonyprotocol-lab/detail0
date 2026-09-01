@@ -2,21 +2,17 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Button, Card, Chip } from '@/components/ui/primitives';
-import { CATALOG_IDS, findLibrary, type CatalogEntry } from '@/lib/site/demo-data';
+import { publicLibraryDetail } from '@/lib/application/libraries';
 import { fill } from '@/lib/i18n/format';
-import { getMessages } from '@/lib/i18n/server';
+import { getMessages, translations } from '@/lib/i18n/server';
 
 type Params = { params: Promise<{ libraryId: string[] }> };
 
-export function generateStaticParams() {
-  return CATALOG_IDS.map((libraryId) => ({ libraryId: libraryId.slice(1).split('/') }));
-}
-
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const [{ libraryId }, t] = await Promise.all([params, getMessages()]);
-  const entry = findLibrary(t, `/${libraryId.join('/')}`);
+  const entry = await publicLibraryDetail(`/${libraryId.join('/')}`);
   if (!entry) return { title: t.library.fallbackTitle };
-  return { title: entry.title, description: entry.description };
+  return { title: entry.title, description: entry.description ?? undefined };
 }
 
 function Stat({ label, value, note }: { label: string; value: string; note: string }) {
@@ -52,12 +48,23 @@ function Panel({ title, right, children }: { title: string; right?: string; chil
   );
 }
 
+/**
+ * A published library's public face, on the real rows: the routable predicate
+ * decides existence (an invisible library 404s exactly like a missing one),
+ * and every figure comes from the pinned current version. The anchor panel
+ * reports pending until anchoring ships -- never a fabricated transaction.
+ */
 export default async function LibraryDetailPage({ params }: Params) {
-  const [{ libraryId }, t] = await Promise.all([params, getMessages()]);
-  const entry: CatalogEntry | undefined = findLibrary(t, `/${libraryId.join('/')}`);
+  const [{ libraryId }, { locale, t }] = await Promise.all([params, translations()]);
+  const entry = await publicLibraryDetail(`/${libraryId.join('/')}`);
   if (!entry) notFound();
 
   const l = t.library;
+  const number = new Intl.NumberFormat(locale);
+  const compact = new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 });
+  const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
+  const updated = entry.updatedAt ? date.format(new Date(entry.updatedAt)) : '—';
+  const sizeMb = Math.max(1, Math.round(entry.storageBytes / 1_048_576));
 
   return (
     <section className="mx-auto w-full max-w-[918px] px-5 pt-7 pb-14">
@@ -66,8 +73,12 @@ export default async function LibraryDetailPage({ params }: Params) {
           {l.breadcrumb}
         </Link>
         <span aria-hidden className="text-line">/</span>
-        <span>{entry.domain}</span>
-        <span aria-hidden className="text-line">/</span>
+        {entry.domainTag ? (
+          <>
+            <span>{entry.domainTag}</span>
+            <span aria-hidden className="text-line">/</span>
+          </>
+        ) : null}
         <span className="font-semibold text-ink">{entry.title}</span>
       </nav>
 
@@ -87,22 +98,23 @@ export default async function LibraryDetailPage({ params }: Params) {
 
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             <code className="rounded-md border-2 border-line bg-subtle px-2.5 py-1 font-mono text-[12px] text-[#2d4e54]">
-              {entry.libraryId}
+              {entry.publicId}
             </code>
             <span className="text-[12px] text-faint">
               {l.pinnedVersion}
-              {entry.libraryId}/{entry.version}
+              {entry.publicId}/{entry.version.label}
             </span>
           </div>
 
-          <p className="mt-3 max-w-[70ch] text-[13.5px] leading-[1.7] text-muted">
-            {entry.description}
-          </p>
+          {entry.description ? (
+            <p className="mt-3 max-w-[70ch] text-[13.5px] leading-[1.7] text-muted">
+              {entry.description}
+            </p>
+          ) : null}
 
           <div className="mt-3.5 flex flex-wrap gap-2">
-            <Chip>{entry.domain}</Chip>
-            <Chip>{entry.language}</Chip>
-            <Chip>{entry.license}</Chip>
+            {entry.domainTag ? <Chip>{entry.domainTag}</Chip> : null}
+            {entry.language ? <Chip>{entry.language}</Chip> : null}
           </div>
         </div>
 
@@ -123,11 +135,15 @@ export default async function LibraryDetailPage({ params }: Params) {
         />
         <Stat
           label={l.stats.chunks}
-          value={entry.chunks}
-          note={fill(l.stats.chunksNote, { count: entry.documents })}
+          value={number.format(entry.version.totalChunks)}
+          note={fill(l.stats.chunksNote, { count: entry.version.documents })}
         />
-        <Stat label={l.stats.tokens} value={entry.tokens} note={l.stats.tokensNote} />
-        <Stat label={l.stats.size} value={`${entry.sizeMb} MB`} note={l.stats.sizeNote} />
+        <Stat
+          label={l.stats.tokens}
+          value={compact.format(entry.version.totalTokens)}
+          note={l.stats.tokensNote}
+        />
+        <Stat label={l.stats.size} value={`${sizeMb} MB`} note={l.stats.sizeNote} />
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_312px]">
@@ -136,17 +152,26 @@ export default async function LibraryDetailPage({ params }: Params) {
             <div className="rounded-lg border-2 border-line bg-subtle p-3.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-[14px] font-bold text-ink">{entry.version}</span>
+                  <span className="font-mono text-[14px] font-bold text-ink">
+                    {entry.version.label}
+                  </span>
                   <Chip tone="brand">{l.currentVersion}</Chip>
                   <Chip tone="good">Ready</Chip>
                 </div>
                 <span className="text-[11.5px] text-faint">
-                  {fill(l.publishedAt, { when: entry.updated })}
+                  {fill(l.publishedAt, {
+                    when: entry.version.publishedAt
+                      ? date.format(new Date(entry.version.publishedAt))
+                      : updated,
+                  })}
                 </span>
               </div>
               <div className="mt-2.5 flex flex-col">
-                <Row k="Parser / Chunker" v="parser v3.1 · chunker v2.0" />
-                <Row k="Embedding Model" v="text-embedding-3-large" />
+                <Row
+                  k="Parser / Chunker"
+                  v={`${entry.version.parserVersion} · ${entry.version.chunkerVersion}`}
+                />
+                <Row k="Embedding Model" v={entry.version.embeddingModel} />
               </div>
             </div>
             <p className="text-[11.5px] leading-[1.7] text-faint">
@@ -158,7 +183,7 @@ export default async function LibraryDetailPage({ params }: Params) {
             <div className="rounded-lg border-2 border-line bg-subtle p-3.5">
               <pre className="overflow-x-auto font-mono text-[11px] leading-[1.75] text-[#278f5c]">
 {`query-docs
-  libraryId: "${entry.libraryId}"
+  libraryId: "${entry.publicId}"
   query:     "how do I get started"
   maxTokens: 4000`}
               </pre>
@@ -171,34 +196,23 @@ export default async function LibraryDetailPage({ params }: Params) {
 
         <div className="flex flex-col gap-4">
           <Panel title={l.sourcePanel}>
-            <div className="flex items-center gap-2">
-              <Chip>{entry.sourceType}</Chip>
-              <span className="truncate font-mono text-[11.5px] text-[#2d4e54]">
-                {entry.sourceLocation}
-              </span>
-            </div>
-            <Row k="folders" v="docs, guides" mono />
-            <Row k="excludeFolders" v="archive" mono />
-            <Row k={l.lastSync} v={entry.updated} />
+            {entry.sources.map((source) => (
+              <div key={`${source.type}-${source.location}`} className="flex items-center gap-2">
+                <Chip>{source.type}</Chip>
+                <span className="truncate font-mono text-[11.5px] text-[#2d4e54]">
+                  {source.location}
+                </span>
+              </div>
+            ))}
+            <Row k={l.lastSync} v={updated} />
           </Panel>
 
           <Panel title={l.anchorPanel}>
             <div className="flex items-center gap-2">
-              {entry.anchored ? (
-                <Chip tone="good">{l.anchored}</Chip>
-              ) : (
-                <Chip tone="warn">{l.unanchored}</Chip>
-              )}
+              <Chip tone="warn">{l.unanchored}</Chip>
               <span className="text-[11.5px] text-muted">{l.aptosMainnet}</span>
             </div>
-            {entry.anchored ? (
-              <>
-                <Row k={l.txHash} v="0x7f3c…a91b" mono />
-                <Row k={l.blockTime} v="2026-08-17 14:02:11" />
-              </>
-            ) : (
-              <p className="text-[11.5px] text-muted">{l.notAnchoredYet}</p>
-            )}
+            <p className="text-[11.5px] text-muted">{l.notAnchoredYet}</p>
             <Button href="/docs/anchoring" variant="outline" className="mt-1 w-full">
               {l.verifyVersion}
             </Button>
@@ -207,13 +221,10 @@ export default async function LibraryDetailPage({ params }: Params) {
 
           <Panel title={l.ownershipPanel}>
             {entry.claimedBy ? (
-              <>
-                <div className="flex items-center gap-2">
-                  <Chip tone="good">{l.claimed}</Chip>
-                  <span className="text-[12px] font-semibold text-ink">{entry.claimedBy}</span>
-                </div>
-                <Row k={l.verificationMethod} v={l.verificationMethodValue} />
-              </>
+              <div className="flex items-center gap-2">
+                <Chip tone="good">{l.claimed}</Chip>
+                <span className="text-[12px] font-semibold text-ink">{entry.claimedBy}</span>
+              </div>
             ) : (
               <>
                 <div className="flex items-center gap-2">

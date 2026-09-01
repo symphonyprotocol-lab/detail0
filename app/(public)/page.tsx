@@ -15,7 +15,7 @@ import {
   ShieldCheckIcon,
   SparklesIcon,
 } from '@/components/ui/icons';
-import { catalog } from '@/lib/site/demo-data';
+import { listPublicLibraries } from '@/lib/application/libraries';
 import { getMessages } from '@/lib/i18n/server';
 
 /** Vendor logomarks where the surface has one; the design source's glyph otherwise. */
@@ -29,6 +29,16 @@ const SURFACES = [
 
 export default async function HomePage() {
   const t = await getMessages();
+  /* The featured table is the live catalogue's head, not copy. */
+  const featured = (await listPublicLibraries({ sort: 'popular', limit: 6 })).map((row) => ({
+    libraryId: row.publicId,
+    title: row.title,
+    domain: row.domainTag ?? row.publicId,
+    trustScore: row.trustScore,
+    chunks: row.totalChunks.toLocaleString('en-US'),
+    updated: row.updatedAt ? new Date(row.updatedAt).toISOString().slice(0, 10) : '—',
+    anchored: false,
+  }));
   return (
     <>
       {/* Hero -- geometry, type and icons follow the design source frame `hRx0w`. */}
@@ -119,7 +129,7 @@ export default async function HomePage() {
             </div>
           </div>
 
-          <LibraryTable entries={catalog(t).slice(0, 6)} showAnchor={false} />
+          <LibraryTable entries={featured} showAnchor={false} />
 
           <div className="flex flex-wrap items-center justify-between gap-3 px-0.5 pt-3.5 text-[11px] tracking-[-0.029em]">
             <p className="text-muted">{t.home.sampleNote}</p>

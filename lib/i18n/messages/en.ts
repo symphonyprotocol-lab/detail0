@@ -517,6 +517,7 @@ export const en: Dictionary = {
       anchored: 'Anchored',
       unanchored: 'Pending',
       public: 'Public',
+      empty: 'No libraries match.',
     },
   },
 
