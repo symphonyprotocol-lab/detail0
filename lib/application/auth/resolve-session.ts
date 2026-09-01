@@ -5,7 +5,7 @@
  * session, then check user and workspace state). Always reads the primary --
  * permission state must not come from a replica (architecture.md 16).
  */
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import {
   isAccountUsable,
   isSessionLive,
@@ -90,6 +90,9 @@ export async function resolveSession(
     .leftJoin(schema.planVersion, eq(schema.planVersion.id, schema.subscription.planVersionId))
     .leftJoin(schema.plan, eq(schema.plan.id, schema.planVersion.planId))
     .where(eq(schema.workspaceMember.userId, row.userId))
+    /* Oldest membership first, id as tiebreak: a user in several workspaces
+       must land in the same one on every request. */
+    .orderBy(asc(schema.workspaceMember.createdAt), asc(schema.workspaceMember.workspaceId))
     .limit(1);
 
   if (!workspace) return null;

@@ -99,10 +99,19 @@ export function sessionExpiryFrom(now: Date): Date {
   return new Date(now.getTime() + SESSION_ABSOLUTE_MS);
 }
 
-/** Billing period for a newly created Free subscription. */
+/**
+ * Billing period for a newly created Free subscription.
+ *
+ * One month later, with the day clamped: Jan 31 ends Feb 28/29 rather than
+ * overflowing into March.
+ */
 export function firstBillingPeriod(now: Date): { start: Date; end: Date } {
   const end = new Date(now.getTime());
+  const day = end.getUTCDate();
+  end.setUTCDate(1);
   end.setUTCMonth(end.getUTCMonth() + 1);
+  const lastDay = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 0)).getUTCDate();
+  end.setUTCDate(Math.min(day, lastDay));
   return { start: now, end };
 }
 

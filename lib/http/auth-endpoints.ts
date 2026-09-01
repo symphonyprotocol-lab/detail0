@@ -29,9 +29,15 @@ export function appRedirect(path: string, status: 303 | 302 = 303): NextResponse
  * clear -- architecture.md 11.2 requires hashed IP signals.
  */
 export async function rateLimitKey(request: NextRequest, scope: string): Promise<string> {
-  const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+  /* Rightmost entry only: each proxy appends the address it saw, so the last
+     one was written by our own edge while everything to its left is whatever
+     the client chose to send. */
+  const forwarded = request.headers.get('x-forwarded-for')?.split(',').at(-1)?.trim();
   const address = forwarded || request.headers.get('x-real-ip') || 'unknown';
-  const secret = process.env.SESSION_SIGNING_SECRET ?? 'dev';
+  const secret = process.env.SESSION_SIGNING_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error('SESSION_SIGNING_SECRET is not set (needs at least 32 characters)');
+  }
   return `ratelimit:${scope}:${await hmacSha256(secret, address)}`;
 }
 
