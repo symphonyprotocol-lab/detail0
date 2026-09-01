@@ -199,6 +199,9 @@ describeWithDb('earning events', () => {
     }
     if (workspaces.length > 0) {
       await database
+        .delete(schema.requestLog)
+        .where(inArray(schema.requestLog.workspaceId, workspaces));
+      await database
         .delete(schema.usageEvent)
         .where(inArray(schema.usageEvent.workspaceId, workspaces));
       await database

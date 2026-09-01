@@ -116,10 +116,11 @@ export async function askPlayground(
 
   /*
    * The tokens were spent whatever the binding below decides, so the cost is
-   * recorded first -- and best-effort: a metrics write must not fail the
-   * answer it measures.
+   * recorded first -- best-effort (a metrics write must not fail the answer
+   * it measures) but awaited, because a serverless function may freeze right
+   * after responding and a write left floating simply vanishes.
    */
-  dependencies
+  await dependencies
     .recordCost({
       configId: config.id,
       libraryPublicId: retrieved.libraryId,

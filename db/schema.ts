@@ -970,15 +970,25 @@ export const workflowOperation = pgTable(
   ],
 );
 
-export const requestLog = pgTable('request_log', {
-  id: uuid('id').primaryKey(),
-  workspaceId: uuid('workspace_id').references(() => workspace.id),
-  requestId: text('request_id').notNull(),
-  operation: text('operation').notNull(),
-  statusCode: integer('status_code').notNull(),
-  latencyMs: integer('latency_ms'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const requestLog = pgTable(
+  'request_log',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id').references(() => workspace.id),
+    requestId: text('request_id').notNull(),
+    operation: text('operation').notNull(),
+    /**
+     * By public id and without a foreign key, like the cost events: the
+     * request history a user reads must survive the library it touched.
+     * The query text is deliberately absent (architecture.md 17.1).
+     */
+    libraryPublicId: text('library_public_id'),
+    statusCode: integer('status_code').notNull(),
+    latencyMs: integer('latency_ms'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('request_log_workspace_time_idx').on(t.workspaceId, t.createdAt)],
+);
 
 export const report = pgTable('report', {
   id: uuid('id').primaryKey(),

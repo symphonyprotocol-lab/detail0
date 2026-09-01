@@ -200,6 +200,9 @@ describeWithDb('policy engine', () => {
           .where(inArray(schema.policyVersion.id, versionIds));
       }
       await database
+        .delete(schema.requestLog)
+        .where(inArray(schema.requestLog.workspaceId, workspaces));
+      await database
         .delete(schema.usageEvent)
         .where(inArray(schema.usageEvent.workspaceId, workspaces));
       await database

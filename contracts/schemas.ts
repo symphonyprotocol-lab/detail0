@@ -139,6 +139,38 @@ export const queryDocsOutputSchema = z.object({
   requestId: z.string(),
 });
 
+// --- Usage and requests. architecture.md 6.3, 11.1. ---
+
+export const usageBucketSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  calls: z.number().int().nonnegative(),
+});
+
+export const usageOverviewSchema = z.object({
+  buckets: z.array(usageBucketSchema),
+  periodStart: z.string().datetime(),
+  periodEnd: z.string().datetime(),
+  callsThisPeriod: z.number().int().nonnegative(),
+  planAllowance: z.number().int().nonnegative(),
+  addonBalanceRemaining: z.number().int().nonnegative(),
+  requestId: z.string(),
+});
+
+/** One request's summary. The query text never appears here (17.1). */
+export const requestLogRowSchema = z.object({
+  requestId: z.string(),
+  operation: z.string(),
+  libraryPublicId: z.string().nullable(),
+  statusCode: z.number().int(),
+  latencyMs: z.number().int().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const requestListSchema = z.object({
+  requests: z.array(requestLogRowSchema),
+  requestId: z.string(),
+});
+
 // --- Policy. architecture.md 10. ---
 
 export const policyReasonSchema = z.enum([

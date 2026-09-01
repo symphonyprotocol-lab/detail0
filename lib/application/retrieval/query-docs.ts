@@ -21,7 +21,14 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import type { ChunkResult, QueryDocsInput, QueryDocsOutput } from '@/contracts/schemas';
 import { isQueryable } from '@/lib/domain';
-import { commitCall, releaseCall, reserveCall, type ReservedCall } from '@/lib/application/plans';
+import {
+  commitCall,
+  recordRequestLog,
+  releaseCall,
+  reserveCall,
+  type ReservedCall,
+} from '@/lib/application/plans';
+import { httpStatusFor } from '@/contracts/errors';
 import { pinPolicy, policyIsOpen, policyVerdictFor } from '@/lib/application/policies';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import {
@@ -79,6 +86,40 @@ export async function queryDocs(
 ): Promise<QueryDocsOutput> {
   const startedAt = Date.now();
   const database = db();
+  /*
+   * The request log (architecture.md 6.3): outcome, library, latency --
+   * never the query text (17.1). Awaited but best-effort: the catch keeps a
+   * diary failure from failing the request it describes, and awaiting keeps
+   * the write from being dropped -- a serverless function may freeze the
+   * moment the response returns, so fire-and-forget writes simply vanish.
+   */
+  const logExit = (libraryPublicId: string | null, statusCode: number) =>
+    recordRequestLog({
+      workspaceId: caller.workspaceId,
+      requestId: caller.requestId,
+      operation: 'query-docs',
+      libraryPublicId,
+      statusCode,
+      latencyMs: Date.now() - startedAt,
+    }).catch(() => {});
+
+  try {
+    const output = await queryDocsInner(caller, input, dependencies, startedAt, database);
+    await logExit(output.libraryId, 200);
+    return output;
+  } catch (error) {
+    await logExit(null, error instanceof AppError ? httpStatusFor(error.code) : 500);
+    throw error;
+  }
+}
+
+async function queryDocsInner(
+  caller: CallerContext,
+  input: QueryDocsInput,
+  dependencies: RetrievalDependencies,
+  startedAt: number,
+  database: ReturnType<typeof db>,
+): Promise<QueryDocsOutput> {
 
   /* -------------------------------------------- resolve, authorize, pin */
 
