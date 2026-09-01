@@ -13,9 +13,6 @@
  * the cost is bounded by the version, not the platform. The keyword half uses
  * the text-search configuration frozen on the version, so query stemming
  * always matches how the chunks were indexed.
- *
- * Not in this increment, recorded rather than implied: the earning event
- * (11.4 -- lands with publisher accounting).
  */
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
@@ -99,6 +96,7 @@ export async function queryDocs(
       requestId: caller.requestId,
       operation: 'query-docs',
       libraryPublicId,
+      entrypoint: caller.apiKeyId ? 'rest' : 'web',
       statusCode,
       latencyMs: Date.now() - startedAt,
     }).catch(() => {});

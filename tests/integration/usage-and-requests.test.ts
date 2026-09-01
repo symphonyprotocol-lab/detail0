@@ -297,6 +297,7 @@ describeWithDb('usage and request log', () => {
     };
     const ok = body.requests.find((row) => row.requestId === served.requestId);
     expect(ok?.statusCode).toBe(200);
+    expect((ok as { entrypoint?: string } | undefined)?.entrypoint).toBe('web');
     expect(ok?.libraryPublicId).toBe(`/websites/usage-log-${stamp}`);
     expect(body.requests.some((row) => row.statusCode === 404)).toBe(true);
 

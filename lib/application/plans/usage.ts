@@ -27,6 +27,7 @@ export interface UsageOverview {
   periodStart: string;
   periodEnd: string;
   callsThisPeriod: number;
+  returnedTokensThisPeriod: number;
   planAllowance: number;
   addonBalanceRemaining: number;
 }
@@ -87,7 +88,10 @@ export async function usageOverview(workspaceId: string): Promise<UsageOverview>
 
   const { allowance, periodStart, periodEnd } = await currentWindow(workspaceId);
   const [inPeriod] = await database
-    .select({ n: sql<number>`count(*)::int` })
+    .select({
+      n: sql<number>`count(*)::int`,
+      tokens: sql<number>`coalesce(sum(${schema.usageEvent.returnedTokens}), 0)::bigint`,
+    })
     .from(schema.usageEvent)
     .where(
       and(
@@ -111,6 +115,7 @@ export async function usageOverview(workspaceId: string): Promise<UsageOverview>
     periodStart: periodStart.toISOString(),
     periodEnd: periodEnd.toISOString(),
     callsThisPeriod: inPeriod?.n ?? 0,
+    returnedTokensThisPeriod: Number(inPeriod?.tokens ?? 0),
     planAllowance: allowance,
     addonBalanceRemaining: addon?.remaining ?? 0,
   };
@@ -181,6 +186,7 @@ export async function recordRequestLog(entry: {
   requestId: string;
   operation: string;
   libraryPublicId: string | null;
+  entrypoint: string | null;
   statusCode: number;
   latencyMs: number | null;
 }): Promise<void> {
@@ -193,6 +199,7 @@ export interface RequestLogRow {
   requestId: string;
   operation: string;
   libraryPublicId: string | null;
+  entrypoint: string | null;
   statusCode: number;
   latencyMs: number | null;
   createdAt: string;
@@ -214,6 +221,7 @@ export async function listRequests(
     requestId: row.requestId,
     operation: row.operation,
     libraryPublicId: row.libraryPublicId,
+    entrypoint: row.entrypoint,
     statusCode: row.statusCode,
     latencyMs: row.latencyMs,
     createdAt: row.createdAt.toISOString(),

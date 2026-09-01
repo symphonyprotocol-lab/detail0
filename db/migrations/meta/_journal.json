@@ -120,6 +120,13 @@
       "when": 1787629282559,
       "tag": "0016_request_log_library",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1787629283559,
+      "tag": "0017_request_log_entrypoint",
+      "breakpoints": true
     }
   ]
 }

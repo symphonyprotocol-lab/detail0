@@ -680,6 +680,12 @@ export const zh = {
       trendSubtitle: '最近 12 天 · 当前账期',
       trendLegend: '{used} / {limit} Calls',
       trendFormat: '{value} 次调用',
+      stats: {
+        calls: '本期调用',
+        success: '成功率',
+        latency: '平均延迟',
+        tokens: '返回 Token',
+      },
       searchPlaceholder: '搜索请求 ID、知识库或操作…',
       columns: ['时间', '操作', '知识库', 'API 密钥', '状态', '延迟'],
       filterRange: '时间范围',

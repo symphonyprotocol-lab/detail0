@@ -728,6 +728,12 @@ export const en: Dictionary = {
       trendSubtitle: 'Last 12 days · current period',
       trendLegend: '{used} / {limit} calls',
       trendFormat: '{value} calls',
+      stats: {
+        calls: 'Calls this period',
+        success: 'Success rate',
+        latency: 'Average latency',
+        tokens: 'Tokens returned',
+      },
       searchPlaceholder: 'Search request id, library or operation…',
       columns: ['Time', 'Operation', 'Library', 'API key', 'Status', 'Latency'],
       filterRange: 'Range',

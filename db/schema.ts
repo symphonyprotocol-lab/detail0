@@ -983,6 +983,8 @@ export const requestLog = pgTable(
      * The query text is deliberately absent (architecture.md 17.1).
      */
     libraryPublicId: text('library_public_id'),
+    /** 'rest' | 'web' -- which door the request came through. */
+    entrypoint: text('entrypoint'),
     statusCode: integer('status_code').notNull(),
     latencyMs: integer('latency_ms'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

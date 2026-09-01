@@ -3,12 +3,23 @@
 import { useMemo, useState } from 'react';
 import { PANEL, SearchField } from '@/components/dashboard/ui';
 import { CircleCheckIcon, CircleXIcon } from '@/components/ui/icons';
-import { dashboardCopy, REQUEST_TOTAL } from '@/lib/dashboard/demo-data';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
 
 const GRID =
   'grid grid-cols-[118px_minmax(0,1fr)_90px_84px_58px_52px] items-center gap-3';
+
+/** What one row of the live log renders. Mapped from the API by the page. */
+export interface RequestLogView {
+  id: string;
+  time: string;
+  operation: string;
+  surface: string;
+  library: string;
+  key: string;
+  status: number;
+  latency: string;
+}
 
 /** Selected by index: the labels are translated, the positions are not. */
 function Select({
@@ -55,39 +66,32 @@ function StatusPill({ status }: { status: number }) {
   );
 }
 
-/** Request log with its filter bar -- design source frame `i027cz`. */
-export function RequestLog() {
+/**
+ * Request log with its filter bar -- design source frame `i027cz`, fed by the
+ * page from the real request_log (architecture.md 6.3). Search and the
+ * status filter work client-side over the page the server returned; the
+ * per-key filter waits until the log records which key served a request.
+ */
+export function RequestLog({ entries }: { entries: RequestLogView[] }) {
   const { t } = useI18n();
   const r = t.dashboard.requests;
-  const { requestLog, apiKeys } = dashboardCopy(t);
 
-  /**
-   * Filter options. The `All …` entry stays at index 0 in both languages, so
-   * "is the filter cleared" is an index test rather than a string comparison.
-   */
-  const ranges = r.ranges;
   const statuses = r.statuses;
-  const keys = [r.allKeys, ...apiKeys.map((entry) => entry.name)];
-
   const [term, setTerm] = useState('');
-  const [range, setRange] = useState(0);
   const [status, setStatus] = useState(0);
-  const [key, setKey] = useState(0);
 
   const rows = useMemo(() => {
     const needle = term.trim().toLowerCase();
-    const keyName = keys[key];
-    return requestLog.filter((entry) => {
+    return entries.filter((entry) => {
       const matchesTerm =
         needle === '' ||
         [entry.id, entry.library, entry.operation].some((field) =>
           field.toLowerCase().includes(needle),
         );
       const matchesStatus = status === 0 || (status === 1 ? entry.status < 400 : entry.status >= 400);
-      const matchesKey = key === 0 || entry.key === keyName;
-      return matchesTerm && matchesStatus && matchesKey;
+      return matchesTerm && matchesStatus;
     });
-  }, [term, status, key, keys, requestLog]);
+  }, [term, status, entries]);
 
   return (
     <section className={`${PANEL} overflow-hidden p-0.5`}>
@@ -96,9 +100,7 @@ export function RequestLog() {
           <SearchField placeholder={r.searchPlaceholder} value={term} onChange={setTerm} />
         </div>
         <div className="flex gap-1.5">
-          <Select label={r.filterRange} options={ranges} value={range} onChange={setRange} />
           <Select label={r.filterStatus} options={statuses} value={status} onChange={setStatus} />
-          <Select label={r.filterKey} options={keys} value={key} onChange={setKey} />
         </div>
       </div>
 
@@ -152,24 +154,9 @@ export function RequestLog() {
         <p className="text-[11px] tracking-[-0.023em] text-muted">
           {fill(r.countLine, {
             shown: rows.length,
-            total: REQUEST_TOTAL.toLocaleString('en-US'),
+            total: entries.length.toLocaleString('en-US'),
           })}
         </p>
-        <div className="flex gap-1.5">
-          {[r.previous, '1', '2', '3', r.next].map((page) => (
-            <button
-              key={page}
-              type="button"
-              className={`h-[26px] rounded-[5px] border-2 px-[7px] text-[11px] transition-colors ${
-                page === '1'
-                  ? 'border-brand bg-brand text-white'
-                  : 'border-line bg-card text-steel hover:bg-subtle'
-              }`}
-            >
-              {page}
-            </button>
-          ))}
-        </div>
       </footer>
     </section>
   );
