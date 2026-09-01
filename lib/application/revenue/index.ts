@@ -46,3 +46,9 @@ export function isAttributableCall(input: {
 }
 
 export { closePeriod, type ClosedPeriod, type PeriodAllocation } from './close-period';
+export {
+  acceptPublisherAgreement,
+  publisherEarnings,
+  type PublisherEarnings,
+  type PublisherPeriodEarning,
+} from './publisher-earnings';

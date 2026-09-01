@@ -171,6 +171,31 @@ export const requestListSchema = z.object({
   requestId: z.string(),
 });
 
+// --- Publisher revenue. publisher-revenue-share.md stage 2. ---
+
+export const publisherPeriodEarningSchema = z.object({
+  periodId: z.string().regex(/^\d{4}-\d{2}$/),
+  locked: z.boolean(),
+  attributableCalls: z.number().int().nonnegative(),
+  /** Null until the period locks: no pool exists to allocate from yet. */
+  amountMinor: z.number().int().nonnegative().nullable(),
+});
+
+export const publisherEarningsSchema = z.object({
+  account: z
+    .object({
+      taxStatus: z.string(),
+      agreementVersion: z.string().nullable(),
+      providerAccountLinked: z.boolean(),
+    })
+    .nullable(),
+  periods: z.array(publisherPeriodEarningSchema),
+  accruedMinor: z.number().int().nonnegative(),
+  payoutThresholdMinor: z.number().int().positive(),
+  holdDays: z.number().int().positive(),
+  requestId: z.string(),
+});
+
 // --- Policy. architecture.md 10. ---
 
 export const policyReasonSchema = z.enum([

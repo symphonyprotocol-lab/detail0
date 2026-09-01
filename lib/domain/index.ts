@@ -87,6 +87,11 @@ export function isQueryable(input: {
  */
 export const DAILY_ATTRIBUTABLE_CALL_CAP = 200;
 
+/** publisher-revenue-share.md 3.4: below this a period's earnings roll over. */
+export const PAYOUT_THRESHOLD_MINOR = 2_000;
+/** publisher-revenue-share.md 3.4: the refund/chargeback window before payout. */
+export const PAYOUT_HOLD_DAYS = 45;
+
 /**
  * The earning period an event lands in: the platform's revenue period, a UTC
  * calendar month (revenue_period rows key settlement by it). Not the
