@@ -130,6 +130,7 @@ async function ledger(input: {
     amountMinor: 10_000,
     refundedMinor: 0,
     issuedAt: input.at,
+    paidAt: input.at,
   });
 }
 

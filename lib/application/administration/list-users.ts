@@ -60,8 +60,14 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
     term
       ? or(ilike(schema.user.displayName, likePattern(term)), ilike(schema.user.email, likePattern(term)))
       : undefined,
-    input.status && input.status !== 'all'
-      ? eq(schema.user.status, input.status === 'active' ? 'active' : 'suspended')
+    /*
+     * Only the two recognised values filter; anything else -- the export route
+     * casts `?status=` rather than parsing it -- means "all", so a typo'd
+     * filter widens the extract instead of silently exporting only suspended
+     * accounts.
+     */
+    input.status === 'active' || input.status === 'suspended'
+      ? eq(schema.user.status, input.status)
       : undefined,
   ].filter(Boolean);
   const where = conditions.length > 0 ? and(...conditions) : undefined;

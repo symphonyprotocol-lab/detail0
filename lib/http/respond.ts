@@ -6,10 +6,17 @@ export function errorResponse(error: unknown, requestId: string): NextResponse<A
   const appError =
     error instanceof AppError ? error : new AppError('internal_error', 'unexpected error');
 
+  /* Internal detail (config, driver messages) stays in the server log; the
+     client only learns that something went wrong. */
+  if (appError.code === 'internal_error') {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`internal error requestId=${requestId} detail=${detail}`);
+  }
+
   const body: ApiErrorBody = {
     error: {
       code: appError.code,
-      message: appError.message,
+      message: appError.code === 'internal_error' ? 'unexpected error' : appError.message,
       requestId,
       ...(appError.reason ? { reason: appError.reason } : {}),
     },

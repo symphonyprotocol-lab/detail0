@@ -55,7 +55,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Lax cookies plus an Origin check: the sign-in POST cannot be forged.
   if (!(await isSameOrigin())) return signInRedirect('invalid_credentials');
 
-  const form = await request.formData();
+  /*
+   * Unlike the OAuth endpoints, this one fails *closed* -- there the limiter
+   * guards a handshake that verifies nothing, here it guards a password oracle,
+   * and losing the count is not an acceptable degradation. `strictRateLimit`
+   * refuses when a configured Upstash stops answering, and keeps an in-process
+   * floor when none is configured at all. Checked before the body is even
+   * parsed, so a malformed body still spends the sender's budget.
+   */
+  const verdict = await strictRateLimit(
+    await rateLimitKey(request, 'admin-login'),
+    ADMIN_LOGIN_RATE_RULE,
+  );
+  if (!verdict.allowed) return signInRedirect('rate_limited');
+
+  const form = await request.formData().catch(() => null);
+  if (!form) return signInRedirect('invalid_credentials');
   const returnTo = safeAdminReturnTo(form.get('returnTo'));
   const email = String(form.get('email') ?? '');
   const password = String(form.get('password') ?? '');
@@ -71,19 +86,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   ) {
     return signInRedirect('invalid_credentials', returnTo);
   }
-
-  /*
-   * Unlike the OAuth endpoints, this one fails *closed* -- there the limiter
-   * guards a handshake that verifies nothing, here it guards a password oracle,
-   * and losing the count is not an acceptable degradation. `strictRateLimit`
-   * refuses when a configured Upstash stops answering, and keeps an in-process
-   * floor when none is configured at all.
-   */
-  const verdict = await strictRateLimit(
-    await rateLimitKey(request, 'admin-login'),
-    ADMIN_LOGIN_RATE_RULE,
-  );
-  if (!verdict.allowed) return signInRedirect('rate_limited', returnTo);
 
   const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
   const clientAddress = forwarded || request.headers.get('x-real-ip') || null;

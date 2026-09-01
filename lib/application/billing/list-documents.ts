@@ -244,8 +244,8 @@ export async function billingSummary(now = new Date()): Promise<BillingSummary> 
   const collectedBetween = async (from: Date, until?: Date) => {
     const [row] = await database
       .select({
-        amount: sql<number>`coalesce(sum(${schema.billingDocument.amountMinor}), 0)::int`,
-        refunded: sql<number>`coalesce(sum(${schema.billingDocument.refundedMinor}), 0)::int`,
+        amount: sql<number>`coalesce(sum(${schema.billingDocument.amountMinor}), 0)::bigint`,
+        refunded: sql<number>`coalesce(sum(${schema.billingDocument.refundedMinor}), 0)::bigint`,
       })
       .from(schema.billingDocument)
       .where(
@@ -256,7 +256,7 @@ export async function billingSummary(now = new Date()): Promise<BillingSummary> 
           until ? lt(schema.billingDocument.paidAt, until) : undefined,
         ),
       );
-    return { amount: row?.amount ?? 0, refunded: row?.refunded ?? 0 };
+    return { amount: Number(row?.amount ?? 0), refunded: Number(row?.refunded ?? 0) };
   };
 
   /*
@@ -269,7 +269,7 @@ export async function billingSummary(now = new Date()): Promise<BillingSummary> 
 
     database
       .select({
-        amount: sql<number>`coalesce(sum(${schema.billingDocument.amountMinor}), 0)::int`,
+        amount: sql<number>`coalesce(sum(${schema.billingDocument.amountMinor}), 0)::bigint`,
         documents: count(),
       })
       .from(schema.billingDocument)
@@ -328,7 +328,7 @@ export async function billingSummary(now = new Date()): Promise<BillingSummary> 
     monthNetMinor: amount - refunded,
     monthRefundedMinor: refunded,
     monthRefundRateBps: refundRateBps({ collectedMinor: amount, refundedMinor: refunded }),
-    outstandingMinor: outstanding?.amount ?? 0,
+    outstandingMinor: Number(outstanding?.amount ?? 0),
     outstandingCount: outstanding?.documents ?? 0,
     previousMonthNetMinor: previous.amount - previous.refunded,
     paidSubscriptions: subscriptions?.n ?? 0,

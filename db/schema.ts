@@ -256,32 +256,42 @@ export const planVersion = pgTable('plan_version', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const subscription = pgTable('subscription', {
-  id: uuid('id').primaryKey(),
-  workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-  planVersionId: uuid('plan_version_id').notNull().references(() => planVersion.id),
-  status: subscriptionStatusEnum('status').notNull(),
-  providerCustomerId: text('provider_customer_id'),
-  providerSubscriptionId: text('provider_subscription_id'),
-  periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
-  periodEnd: timestamp('period_end', { withTimezone: true }).notNull(),
-});
+export const subscription = pgTable(
+  'subscription',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    planVersionId: uuid('plan_version_id').notNull().references(() => planVersion.id),
+    status: subscriptionStatusEnum('status').notNull(),
+    providerCustomerId: text('provider_customer_id'),
+    providerSubscriptionId: text('provider_subscription_id'),
+    periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
+    periodEnd: timestamp('period_end', { withTimezone: true }).notNull(),
+  },
+  /** The per-request quota transaction reads a workspace's subscription. */
+  (t) => [index('subscription_workspace_idx').on(t.workspaceId)],
+);
 
 /**
  * Additional Calls. requirement.md 4.3: the balance never expires and carries
  * across periods, so quota checks must read the balance and must not filter on
  * a validity window. See architecture.md 11.1.
  */
-export const addonGrant = pgTable('addon_grant', {
-  id: uuid('id').primaryKey(),
-  workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-  callsGranted: integer('calls_granted').notNull(),
-  callsConsumed: integer('calls_consumed').notNull().default(0),
-  priceMinor: integer('price_minor').notNull(),
-  currency: text('currency').notNull().default('USD'),
-  providerOrderId: text('provider_order_id'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const addonGrant = pgTable(
+  'addon_grant',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    callsGranted: integer('calls_granted').notNull(),
+    callsConsumed: integer('calls_consumed').notNull().default(0),
+    priceMinor: integer('price_minor').notNull(),
+    currency: text('currency').notNull().default('USD'),
+    providerOrderId: text('provider_order_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  /** The per-request quota transaction reads a workspace's grant balances. */
+  (t) => [index('addon_grant_workspace_idx').on(t.workspaceId)],
+);
 
 export const paymentEvent = pgTable(
   'payment_event',
@@ -793,7 +803,11 @@ export const usageReservation = pgTable(
     status: reservationStatusEnum('status').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('usage_reservation_request_uq').on(t.requestId)],
+  (t) => [
+    uniqueIndex('usage_reservation_request_uq').on(t.requestId),
+    /** The per-request quota transaction counts a workspace's reservations. */
+    index('usage_reservation_workspace_idx').on(t.workspaceId),
+  ],
 );
 
 export const usageEvent = pgTable(
@@ -835,14 +849,19 @@ export const usageSummary = pgTable(
   (t) => [uniqueIndex('usage_summary_uq').on(t.workspaceId, t.bucketDate)],
 );
 
-export const publisherAccount = pgTable('publisher_account', {
-  id: uuid('id').primaryKey(),
-  workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
-  providerAccountId: text('provider_account_id'),
-  taxStatus: text('tax_status').notNull().default('pending'),
-  agreementVersion: text('agreement_version'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const publisherAccount = pgTable(
+  'publisher_account',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    providerAccountId: text('provider_account_id'),
+    taxStatus: text('tax_status').notNull().default('pending'),
+    agreementVersion: text('agreement_version'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  /** One account per workspace: the application check-then-inserts on it. */
+  (t) => [uniqueIndex('publisher_account_workspace_uq').on(t.workspaceId)],
+);
 
 /**
  * Written in the same transaction as the usage event. architecture.md 11.4.

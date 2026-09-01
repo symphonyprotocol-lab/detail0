@@ -20,18 +20,20 @@ const ADMIN_COOKIES = ['__Secure-r0_admin', 'r0_admin'];
 
 export function middleware(request: NextRequest): NextResponse {
   const path = request.nextUrl.pathname;
+  /* Query string included: `safeReturnTo` preserves it on the way back. */
+  const returnTo = path + request.nextUrl.search;
 
   if (path.startsWith('/admin')) {
     if (ADMIN_COOKIES.some((name) => request.cookies.has(name))) return NextResponse.next();
     const signIn = new URL('/admin/login', request.url);
-    signIn.searchParams.set('returnTo', path);
+    signIn.searchParams.set('returnTo', returnTo);
     return NextResponse.redirect(signIn);
   }
 
   if (SESSION_COOKIES.some((name) => request.cookies.has(name))) return NextResponse.next();
 
   const login = new URL('/login', request.url);
-  login.searchParams.set('returnTo', path);
+  login.searchParams.set('returnTo', returnTo);
   return NextResponse.redirect(login);
 }
 

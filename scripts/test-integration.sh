@@ -34,10 +34,18 @@ docker run -d --name "${PG_CONTAINER}" \
   pgvector/pgvector:pg16 >/dev/null
 
 echo "waiting for postgres..."
+pg_ready=
 for _ in $(seq 1 30); do
-  docker exec "${PG_CONTAINER}" pg_isready -U postgres -q && break
+  if docker exec "${PG_CONTAINER}" pg_isready -U postgres -q; then
+    pg_ready=1
+    break
+  fi
   sleep 1
 done
+if [[ -z "${pg_ready}" ]]; then
+  echo "postgres did not become ready" >&2
+  exit 1
+fi
 
 # Migrations, in journal order. `--> statement-breakpoint` is a SQL comment,
 # so the files run as-is. drizzle-kit is not used here: its runner needs the

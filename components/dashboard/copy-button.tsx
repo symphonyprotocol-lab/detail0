@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
 import { CheckIcon, CopyIcon } from '@/components/ui/icons';
+import { useCopied } from '@/components/ui/use-copied';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
 
@@ -16,17 +16,7 @@ export function CopyButton({
   className?: string;
 }) {
   const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    } catch {
-      /* Clipboard is unavailable (insecure origin, denied permission) -- leave the icon as-is. */
-    }
-  }
+  const { copied, copy } = useCopied(value);
 
   return (
     <button

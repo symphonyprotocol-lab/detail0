@@ -65,6 +65,13 @@ export type BuildOutcome =
 const INSERT_BATCH = 250;
 
 /**
+ * Independent object-store writes run this many at a time. Serial PUTs make a
+ * large library's build latency-bound (thousands of round trips, one by one);
+ * unbounded fan-out makes it a burst the store throttles. Eight is neither.
+ */
+const PUT_CONCURRENCY = 8;
+
+/**
  * How many chunks are embedded and written before their vectors are released.
  *
  * Large enough that the provider still sees full batches (the adapter splits
@@ -231,25 +238,40 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   /* ---------------------------------------------------------------- scan */
 
   const safe: FetchedFile[] = [];
+  const quarantined: FetchedFile[] = [];
   let flaggedFiles = 0;
+  const flaggedPaths = new Set<string>();
   for (const file of files) {
     const findings = scanContent(file.content);
     const status = safetyStatusOf(findings);
     if (status === 'quarantined') {
-      /*
-       * Kept, but out of reach: architecture.md 7 gives quarantine its own
-       * prefix that the application cannot read. Deleting the evidence would
-       * leave nothing to review when someone asks why a file is missing.
-       */
-      await store.put(
-        objectKeys.quarantine(input.operationId, await sha256Hex(file.path)),
-        encode({ path: file.path, url: file.url, content: file.content }),
-        'application/json',
-      );
+      quarantined.push(file);
       continue;
     }
-    if (status === 'flagged') flaggedFiles += 1;
+    if (status === 'flagged') {
+      flaggedFiles += 1;
+      flaggedPaths.add(file.path);
+    }
     safe.push(file);
+  }
+
+  /*
+   * Kept, but out of reach: architecture.md 7 gives quarantine its own
+   * prefix that the application cannot read. Deleting the evidence would
+   * leave nothing to review when someone asks why a file is missing.
+   * The writes are independent of one another, so they run a bounded
+   * batch at a time.
+   */
+  for (let at = 0; at < quarantined.length; at += PUT_CONCURRENCY) {
+    await Promise.all(
+      quarantined.slice(at, at + PUT_CONCURRENCY).map(async (file) =>
+        store.put(
+          objectKeys.quarantine(input.operationId, await sha256Hex(file.path)),
+          encode({ path: file.path, url: file.url, content: file.content }),
+          'application/json',
+        ),
+      ),
+    );
   }
 
   if (safe.length === 0) {
@@ -280,11 +302,14 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   const rows: {
     document: { id: string; title: string; sourceUrl: string; objectKey: string };
     chunks: { id: string; ordinal: number; body: string; tokens: number; citation: Citation }[];
+    /** True when the safety scan flagged the file this document came from. */
+    flagged: boolean;
   }[] = [];
 
   let totalChunks = 0;
   let totalTokens = 0;
   let citedChunks = 0;
+  let flaggedChunks = 0;
   const seenBodies = new Set<string>();
   let duplicates = 0;
 
@@ -312,6 +337,8 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     });
 
     totalChunks += chunks.length;
+    const flagged = flaggedPaths.has(file.path);
+    if (flagged) flaggedChunks += chunks.length;
     rows.push({
       document: {
         id: documentId,
@@ -320,6 +347,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
         objectKey: objectKeys.normalized(library.id, versionId, documentId),
       },
       chunks,
+      flagged,
     });
   }
 
@@ -339,7 +367,13 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       body: chunk.body,
       tokens: chunk.tokens,
       citation: chunk.citation as Record<string, unknown>,
-      safetyStatus: 'clean',
+      /*
+       * The scan's verdict for the file, carried onto its chunks. Retrieval
+       * still serves `flagged` rows (only `quarantined`/`unsafe` are excluded
+       * from its predicate); the status records what the scan found rather
+       * than hiding it behind a blanket `clean`.
+       */
+      safetyStatus: row.flagged ? 'flagged' : 'clean',
       searchConfig,
       /* Pre-segmented CJK for the keyword index Postgres cannot build itself.
          lib/domain/cjk.ts; null for chunks with no Han text. */
@@ -361,20 +395,24 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
    * rules; a row pointing at an object that was never written is a broken
    * library.
    */
-  for (const row of rows) {
-    await store.put(
-      row.document.objectKey,
-      encode({
-        title: row.document.title,
-        url: row.document.sourceUrl,
-        chunks: row.chunks.map((chunk) => ({
-          ordinal: chunk.ordinal,
-          tokens: chunk.tokens,
-          citation: chunk.citation,
-          body: chunk.body,
-        })),
-      }),
-      'application/json',
+  for (let at = 0; at < rows.length; at += PUT_CONCURRENCY) {
+    await Promise.all(
+      rows.slice(at, at + PUT_CONCURRENCY).map((row) =>
+        store.put(
+          row.document.objectKey,
+          encode({
+            title: row.document.title,
+            url: row.document.sourceUrl,
+            chunks: row.chunks.map((chunk) => ({
+              ordinal: chunk.ordinal,
+              tokens: chunk.tokens,
+              citation: chunk.citation,
+              body: chunk.body,
+            })),
+          }),
+          'application/json',
+        ),
+      ),
     );
   }
   await store.put(
@@ -589,7 +627,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     chunks: totalChunks,
     duplicateRatio: totalChunks === 0 ? 0 : duplicates / totalChunks,
     citedRatio: totalChunks === 0 ? 0 : citedChunks / totalChunks,
-    flaggedChunks: flaggedFiles,
+    flaggedChunks,
     ageDays: newest ? Math.max(0, (Date.now() - newest.getTime()) / 86_400_000) : 3_650,
     hasLicense: snapshots.some(({ snapshot }) => snapshot.hasLicense),
   });

@@ -143,7 +143,15 @@ export async function mirrorProviderDocument(
         periodStart: draft.periodStart,
         periodEnd: draft.periodEnd,
         issuedAt: draft.issuedAt ?? observedAt,
-        paidAt: draft.paidAt,
+        /*
+         * Same fallback as `issuedAt`, but only for a document whose money
+         * actually arrived: a `paid` document mirrored without a stated
+         * payment time would otherwise carry a null and be invisible to
+         * every revenue figure keyed on `paid_at`. The draft already
+         * derives null for uncollected states, so the fallback never
+         * invents a payment time for them.
+         */
+        paidAt: draft.paidAt ?? (isCollected(draft.status) ? observedAt : null),
         lastEventId,
         observedAt,
       })

@@ -75,22 +75,25 @@ const values = {
   lockedUntil: null,
 };
 
-if (existing) {
-  await database
-    .update(schema.administrator)
-    .set(values)
-    .where(eq(schema.administrator.id, administratorId));
-} else {
-  await database.insert(schema.administrator).values({ id: administratorId, ...values });
-}
-
 /*
+ * One transaction for the account and its role. A crash between the two would
+ * otherwise leave new credentials with the previous -- possibly wider -- roles,
+ * and the TOTP secret (printed only after this) already lost.
+ *
  * `--role` sets the role, it does not add one. Inserting without clearing would
  * mean re-running this to downgrade an account silently left the old, wider
  * role in place -- and `capabilitiesForRoles` unions them, so the downgrade
  * would be a no-op while the output claimed otherwise.
  */
 await database.transaction(async (tx) => {
+  if (existing) {
+    await tx
+      .update(schema.administrator)
+      .set(values)
+      .where(eq(schema.administrator.id, administratorId));
+  } else {
+    await tx.insert(schema.administrator).values({ id: administratorId, ...values });
+  }
   await tx
     .delete(schema.administratorRole)
     .where(eq(schema.administratorRole.administratorId, administratorId));

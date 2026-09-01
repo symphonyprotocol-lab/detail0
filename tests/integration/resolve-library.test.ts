@@ -181,17 +181,23 @@ describeWithDb('library-level discovery', () => {
 
   it('honours the optional name hint alongside content recall', async () => {
     const stamp = Date.now();
+    /*
+     * Discriminating on purpose: the library's NAME matches the hint while its
+     * content shares no token with the query (and no sibling fixture's content
+     * does either), so content FTS alone cannot recall it and this assertion
+     * fails if the libraryName path is ever dropped.
+     */
     const id = await publishedLibrary(`resolve-named-${stamp}`, `OpenAI SDK Handbook ${stamp}`, [
       {
-        path: 'docs/api.md',
-        url: 'https://example.test/api',
-        content: '# Calling the API\n\nCreate a client with your key, then send requests.',
+        path: 'docs/notes.md',
+        url: 'https://example.test/notes',
+        content: '# 发布说明\n\n本次更新修复了若干缺陷,并优化了整体性能表现。',
       },
     ]);
 
     const output = await resolveLibrary(
       anonymous,
-      { query: 'how do I call the api', libraryName: 'OpenAI SDK' },
+      { query: 'streaming chat completions', libraryName: 'OpenAI SDK' },
       noEmbeddings,
     );
 

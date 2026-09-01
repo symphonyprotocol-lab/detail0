@@ -2,7 +2,13 @@ process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
 import { describe, expect, it } from 'vitest';
 import { seal, unseal } from '@/lib/infrastructure/crypto/sealed';
-import { codeChallengeS256, randomToken, timingSafeEqual } from '@/lib/infrastructure/crypto/tokens';
+import {
+  base64UrlDecode,
+  base64UrlEncode,
+  codeChallengeS256,
+  randomToken,
+  timingSafeEqual,
+} from '@/lib/infrastructure/crypto/tokens';
 import { isHandshakeShape, type Handshake } from '@/lib/application/auth/handshake';
 
 const handshake: Handshake = {
@@ -24,7 +30,13 @@ describe('sealed handshake cookie', () => {
   it('returns null instead of throwing on a tampered or foreign value', async () => {
     const sealed = await seal(handshake);
     const [iv, data] = sealed.split('.');
-    const flipped = `${iv}.${data?.slice(0, -2)}AA`;
+    /* A deterministic bit-flip in the ciphertext: decode, XOR the last byte,
+       re-encode. (Rewriting base64url characters can be the identity when the
+       payload already ends in them, which made this assertion flaky.) */
+    const bytes = base64UrlDecode(data!);
+    bytes[bytes.length - 1]! ^= 0x01;
+    const flipped = `${iv}.${base64UrlEncode(bytes)}`;
+    expect(flipped).not.toBe(sealed);
 
     await expect(unseal(flipped)).resolves.toBeNull();
     await expect(unseal('not-a-sealed-value')).resolves.toBeNull();

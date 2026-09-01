@@ -12,6 +12,7 @@
 import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import { uuidv7 } from '@/lib/domain/id';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { PLAN_VERSION_NEWEST_FIRST } from './configuration';
 
 /** Daily buckets kept per workspace. */
 const SUMMARY_WINDOW_DAYS = 90;
@@ -38,21 +39,28 @@ export async function rebuildUsageSummary(workspaceId: string): Promise<void> {
   const windowStart = new Date(Date.now() - SUMMARY_WINDOW_DAYS * 86_400_000);
   windowStart.setUTCHours(0, 0, 0, 0);
 
-  const counted = await database
-    .select({
-      day: sql<string>`to_char(date_trunc('day', ${schema.usageEvent.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
-      calls: sql<number>`count(*)::int`,
-    })
-    .from(schema.usageEvent)
-    .where(
-      and(
-        eq(schema.usageEvent.workspaceId, workspaceId),
-        gte(schema.usageEvent.createdAt, windowStart),
-      ),
-    )
-    .groupBy(sql`1`);
-
+  /*
+   * Counted, deleted and written in one transaction, and upserted rather than
+   * plainly inserted: two concurrent rebuilds of one workspace otherwise race,
+   * and the loser hits `usage_summary_uq` and turns a read path into a 500.
+   * The upsert makes the loser overwrite the same buckets with the same
+   * figures instead; the delete clears buckets the events no longer cover.
+   */
   await database.transaction(async (tx) => {
+    const counted = await tx
+      .select({
+        day: sql<string>`to_char(date_trunc('day', ${schema.usageEvent.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
+        calls: sql<number>`count(*)::int`,
+      })
+      .from(schema.usageEvent)
+      .where(
+        and(
+          eq(schema.usageEvent.workspaceId, workspaceId),
+          gte(schema.usageEvent.createdAt, windowStart),
+        ),
+      )
+      .groupBy(sql`1`);
+
     await tx
       .delete(schema.usageSummary)
       .where(
@@ -62,15 +70,24 @@ export async function rebuildUsageSummary(workspaceId: string): Promise<void> {
         ),
       );
     if (counted.length > 0) {
-      await tx.insert(schema.usageSummary).values(
-        counted.map((bucket) => ({
-          id: uuidv7(),
-          workspaceId,
-          periodStart: windowStart,
-          bucketDate: new Date(`${bucket.day}T00:00:00Z`),
-          calls: bucket.calls,
-        })),
-      );
+      await tx
+        .insert(schema.usageSummary)
+        .values(
+          counted.map((bucket) => ({
+            id: uuidv7(),
+            workspaceId,
+            periodStart: windowStart,
+            bucketDate: new Date(`${bucket.day}T00:00:00Z`),
+            calls: bucket.calls,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [schema.usageSummary.workspaceId, schema.usageSummary.bucketDate],
+          set: {
+            periodStart: sql`excluded.period_start`,
+            calls: sql`excluded.calls`,
+          },
+        });
     }
   });
 }
@@ -164,7 +181,7 @@ async function currentWindow(
     .select({ monthlyCalls: schema.planVersion.monthlyCalls })
     .from(schema.planVersion)
     .where(eq(schema.planVersion.planId, 'free'))
-    .orderBy(desc(schema.planVersion.createdAt))
+    .orderBy(...PLAN_VERSION_NEWEST_FIRST)
     .limit(1);
   const now = new Date();
   return {

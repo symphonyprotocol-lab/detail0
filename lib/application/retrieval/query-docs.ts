@@ -294,8 +294,18 @@ async function queryDocsInner(
             .limit(RECALL_LIMIT)
         : [];
 
+    /*
+     * The vector leg only runs when the configured adapter is the model the
+     * version's vectors were built with (frozen on the version, requirement.md
+     * 8.1): a query embedded by a different model lives in a different vector
+     * space, and comparing across spaces returns confident nonsense. On a
+     * mismatch the keyword leg carries the request alone.
+     */
     let semantic: typeof keyword = [];
-    if (dependencies.configured().embeddings) {
+    if (
+      dependencies.configured().embeddings &&
+      dependencies.embeddings().model === version.embeddingModel
+    ) {
       const [queryVector] = await dependencies.embeddings().embed([input.query]);
       if (queryVector) {
         const literal = `[${queryVector.join(',')}]`;
@@ -462,6 +472,7 @@ interface PinnedVersion {
   id: string;
   label: string;
   searchConfig: string;
+  embeddingModel: string;
 }
 
 async function pinVersion(
@@ -473,6 +484,7 @@ async function pinVersion(
       id: schema.libraryVersion.id,
       label: schema.libraryVersion.label,
       searchConfig: schema.libraryVersion.searchConfig,
+      embeddingModel: schema.libraryVersion.embeddingModel,
       indexStatus: schema.libraryVersion.indexStatus,
     })
     .from(schema.libraryVersion)
@@ -494,6 +506,7 @@ async function pinLabeledVersion(
       id: schema.libraryVersion.id,
       label: schema.libraryVersion.label,
       searchConfig: schema.libraryVersion.searchConfig,
+      embeddingModel: schema.libraryVersion.embeddingModel,
       indexStatus: schema.libraryVersion.indexStatus,
     })
     .from(schema.libraryVersion)

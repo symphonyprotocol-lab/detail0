@@ -9,10 +9,11 @@
  * (9.2) and read nothing that can change under them.
  */
 import { desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import { AppError } from '@/contracts/errors';
 import type { PolicyPatch, PolicyResponse, WorkspacePolicyView } from '@/contracts/schemas';
 import { OPEN_POLICY, type WorkspacePolicy } from '@/lib/domain/policy';
 import { uuidv7 } from '@/lib/domain/id';
-import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { db, schema, type Database } from '@/lib/infrastructure/postgres/client';
 import { ref } from '@/lib/application/administration/column-ref';
 
 export interface PinnedPolicy {
@@ -20,9 +21,22 @@ export interface PinnedPolicy {
   policy: WorkspacePolicy;
 }
 
-/** The newest policy version, or the open default when none was ever set. */
-export async function pinPolicy(workspaceId: string): Promise<PinnedPolicy> {
-  const database = db();
+/**
+ * Each materialised block/except/allow list may hold this many entries. The
+ * per-patch cap (contracts) bounds one request; this bounds what the
+ * accumulated snapshot re-inserted with every new version can grow to.
+ */
+const MAX_LIST_ENTRIES = 1_000;
+
+/**
+ * The newest policy version, or the open default when none was ever set.
+ * `database` lets a caller pin inside its own transaction; ids are uuidv7,
+ * so `desc(id)` breaks a same-timestamp tie deterministically.
+ */
+export async function pinPolicy(
+  workspaceId: string,
+  database: Pick<Database, 'select'> = db(),
+): Promise<PinnedPolicy> {
   const [version] = await database
     .select({
       id: schema.policyVersion.id,
@@ -32,7 +46,7 @@ export async function pinPolicy(workspaceId: string): Promise<PinnedPolicy> {
     })
     .from(schema.policyVersion)
     .where(eq(schema.policyVersion.workspaceId, workspaceId))
-    .orderBy(desc(schema.policyVersion.createdAt))
+    .orderBy(desc(schema.policyVersion.createdAt), desc(schema.policyVersion.id))
     .limit(1);
 
   if (!version) return { versionId: null, policy: OPEN_POLICY };
@@ -82,31 +96,53 @@ export async function patchPolicy(
   patch: PolicyPatch,
   requestId: string,
 ): Promise<PolicyResponse> {
-  const current = (await pinPolicy(workspaceId)).policy;
-
-  const next: WorkspacePolicy = {
-    mode: patch.mode === 'clear' ? null : (patch.mode ?? current.mode),
-    sourceTypes: { ...current.sourceTypes },
-    quality: {
-      requireVerified: patch.quality?.requireVerified ?? current.quality.requireVerified,
-      minTrustScore:
-        patch.quality?.minTrustScore !== undefined
-          ? patch.quality.minTrustScore
-          : current.quality.minTrustScore,
-      maxAgeDays:
-        patch.quality?.maxAgeDays !== undefined
-          ? patch.quality.maxAgeDays
-          : current.quality.maxAgeDays,
-    },
-    blockedLibraries: patchList(current.blockedLibraries, patch.blocked),
-    exceptedLibraries: patchList(current.exceptedLibraries, patch.excepted),
-    allowedLibraries: patchList(current.allowedLibraries, patch.allowed),
-  };
-  for (const type of patch.sourceTypes?.enable ?? []) delete next.sourceTypes[type];
-  for (const type of patch.sourceTypes?.disable ?? []) next.sourceTypes[type] = false;
-
   const versionId = uuidv7();
-  await db().transaction(async (tx) => {
+  const next = await db().transaction(async (tx) => {
+    /*
+     * Read-modify-insert is one critical section per workspace. Without the
+     * lock two concurrent patches snapshot the same base and the loser's
+     * changes silently vanish from the version that wins. Transaction-scoped,
+     * so it is released on commit or rollback either way.
+     */
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${workspaceId}))`);
+
+    const current = (await pinPolicy(workspaceId, tx)).policy;
+
+    const next: WorkspacePolicy = {
+      mode: patch.mode === 'clear' ? null : (patch.mode ?? current.mode),
+      sourceTypes: { ...current.sourceTypes },
+      quality: {
+        requireVerified: patch.quality?.requireVerified ?? current.quality.requireVerified,
+        minTrustScore:
+          patch.quality?.minTrustScore !== undefined
+            ? patch.quality.minTrustScore
+            : current.quality.minTrustScore,
+        maxAgeDays:
+          patch.quality?.maxAgeDays !== undefined
+            ? patch.quality.maxAgeDays
+            : current.quality.maxAgeDays,
+      },
+      blockedLibraries: patchList(current.blockedLibraries, patch.blocked),
+      exceptedLibraries: patchList(current.exceptedLibraries, patch.excepted),
+      allowedLibraries: patchList(current.allowedLibraries, patch.allowed),
+    };
+    for (const type of patch.sourceTypes?.enable ?? []) delete next.sourceTypes[type];
+    for (const type of patch.sourceTypes?.disable ?? []) next.sourceTypes[type] = false;
+
+    const overLimit = (
+      [
+        ['blocked', next.blockedLibraries],
+        ['excepted', next.exceptedLibraries],
+        ['allowed', next.allowedLibraries],
+      ] as const
+    ).find(([, list]) => list.length > MAX_LIST_ENTRIES);
+    if (overLimit) {
+      throw new AppError(
+        'invalid_request',
+        `the ${overLimit[0]} list cannot exceed ${MAX_LIST_ENTRIES} entries`,
+      );
+    }
+
     await tx.insert(schema.policyVersion).values({
       id: versionId,
       workspaceId,
@@ -131,6 +167,7 @@ export async function patchPolicy(
         })),
       );
     }
+    return next;
   });
 
   return {

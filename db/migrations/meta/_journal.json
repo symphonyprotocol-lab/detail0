@@ -127,6 +127,13 @@
       "when": 1787629283559,
       "tag": "0017_request_log_entrypoint",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1787629284559,
+      "tag": "0018_workspace_quota_indexes",
+      "breakpoints": true
     }
   ]
 }

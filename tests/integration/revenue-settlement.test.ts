@@ -168,6 +168,7 @@ describeWithDb('revenue settlement', () => {
         amountMinor: 10_000,
         refundedMinor: 0,
         issuedAt: at,
+        paidAt: at,
       },
       {
         /* Fully refunded: contributes zero to net revenue. */
@@ -181,6 +182,7 @@ describeWithDb('revenue settlement', () => {
         amountMinor: 5_000,
         refundedMinor: 5_000,
         issuedAt: at,
+        paidAt: at,
       },
     ]);
 
@@ -230,6 +232,7 @@ describeWithDb('revenue settlement', () => {
       amountMinor: 8_000,
       refundedMinor: 0,
       issuedAt: at,
+      paidAt: at,
     });
 
     const closed = await closePeriod('2020-07');

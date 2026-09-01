@@ -2,6 +2,7 @@
 
 import { useActionState, useId, useState, type ReactNode } from 'react';
 import { ConsoleDialog } from '@/components/admin/console-dialog';
+import { submitOn } from '@/components/admin/platform-library-shared';
 import { ConsoleButton } from '@/components/admin/ui';
 import { CopyButton } from '@/components/dashboard/copy-button';
 import { CircleCheckIcon, CircleXIcon, PlusIcon, SpinnerIcon } from '@/components/ui/icons';
@@ -116,7 +117,7 @@ function InviteDialog({
           </div>
         </div>
       ) : (
-        <form id={formId} action={submit} className="flex flex-col gap-3">
+        <form id={formId} onSubmit={submitOn(submit)} className="flex flex-col gap-3">
           {state?.error ? (
             <p
               role="alert"

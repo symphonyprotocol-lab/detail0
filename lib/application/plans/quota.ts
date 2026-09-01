@@ -29,6 +29,7 @@ import {
   type Visibility,
 } from '@/lib/domain';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { PLAN_VERSION_NEWEST_FIRST } from './configuration';
 
 export interface QuotaState {
   planAllowanceRemaining: number;
@@ -123,13 +124,25 @@ export async function reserveCall(input: {
       .where(eq(schema.usageReservation.requestId, input.requestId));
 
     const ownSeat = existing?.status === 'pending' ? 1 : 0;
-    const used = (counted?.events ?? 0) + (counted?.held ?? 0) - ownSeat;
-    const planRemaining = Math.max(0, allowance - used);
+    const held = Math.max(0, (counted?.held ?? 0) - ownSeat);
+    const planRemaining = Math.max(0, allowance - (counted?.events ?? 0));
     const addonRemaining = Math.max(0, counted?.addon ?? 0);
 
+    /*
+     * Held reservations follow the same deduction order as committed calls:
+     * plan allowance first, and only the excess spills onto the addon balance.
+     * Counting them against the plan alone would let two back-to-back calls
+     * both be admitted on the last addon call -- commitCall's guarded update
+     * would then silently no-op for the loser while its usage event was still
+     * written, a call served and never paid for.
+     */
+    const effectivePlanRemaining = Math.max(0, planRemaining - held);
+    const spill = Math.max(0, held - planRemaining);
+    const effectiveAddonRemaining = Math.max(0, addonRemaining - spill);
+
     const debitSource = chooseDebitSource({
-      planAllowanceRemaining: planRemaining,
-      addonBalanceRemaining: addonRemaining,
+      planAllowanceRemaining: effectivePlanRemaining,
+      addonBalanceRemaining: effectiveAddonRemaining,
     });
 
     const addonGrantId =
@@ -155,8 +168,10 @@ export async function reserveCall(input: {
       addonGrantId,
       planVersionId,
       shareRateBps,
-      planAllowanceRemaining: debitSource === 'plan' ? planRemaining - 1 : planRemaining,
-      addonBalanceRemaining: debitSource === 'addon' ? addonRemaining - 1 : addonRemaining,
+      planAllowanceRemaining:
+        debitSource === 'plan' ? effectivePlanRemaining - 1 : effectivePlanRemaining,
+      addonBalanceRemaining:
+        debitSource === 'addon' ? effectiveAddonRemaining - 1 : effectiveAddonRemaining,
     };
   });
 }
@@ -371,7 +386,7 @@ async function planWindow(
     })
     .from(schema.planVersion)
     .where(eq(schema.planVersion.planId, 'free'))
-    .orderBy(desc(schema.planVersion.createdAt))
+    .orderBy(...PLAN_VERSION_NEWEST_FIRST)
     .limit(1);
 
   const now = new Date();

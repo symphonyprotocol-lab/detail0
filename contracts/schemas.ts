@@ -58,6 +58,7 @@ export const anchorStatusSchema = z.enum(['pending', 'anchored', 'unavailable'])
 /** `/owner/repo`, `/websites/slug`, `/docs/slug`, `/notion/slug`, optional `/version`. */
 export const libraryIdSchema = z
   .string()
+  .max(256)
   .regex(/^\/[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)?$/i, {
     message: 'library id must look like /owner/name or /owner/name/version',
   });

@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Badge, PANEL, SearchField, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
 import { ArrowRightIcon } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
@@ -30,8 +31,9 @@ function tileColor(slug: string): string {
 
 /** Library table with its toolbar -- design source frame `fiSE2`, live rows. */
 export function LibraryList({ rows: allRows }: { rows: LibraryListRow[] }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const l = t.dashboard.libraries;
+  const number = useMemo(() => new Intl.NumberFormat(locale), [locale]);
   const [filter, setFilter] = useState<'all' | StatusTone>('all');
   const [term, setTerm] = useState('');
 
@@ -88,48 +90,70 @@ export function LibraryList({ rows: allRows }: { rows: LibraryListRow[] }) {
             <span />
           </div>
 
-          {rows.map((library) => (
-            <Link
-              key={library.slug}
-              href={`/libraries${library.slug}`}
-              className="grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center border-t-2 border-line px-[18px] py-[19px] transition-colors hover:bg-subtle"
-            >
-              <span className="flex min-w-0 items-center gap-2.5 pr-3">
-                <span
-                  aria-hidden
-                  className="flex size-[34px] shrink-0 items-center justify-center rounded-lg text-[13px] font-medium text-white"
-                  style={{ backgroundColor: tileColor(library.slug) }}
-                >
-                  {library.initial}
-                </span>
-                <span className="flex min-w-0 flex-col gap-1">
-                  <span className="flex items-center gap-1 text-[13px] tracking-[-0.023em] text-ink">
-                    <span className="truncate">{library.title}</span>
+          {rows.map((library) => {
+            /*
+             * The public detail page only resolves ROUTABLE libraries (public,
+             * published, ready, with a current version -- catalog.ts), so a
+             * private or in-flight row renders the same cells unlinked rather
+             * than a link that 404s on the owner.
+             */
+            const routable =
+              library.scope === 'public' && library.status === 'live' && library.version !== null;
+            const cells: ReactNode = (
+              <>
+                <span className="flex min-w-0 items-center gap-2.5 pr-3">
+                  <span
+                    aria-hidden
+                    className="flex size-[34px] shrink-0 items-center justify-center rounded-lg text-[13px] font-medium text-white"
+                    style={{ backgroundColor: tileColor(library.slug) }}
+                  >
+                    {library.initial}
                   </span>
-                  <span className="truncate text-[10px] tracking-[-0.023em] text-muted">
-                    {library.slug}
-                    {library.version ? ` · ${library.version}` : ''}
+                  <span className="flex min-w-0 flex-col gap-1">
+                    <span className="flex items-center gap-1 text-[13px] tracking-[-0.023em] text-ink">
+                      <span className="truncate">{library.title}</span>
+                    </span>
+                    <span className="truncate text-[10px] tracking-[-0.023em] text-muted">
+                      {library.slug}
+                      {library.version ? ` · ${library.version}` : ''}
+                    </span>
                   </span>
                 </span>
-              </span>
 
-              <span className="flex flex-wrap gap-1.5 pr-3">
-                <Badge tone={library.scope === 'public' ? 'public' : 'private'}>
-                  {library.scope === 'public' ? l.scopePublic : l.scopePrivate}
-                </Badge>
-              </span>
+                <span className="flex flex-wrap gap-1.5 pr-3">
+                  <Badge tone={library.scope === 'public' ? 'public' : 'private'}>
+                    {library.scope === 'public' ? l.scopePublic : l.scopePrivate}
+                  </Badge>
+                </span>
 
-              <span className="text-[12px] tracking-[-0.023em] text-steel">
-                {library.chunks.toLocaleString()}
-              </span>
+                <span className="text-[12px] tracking-[-0.023em] text-steel">
+                  {number.format(library.chunks)}
+                </span>
 
-              <StatusLabel tone={library.status}>{library.statusLabel}</StatusLabel>
+                <StatusLabel tone={library.status}>{library.statusLabel}</StatusLabel>
 
-              <span className="text-[12px] tracking-[-0.023em] text-muted">{library.updated}</span>
+                <span className="text-[12px] tracking-[-0.023em] text-muted">{library.updated}</span>
 
-              <ArrowRightIcon size={14} className="text-muted" />
-            </Link>
-          ))}
+                {routable ? <ArrowRightIcon size={14} className="text-muted" /> : <span />}
+              </>
+            );
+            const rowClass =
+              'grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center border-t-2 border-line px-[18px] py-[19px]';
+
+            return routable ? (
+              <Link
+                key={library.slug}
+                href={`/libraries${library.slug}`}
+                className={`${rowClass} transition-colors hover:bg-subtle`}
+              >
+                {cells}
+              </Link>
+            ) : (
+              <div key={library.slug} className={rowClass}>
+                {cells}
+              </div>
+            );
+          })}
 
           {rows.length === 0 ? (
             <p className="border-t-2 border-line px-[18px] py-10 text-center text-[13px] text-muted">

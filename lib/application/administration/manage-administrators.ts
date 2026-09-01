@@ -173,8 +173,42 @@ interface Actor {
   clientAddress?: string | null;
 }
 
-async function countOtherActiveSuperAdmins(targetId: string): Promise<number> {
-  const [row] = await db()
+type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
+
+/**
+ * Serialises the last-super-admin guard with the write it protects.
+ *
+ * The guard used to be a plain read before the transaction opened, so two
+ * operators demoting each other both counted the other as "another active
+ * super admin", both passed, and both wrote -- leaving zero. Locking the
+ * target row and every active super admin `FOR UPDATE`, in one id-ordered
+ * statement, makes concurrent demotions take the same locks in the same
+ * order: the loser waits here, and the recount that follows (a fresh
+ * statement, so it sees the winner's committed write) refuses it.
+ */
+async function lockLastSuperAdminGuardRows(tx: Tx, targetId: string): Promise<void> {
+  await tx
+    .select({ id: schema.administrator.id })
+    .from(schema.administrator)
+    .where(
+      or(
+        eq(schema.administrator.id, targetId),
+        and(
+          eq(schema.administrator.status, 'active'),
+          sql`exists (
+            select 1 from ${schema.administratorRole}
+            where ${schema.administratorRole.administratorId} = ${schema.administrator.id}
+              and ${schema.administratorRole.roleId} = 'super'
+          )`,
+        ),
+      ),
+    )
+    .orderBy(schema.administrator.id)
+    .for('update');
+}
+
+async function countOtherActiveSuperAdmins(tx: Tx, targetId: string): Promise<number> {
+  const [row] = await tx
     .select({ count: sql<number>`count(*)::int` })
     .from(schema.administratorRole)
     .innerJoin(
@@ -306,13 +340,15 @@ export async function changeAdministratorRole(input: {
   refuseSelfChange(input.actor.administratorId, input.administratorId);
 
   const target = await loadTarget(input.administratorId);
-  refuseLastSuperAdmin({
-    targetIsSuper: target.roles.includes('super') && input.role !== 'super',
-    otherActiveSuperAdmins: await countOtherActiveSuperAdmins(target.id),
-  });
 
   const database = db();
   await database.transaction(async (tx) => {
+    await lockLastSuperAdminGuardRows(tx, target.id);
+    refuseLastSuperAdmin({
+      targetIsSuper: target.roles.includes('super') && input.role !== 'super',
+      otherActiveSuperAdmins: await countOtherActiveSuperAdmins(tx, target.id),
+    });
+
     await tx
       .delete(schema.administratorRole)
       .where(eq(schema.administratorRole.administratorId, target.id));
@@ -358,12 +394,6 @@ export async function setAdministratorStatus(input: {
   refuseSelfChange(input.actor.administratorId, input.administratorId);
 
   const target = await loadTarget(input.administratorId);
-  if (input.status === 'disabled') {
-    refuseLastSuperAdmin({
-      targetIsSuper: target.roles.includes('super'),
-      otherActiveSuperAdmins: await countOtherActiveSuperAdmins(target.id),
-    });
-  }
 
   /*
    * An invited administrator is outside this control in both directions. They
@@ -378,6 +408,14 @@ export async function setAdministratorStatus(input: {
 
   const database = db();
   await database.transaction(async (tx) => {
+    if (input.status === 'disabled') {
+      await lockLastSuperAdminGuardRows(tx, target.id);
+      refuseLastSuperAdmin({
+        targetIsSuper: target.roles.includes('super'),
+        otherActiveSuperAdmins: await countOtherActiveSuperAdmins(tx, target.id),
+      });
+    }
+
     await tx
       .update(schema.administrator)
       .set({ status: input.status, failedAttempts: 0, lockedUntil: null })
