@@ -14,7 +14,7 @@
  * (later) the external payment account. Tax and KYC stay with the payment
  * provider (3.4: the platform holds no bank details and no funds).
  */
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import {
   PAYOUT_HOLD_DAYS,
   PAYOUT_THRESHOLD_MINOR,
@@ -72,18 +72,30 @@ export async function publisherEarnings(workspaceId: string): Promise<PublisherE
     .orderBy(desc(schema.earningEvent.periodId))
     .limit(PERIODS_SHOWN);
 
+  /* All the period rows at once -- one round trip, not one per period. */
+  const periodRows =
+    byPeriod.length === 0
+      ? []
+      : await database
+          .select({
+            id: schema.revenuePeriod.id,
+            poolMinor: schema.revenuePeriod.poolMinor,
+            totalAttributableCalls: schema.revenuePeriod.totalAttributableCalls,
+            lockedAt: schema.revenuePeriod.lockedAt,
+          })
+          .from(schema.revenuePeriod)
+          .where(
+            inArray(
+              schema.revenuePeriod.id,
+              byPeriod.map((row) => row.periodId),
+            ),
+          );
+  const periodById = new Map(periodRows.map((period) => [period.id, period]));
+
   const periods: PublisherPeriodEarning[] = [];
   let accruedMinor = 0;
   for (const row of byPeriod) {
-    const [period] = await database
-      .select({
-        poolMinor: schema.revenuePeriod.poolMinor,
-        totalAttributableCalls: schema.revenuePeriod.totalAttributableCalls,
-        lockedAt: schema.revenuePeriod.lockedAt,
-      })
-      .from(schema.revenuePeriod)
-      .where(eq(schema.revenuePeriod.id, row.periodId));
-
+    const period = periodById.get(row.periodId);
     const locked = Boolean(period?.lockedAt);
     const amountMinor = locked
       ? settlementAmountMinor({
@@ -121,25 +133,26 @@ export async function acceptPublisherAgreement(input: {
   agreementVersion: string;
 }): Promise<{ accountId: string }> {
   const database = db();
-  const [existing] = await database
-    .select({ id: schema.publisherAccount.id })
-    .from(schema.publisherAccount)
+
+  /*
+   * The unique index on `workspace_id` is the concurrency guard: two accepts
+   * racing here both insert, one row survives, and the update below records
+   * the agreement version on whichever that is. No select-then-insert window
+   * in which a second account could be minted.
+   */
+  await database
+    .insert(schema.publisherAccount)
+    .values({
+      id: uuidv7(),
+      workspaceId: input.workspaceId,
+      agreementVersion: input.agreementVersion,
+    })
+    .onConflictDoNothing({ target: schema.publisherAccount.workspaceId });
+
+  const [account] = await database
+    .update(schema.publisherAccount)
+    .set({ agreementVersion: input.agreementVersion })
     .where(eq(schema.publisherAccount.workspaceId, input.workspaceId))
-    .limit(1);
-
-  if (existing) {
-    await database
-      .update(schema.publisherAccount)
-      .set({ agreementVersion: input.agreementVersion })
-      .where(eq(schema.publisherAccount.id, existing.id));
-    return { accountId: existing.id };
-  }
-
-  const accountId = uuidv7();
-  await database.insert(schema.publisherAccount).values({
-    id: accountId,
-    workspaceId: input.workspaceId,
-    agreementVersion: input.agreementVersion,
-  });
-  return { accountId };
+    .returning({ id: schema.publisherAccount.id });
+  return { accountId: account!.id };
 }

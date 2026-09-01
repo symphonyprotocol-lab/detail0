@@ -23,6 +23,7 @@
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { allocatablePoolMinor, settlementAmountMinor } from '@/lib/domain';
+import { PLAN_CURRENCY } from '@/lib/domain/plans';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
 export interface PeriodAllocation {
@@ -113,7 +114,15 @@ export async function closePeriod(periodId: string): Promise<ClosedPeriod> {
         ),
       );
 
-    /* Net revenue: the period's paid documents, refunds already deducted. */
+    /*
+     * Net revenue: documents collected in the period, refunds already
+     * deducted. Windowed by `paid_at` -- when the money arrived -- on the
+     * same collected basis as `billingSummary`: a December invoice paid in
+     * January is January's revenue, and an `issued_at` window would freeze it
+     * out of every pool once December locks. Only USD documents count;
+     * a foreign-currency amount summed minor-for-minor into the USD pool
+     * would be adding francs to dollars.
+     */
     const [revenue] = await tx
       .select({
         net: sql<number>`coalesce(sum(${schema.billingDocument.amountMinor} - ${schema.billingDocument.refundedMinor}), 0)::bigint`,
@@ -122,8 +131,9 @@ export async function closePeriod(periodId: string): Promise<ClosedPeriod> {
       .where(
         and(
           inArray(schema.billingDocument.status, ['paid', 'refunded']),
-          gte(schema.billingDocument.issuedAt, start),
-          lt(schema.billingDocument.issuedAt, end),
+          eq(schema.billingDocument.currency, PLAN_CURRENCY),
+          gte(schema.billingDocument.paidAt, start),
+          lt(schema.billingDocument.paidAt, end),
         ),
       );
     const netRevenueMinor = Number(revenue?.net ?? 0);
