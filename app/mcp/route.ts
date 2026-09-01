@@ -108,11 +108,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   switch (message.method) {
     case 'initialize':
+      /*
+       * The spec says: answer with the requested version only if the server
+       * supports it, otherwise with the server's own -- never echo blindly.
+       */
       return rpcResult(id, {
-        protocolVersion:
-          typeof message.params?.protocolVersion === 'string'
-            ? message.params.protocolVersion
-            : PROTOCOL_VERSION,
+        protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
         serverInfo: { name: 're0', version: '1.0.0' },
       });
