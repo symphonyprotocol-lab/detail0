@@ -49,8 +49,19 @@ const REVIEW_STATUSES = {
 } as const;
 
 function reviewCondition(filter: LibraryReviewFilter) {
-  if (filter === 'all') return undefined;
-  return inArray(schema.library.lifecycleStatus, [...REVIEW_STATUSES[filter]]);
+  /*
+   * The filter arrives as a cast, not a parse -- the export route hands
+   * whatever `?status=` said straight through -- so an unknown value must fall
+   * back to `all` rather than spreading `undefined` into a 500.
+   */
+  switch (filter) {
+    case 'pending':
+    case 'approved':
+    case 'rejected':
+      return inArray(schema.library.lifecycleStatus, [...REVIEW_STATUSES[filter]]);
+    default:
+      return undefined;
+  }
 }
 
 export async function listUserLibraries(input: {

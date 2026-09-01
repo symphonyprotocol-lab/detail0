@@ -526,6 +526,22 @@ export async function createPlatformLibrary(
     throw new PlatformLibraryRefused('public_id_taken', 'that Library ID is already in use');
   }
 
+  /*
+   * An id another library redirects from is taken too, same as the rename path
+   * below: requirement.md 6.1 keeps a redirect when a slug changes, which only
+   * means something if one id has one answer. A new library on top of an alias
+   * would leave `library.public_id` and `library_alias.from_public_id` both
+   * claiming the id, for two different libraries.
+   */
+  const [aliased] = await database
+    .select({ libraryId: schema.libraryAlias.libraryId })
+    .from(schema.libraryAlias)
+    .where(eq(schema.libraryAlias.fromPublicId, draft.publicId))
+    .limit(1);
+  if (aliased) {
+    throw new PlatformLibraryRefused('public_id_taken', 'that Library ID is already in use');
+  }
+
   const libraryId = uuidv7();
   const sourceId = uuidv7();
 
