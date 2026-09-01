@@ -592,7 +592,19 @@ export const en: Dictionary = {
     citationVersion: 'Version v16.1.0 · Aptos mainnet',
     noContextTitle: 'No relevant content found',
     noContextBody:
-      'The retrieval path is not wired up yet (architecture.md section 21, steps 3–6). When retrieval returns zero results the playground does not call the model at all, so no answer is generated here — better to say nothing than to fill the gap with plausible-sounding model knowledge.',
+      'The routed library holds nothing relevant to this question. When retrieval returns zero results the playground does not call the model at all — better to say nothing than to fill the gap with plausible-sounding model knowledge.',
+    resolving: 'Routing the question to the best library…',
+    routedNote: 'Answering from {title} ({version}) — generated only from its retrieved passages.',
+    noLibraryTitle: 'No library matched',
+    noLibraryBody:
+      'No published library matched this question, so nothing was retrieved and no answer was generated.',
+    degradedTitle: 'Retrieved passages, without a generated answer',
+    degradedBody:
+      'Answer generation is unavailable right now (or produced nothing that could be bound to a source), so the retrieved passages are shown as they are.',
+    sourcesLabel: 'Sources',
+    askErrorTitle: 'That did not go through',
+    askError: 'Something went wrong. Try again shortly.',
+    rateLimited: 'The anonymous limit is reached — try again later, or sign in and use an API key.',
     inputPlaceholder: 'Ask a question…',
     send: 'Send',
     footnoteLine1:

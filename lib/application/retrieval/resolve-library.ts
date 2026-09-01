@@ -78,6 +78,15 @@ const RRF_K = 60;
  * near-ties but a stuffed library cannot out-rank a genuine content match.
  */
 const QUALITY_WEIGHT = 0.008;
+/**
+ * How much the keyword path's own relevance magnitude adds, normalised by the
+ * query's best ts_rank. RRF alone keeps only positions, and positions lie
+ * about distance: a profile matching four of the query's terms and one that
+ * brushed a single common word sit in adjacent ranks, 0.0003 apart -- close
+ * enough for the quality weight above to flip them. The magnitude term keeps
+ * strong matches ahead of incidental ones by more than quality can bridge.
+ */
+const RELEVANCE_WEIGHT = 0.02;
 
 const EVIDENCE_TERMS = 8;
 const EVIDENCE_TITLES = 5;
@@ -212,6 +221,16 @@ export async function resolveLibrary(
     list.forEach((row, index) => {
       fused.set(row.libraryId, (fused.get(row.libraryId) ?? 0) + 1 / (RRF_K + index + 1));
     });
+  }
+  /* The keyword path also contributes its magnitude, not just its order. */
+  const bestRank = keyword.reduce((best, row) => Math.max(best, Number(row.rank) || 0), 0);
+  if (bestRank > 0) {
+    for (const row of keyword) {
+      fused.set(
+        row.libraryId,
+        (fused.get(row.libraryId) ?? 0) + ((Number(row.rank) || 0) / bestRank) * RELEVANCE_WEIGHT,
+      );
+    }
   }
   if (fused.size === 0) return { results: [], requestId: caller.requestId };
 
