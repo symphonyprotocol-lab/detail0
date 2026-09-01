@@ -753,6 +753,20 @@ export const en: Dictionary = {
       title: 'Revenue',
       description:
         'Public libraries earn a share of platform revenue based on successful retrievals.',
+      stats: {
+        accrued: 'Accrued (locked periods)',
+        currentCalls: 'Attributable calls, this period',
+        lockedPeriods: 'Periods settled',
+        threshold: 'Payout threshold',
+      },
+      periodColumns: ['Period', 'Attributable calls', 'Status', 'Amount'],
+      statusLocked: 'Settled',
+      statusAccruing: 'Accruing',
+      pendingAmount: 'settles at close',
+      periodsEmpty: 'No attributable calls yet — claimed public libraries earn as readers query them.',
+      noAccountNotice:
+        'Earnings accrue to this workspace, but payouts need a publisher account: accept the publisher agreement via the API to open one.',
+      holdNote: 'Amounts become payable {days} days after their period locks, once at least {threshold} has accrued.',
       exportStatement: 'Export statement',
       trendTitle: 'Revenue trend',
       trendSubtitle: 'Last 12 days · current period',
