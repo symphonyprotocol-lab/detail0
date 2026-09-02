@@ -21,9 +21,14 @@ const { buildVersion, memoryObjectStore, publishVersion } = await import(
   '@/lib/application/ingestion'
 );
 const { askPlayground } = await import('@/lib/application/playground');
-const { recordLlmCost, updateLlmConfig, readLlmConfiguration, activeLlmConfig } = await import(
-  '@/lib/application/administration'
-);
+const {
+  recordLlmCost,
+  updateLlmConfig,
+  readLlmConfiguration,
+  activeLlmConfig,
+  llmConfigEntries,
+  selectableLlmModels,
+} = await import('@/lib/application/administration');
 const { createPlatformLibrary } = await import(
   '@/lib/application/administration/manage-platform-libraries'
 );
@@ -60,12 +65,21 @@ const asAnonymous = () => ({ ...anonymous, requestId: `req_${crypto.randomUUID()
 
 const CONFIG = {
   id: '',
+  slug: 'fixture',
+  label: 'Fixture model',
+  isDefault: true,
   baseUrl: 'https://llm.example.test/v1',
   model: 'fixture-llm-1',
+  maxInputTokens: 8_000,
   maxOutputTokens: 800,
   timeoutMs: 15_000,
   promptPriceMicro: 3_000_000,
   completionPriceMicro: 15_000_000,
+  cachePriceMicro: 300_000,
+  supportsTools: false,
+  supportsReasoning: false,
+  supportsVision: false,
+  reasoningEffort: null as 'minimal' | 'low' | 'medium' | 'high' | null,
   enabled: true,
   createdAt: new Date(),
 };
@@ -74,7 +88,8 @@ function playgroundDeps(options: {
   completion?: string;
   fail?: boolean;
   config?: typeof CONFIG | null;
-  calls?: { userMessage?: string }[];
+  calls?: { userMessage?: string; reasoningEffort?: string | null }[];
+  usage?: { promptTokens: number; completionTokens: number; cachedTokens: number; reasoningTokens: number };
 }) {
   return {
     config: async () => (options.config === undefined ? CONFIG : options.config),
@@ -82,10 +97,28 @@ function playgroundDeps(options: {
     recordCost: recordLlmCost,
     retrieval,
     llm: () => ({
-      async generate(input: { userMessage: string }) {
-        options.calls?.push({ userMessage: input.userMessage });
-        if (options.fail) throw new Error('provider down');
-        return { text: options.completion ?? '', promptTokens: 1_000, completionTokens: 500 };
+      stream(input: { userMessage: string; reasoningEffort?: string | null }) {
+        options.calls?.push({
+          userMessage: input.userMessage,
+          reasoningEffort: input.reasoningEffort ?? null,
+        });
+        const completion = options.completion ?? '';
+        return {
+          /* Delivered in small deltas, mid-word and mid-marker, because the
+             streaming gate is the thing the answer path now depends on. */
+          textStream: (async function* deltas() {
+            if (options.fail) throw new Error('provider down');
+            for (const piece of completion.match(/[\s\S]{1,7}/g) ?? []) yield piece;
+          })(),
+          usage: Promise.resolve(
+            options.usage ?? {
+              promptTokens: 1_000,
+              completionTokens: 500,
+              cachedTokens: 0,
+              reasoningTokens: 0,
+            },
+          ),
+        };
       },
     }),
   };
@@ -286,6 +319,272 @@ describeWithDb('playground', () => {
     expect(calls[0]!.userMessage).toContain('rove beetle exposure');
   });
 
+  it('sends reasoning effort only for a reasoning model, and bills the cache once', async () => {
+    const stamp = Date.now();
+    await publishedLibrary(`pg-reason-${stamp}`);
+    const libraryId = `/websites/pg-reason-${stamp}`;
+
+    const [row] = await db()
+      .insert(schema.llmConfig)
+      .values({ ...CONFIG, id: uuidv7() })
+      .returning();
+    createdConfigIds.push(row!.id);
+    const base = { ...CONFIG, id: row!.id };
+
+    /* A plain model: nothing is sent, so an endpoint that does not reason is
+       never handed a field it would reject. */
+    const plain: { userMessage?: string; reasoningEffort?: string | null }[] = [];
+    await askPlayground(
+      asAnonymous(),
+      { libraryId, question: 'rove beetle exposure' },
+      playgroundDeps({ config: base, completion: 'Rinse. [ref:1]', calls: plain }),
+    );
+    expect(plain[0]!.reasoningEffort).toBeNull();
+
+    const thinking: { userMessage?: string; reasoningEffort?: string | null }[] = [];
+    const output = await askPlayground(
+      asAnonymous(),
+      { libraryId, question: 'rove beetle exposure' },
+      playgroundDeps({
+        config: { ...base, supportsReasoning: true, reasoningEffort: 'high' },
+        completion: 'Rinse the skin. [ref:1]',
+        calls: thinking,
+        usage: {
+          promptTokens: 1_000,
+          completionTokens: 500,
+          cachedTokens: 800,
+          reasoningTokens: 300,
+        },
+      }),
+    );
+    expect(output.kind).toBe('answer');
+    expect(thinking[0]!.reasoningEffort).toBe('high');
+
+    const events = await db()
+      .select()
+      .from(schema.llmCostEvent)
+      .where(eq(schema.llmCostEvent.configId, row!.id));
+    const billed = events.find((event) => event.cachedTokens === 800);
+    expect(billed).toBeDefined();
+    /* The breakdowns are recorded beside the totals, never added to them. */
+    expect(billed!.promptTokens).toBe(1_000);
+    expect(billed!.completionTokens).toBe(500);
+    expect(billed!.reasoningTokens).toBe(300);
+    // 200 x $3/M + 800 x $0.30/M + 500 x $15/M = 840 + 7,500 micro-USD
+    expect(billed!.costMicroUsd).toBe(8_340);
+  });
+
+  it('names the field it refuses, and accepts a current model\'s real budgets', async () => {
+    const administratorId = crypto.randomUUID();
+    await db().insert(schema.administrator).values({
+      id: administratorId,
+      email: `llm-bounds-${Date.now()}@example.test`,
+      username: `llm-bounds-${Date.now()}`,
+      passwordHash: 'unused',
+      status: 'active',
+    });
+    const entry = {
+      actor: { administratorId, email: 'ops@example.test' },
+      slug: `bounds-${Date.now()}`,
+      label: 'Bounds fixture',
+      baseUrl: 'https://llm.example.test/v1',
+      model: 'fixture-bounds',
+      maxInputTokens: 200_000,
+      maxOutputTokens: 800,
+      timeoutMs: 15_000,
+      promptPriceMicro: 3_000_000,
+      completionPriceMicro: 15_000_000,
+      cachePriceMicro: 300_000,
+      supportsTools: false,
+      supportsReasoning: false,
+      supportsVision: false,
+      reasoningEffort: null,
+      enabled: true,
+      isDefault: false,
+      reason: 'bounds fixture',
+    };
+
+    try {
+      /* Each budget refuses under its own name, so an operator is told which
+         field is wrong rather than that one of six is. */
+      await expect(updateLlmConfig({ ...entry, maxInputTokens: 500 })).rejects.toMatchObject({
+        code: 'invalid_max_input',
+      });
+      await expect(updateLlmConfig({ ...entry, maxOutputTokens: 0 })).rejects.toMatchObject({
+        code: 'invalid_max_output',
+      });
+      await expect(updateLlmConfig({ ...entry, timeoutMs: 10 })).rejects.toMatchObject({
+        code: 'invalid_timeout',
+      });
+      await expect(updateLlmConfig({ ...entry, cachePriceMicro: -1 })).rejects.toMatchObject({
+        code: 'invalid_price',
+      });
+
+      /* The budgets a current model actually has. These were refused before:
+         the ceilings were 8,192 output tokens and 60s, so entering the truth
+         about a modern model was an error. The output budget now has no
+         ceiling at all, so a figure past any current model still saves. */
+      const saved = await updateLlmConfig({
+        ...entry,
+        maxOutputTokens: 1_000_000,
+        timeoutMs: 120_000,
+      });
+      createdConfigIds.push(saved.configId);
+      const stored = await activeLlmConfig(entry.slug);
+      expect(stored?.maxOutputTokens).toBe(1_000_000);
+      expect(stored?.timeoutMs).toBe(120_000);
+    } finally {
+      await db()
+        .delete(schema.auditLog)
+        .where(eq(schema.auditLog.administratorId, administratorId));
+      await db().delete(schema.administrator).where(eq(schema.administrator.id, administratorId));
+    }
+  });
+
+  it('refuses a reasoning effort on a model that does not reason', async () => {
+    const administratorId = crypto.randomUUID();
+    await db().insert(schema.administrator).values({
+      id: administratorId,
+      email: `llm-effort-${Date.now()}@example.test`,
+      username: `llm-effort-${Date.now()}`,
+      passwordHash: 'unused',
+      status: 'active',
+    });
+    const entry = {
+      actor: { administratorId, email: 'ops@example.test' },
+      slug: `effort-${Date.now()}`,
+      label: 'Effort fixture',
+      baseUrl: 'https://llm.example.test/v1',
+      model: 'fixture-effort',
+      maxInputTokens: 8_000,
+      maxOutputTokens: 800,
+      timeoutMs: 15_000,
+      promptPriceMicro: 0,
+      completionPriceMicro: 0,
+      cachePriceMicro: 0,
+      supportsTools: false,
+      supportsVision: false,
+      enabled: true,
+      isDefault: false,
+      reason: 'effort fixture',
+    };
+
+    try {
+      await expect(
+        updateLlmConfig({ ...entry, supportsReasoning: false, reasoningEffort: 'high' }),
+      ).rejects.toMatchObject({ code: 'invalid_effort' });
+      await expect(
+        updateLlmConfig({ ...entry, supportsReasoning: true, reasoningEffort: 'ludicrous' }),
+      ).rejects.toMatchObject({ code: 'invalid_effort' });
+
+      /* A reasoning model with no effort chosen is legitimate -- the provider's
+         own default applies. */
+      const saved = await updateLlmConfig({
+        ...entry,
+        supportsReasoning: true,
+        reasoningEffort: null,
+      });
+      createdConfigIds.push(saved.configId);
+      expect((await activeLlmConfig(entry.slug))?.reasoningEffort).toBeNull();
+    } finally {
+      await db()
+        .delete(schema.auditLog)
+        .where(eq(schema.auditLog.administratorId, administratorId));
+      await db().delete(schema.administrator).where(eq(schema.administrator.id, administratorId));
+    }
+  });
+
+  it('keeps several models side by side and resolves the one marked default', async () => {
+    const administratorId = crypto.randomUUID();
+    await db().insert(schema.administrator).values({
+      id: administratorId,
+      email: `llm-multi-${Date.now()}@example.test`,
+      username: `llm-multi-${Date.now()}`,
+      passwordHash: 'unused',
+      status: 'active',
+    });
+    const stamp = Date.now();
+    const shared = {
+      actor: { administratorId, email: 'ops@example.test' },
+      baseUrl: 'https://llm.example.test/v1',
+      maxInputTokens: 8_000,
+      maxOutputTokens: 800,
+      timeoutMs: 15_000,
+      promptPriceMicro: 3_000_000,
+      completionPriceMicro: 15_000_000,
+      cachePriceMicro: 300_000,
+      supportsTools: false,
+      supportsReasoning: false,
+      supportsVision: false,
+      reasoningEffort: null,
+      reason: 'multi-model fixture',
+    };
+
+    try {
+      const cheap = await updateLlmConfig({
+        ...shared,
+        slug: `cheap-${stamp}`,
+        label: 'Cheap',
+        model: 'fixture-cheap',
+        enabled: true,
+        isDefault: true,
+      });
+      const strong = await updateLlmConfig({
+        ...shared,
+        slug: `strong-${stamp}`,
+        label: 'Strong',
+        model: 'fixture-strong',
+        enabled: true,
+        isDefault: false,
+      });
+      const retired = await updateLlmConfig({
+        ...shared,
+        slug: `retired-${stamp}`,
+        label: 'Retired',
+        model: 'fixture-retired',
+        enabled: false,
+        isDefault: false,
+      });
+      createdConfigIds.push(cheap.configId, strong.configId, retired.configId);
+
+      /* Two live entries and one switched off; the off one is not offered. */
+      const selectable = await selectableLlmModels();
+      const slugs = selectable.map((entry) => entry.slug);
+      expect(slugs).toContain(`cheap-${stamp}`);
+      expect(slugs).toContain(`strong-${stamp}`);
+      expect(slugs).not.toContain(`retired-${stamp}`);
+
+      /* `strong` was written later, but `cheap` is the one claiming default. */
+      expect((await activeLlmConfig())?.model).toBe('fixture-cheap');
+      expect(selectable[0]!.slug).toBe(`cheap-${stamp}`);
+
+      /* Naming an entry picks it; naming one that is off picks nothing at all,
+         rather than quietly falling back to a model the caller did not ask
+         for. */
+      expect((await activeLlmConfig(`strong-${stamp}`))?.model).toBe('fixture-strong');
+      expect(await activeLlmConfig(`retired-${stamp}`)).toBeNull();
+      expect(await activeLlmConfig('no-such-entry')).toBeNull();
+
+      /* Choosing a new default is an append, and the newest claim wins. */
+      const promoted = await updateLlmConfig({
+        ...shared,
+        slug: `strong-${stamp}`,
+        label: 'Strong',
+        model: 'fixture-strong',
+        enabled: true,
+        isDefault: true,
+        reason: 'promote strong',
+      });
+      createdConfigIds.push(promoted.configId);
+      expect((await activeLlmConfig())?.model).toBe('fixture-strong');
+    } finally {
+      await db()
+        .delete(schema.auditLog)
+        .where(eq(schema.auditLog.administratorId, administratorId));
+      await db().delete(schema.administrator).where(eq(schema.administrator.id, administratorId));
+    }
+  });
+
   it('mints immutable config versions with an audit trail, and aggregates spend', async () => {
     const administratorId = crypto.randomUUID();
     await db().insert(schema.administrator).values({
@@ -297,34 +596,44 @@ describeWithDb('playground', () => {
     });
 
     try {
-      const first = await updateLlmConfig({
+      const entry = {
         actor: { administratorId, email: 'ops@example.test' },
+        slug: `chain-${Date.now()}`,
+        label: 'Chained entry',
         baseUrl: 'https://llm.example.test/v1',
-        model: 'fixture-llm-1',
+        maxInputTokens: 8_000,
         maxOutputTokens: 800,
         timeoutMs: 15_000,
         promptPriceMicro: 3_000_000,
         completionPriceMicro: 15_000_000,
+        cachePriceMicro: 300_000,
+        supportsTools: false,
+        supportsReasoning: false,
+        supportsVision: false,
+        reasoningEffort: null,
         enabled: true,
+        isDefault: true,
+      };
+      const first = await updateLlmConfig({
+        ...entry,
+        model: 'fixture-llm-1',
         reason: 'initial configuration',
       });
       const second = await updateLlmConfig({
-        actor: { administratorId, email: 'ops@example.test' },
-        baseUrl: 'https://llm.example.test/v1',
+        ...entry,
         model: 'fixture-llm-2',
-        maxOutputTokens: 800,
-        timeoutMs: 15_000,
-        promptPriceMicro: 3_000_000,
-        completionPriceMicro: 15_000_000,
-        enabled: true,
         reason: 'switch model',
       });
       createdConfigIds.push(first.configId, second.configId);
       expect(second.configId).not.toBe(first.configId);
 
+      /* Same slug, so the second row succeeds the first rather than adding an
+         entry beside it -- one model with a history, which is what freezes
+         the prices the earlier cost events were written against. */
       const active = await activeLlmConfig();
       expect(active?.id).toBe(second.configId);
       expect(active?.model).toBe('fixture-llm-2');
+      expect((await llmConfigEntries()).filter((e) => e.slug === entry.slug)).toHaveLength(1);
 
       const audits = await db()
         .select()
@@ -340,6 +649,8 @@ describeWithDb('playground', () => {
         model: 'fixture-llm-2',
         promptTokens: 2_000,
         completionTokens: 1_000,
+        cachedTokens: 0,
+        reasoningTokens: 0,
         costMicroUsd: 21_000,
         latencyMs: 500,
       });

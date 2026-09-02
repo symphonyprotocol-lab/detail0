@@ -134,6 +134,27 @@
       "when": 1787629284559,
       "tag": "0018_workspace_quota_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1787629285559,
+      "tag": "0019_llm_config_multi_model",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1787629286559,
+      "tag": "0020_llm_config_capabilities",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1787629287559,
+      "tag": "0021_retrieval_config",
+      "breakpoints": true
     }
   ]
 }

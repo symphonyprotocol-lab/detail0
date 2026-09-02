@@ -22,7 +22,7 @@ export default async function AboutPage() {
 
   return (
     <>
-      <section className="site-wash">
+      <section>
         <div className="mx-auto w-full max-w-[918px] px-5 pt-11 pb-14">
           <SectionHeading eyebrow="ABOUT" title={a.title} as="h1" size="lg" />
           <p className="mt-4 max-w-[70ch] text-[15px] leading-[1.75] tracking-[-0.02em] text-muted">

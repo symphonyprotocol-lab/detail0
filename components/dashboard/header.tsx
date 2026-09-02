@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { LocaleSwitcher } from '@/components/site/locale-switcher';
+import { MobileNav } from '@/components/site/mobile-nav';
 import { WorkspaceAvatar } from '@/components/dashboard/workspace-avatar';
 import { Wordmark } from '@/components/site/wordmark';
 import { LogOutIcon } from '@/components/ui/icons';
@@ -47,6 +48,7 @@ export async function DashboardHeader({
         </div>
 
         <div className="flex items-center gap-2">
+          <MobileNav items={nav} label={t.nav.menu} variant="pill" />
           <LocaleSwitcher variant="pill" />
           <Link
             href="/dashboard/settings"

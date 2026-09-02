@@ -7,11 +7,19 @@
  * Everything after discovery -- fetching, capping, ordering -- is identical,
  * and duplicating it three times is how the three would drift apart.
  */
-import { IngestionFailure, INGESTION_LIMITS, parseSourceConfig } from '@/lib/domain/ingestion';
-import { fetchDocument } from './http';
+import {
+  IngestionFailure,
+  INGESTION_LIMITS,
+  documentFormat,
+  parseSourceConfig,
+} from '@/lib/domain/ingestion';
+import { fetchDocument, type FetchedResource } from './http';
 import type { FetchedFile, SourceSnapshot } from './types';
 
 export type WebSourceType = 'website' | 'llms_txt' | 'openapi';
+
+/** How many sitemap files one crawl reads. An index with more is a whole site. */
+const MAX_SITEMAPS = 10;
 
 export async function fetchWebSnapshot(input: {
   type: WebSourceType;
@@ -48,7 +56,15 @@ async function fetchOne(target: string, entry: URL): Promise<FetchedFile> {
   const resource = await fetchDocument(target, {
     maxBytes: INGESTION_LIMITS.maxDocumentBytes,
   });
-  return { path: pathOf(resource.url, entry), url: resource.url, content: resource.body };
+  return toFile(resource, entry);
+}
+
+function toFile(resource: FetchedResource, entry: URL): FetchedFile {
+  return {
+    path: withFormat(pathOf(resource.url, entry), resource.contentType),
+    url: resource.url,
+    content: resource.body,
+  };
 }
 
 /**
@@ -65,9 +81,7 @@ async function fetchIndex(entry: URL): Promise<FetchedFile[]> {
     maxBytes: INGESTION_LIMITS.maxDocumentBytes,
   });
 
-  const files: FetchedFile[] = [
-    { path: pathOf(index.url, entry), url: index.url, content: index.body },
-  ];
+  const files: FetchedFile[] = [toFile(index, entry)];
 
   const targets = markdownLinks(index.body, entry)
     .filter((url) => url.hostname === entry.hostname)
@@ -93,6 +107,12 @@ async function fetchIndex(entry: URL): Promise<FetchedFile[]> {
 /**
  * A breadth-first crawl from one entry point, same host only.
  *
+ * The site's own sitemap seeds the first level when there is one: it is the
+ * list of pages the site wants found, it does not depend on rendering a
+ * navigation menu, and it reaches pages the entry point links to only through
+ * JavaScript. Link-following still runs after it, for sites without one and
+ * for pages the sitemap forgot.
+ *
  * Breadth-first because depth-first on a documentation site walks straight into
  * the deepest changelog and spends the page budget there. The first pages a
  * crawl reaches from the entry point are the ones the site itself considers
@@ -101,6 +121,13 @@ async function fetchIndex(entry: URL): Promise<FetchedFile[]> {
 async function crawl(entry: URL): Promise<FetchedFile[]> {
   const seen = new Set<string>([normalizeUrl(entry)]);
   let frontier: URL[] = [entry];
+  for (const seed of await sitemapPages(entry)) {
+    const key = normalizeUrl(seed);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    frontier.push(seed);
+  }
+
   const files: FetchedFile[] = [];
 
   for (let depth = 0; depth <= INGESTION_LIMITS.maxCrawlDepth; depth += 1) {
@@ -119,20 +146,14 @@ async function crawl(entry: URL): Promise<FetchedFile[]> {
         continue;
       }
 
-      files.push({
-        path: pathOf(resource.url, entry),
-        url: resource.url,
-        content: resource.body,
-      });
+      files.push(toFile(resource, entry));
 
       if (depth === INGESTION_LIMITS.maxCrawlDepth) continue;
-      if (!resource.contentType.includes('html')) continue;
 
-      for (const link of htmlLinks(resource.body, new URL(resource.url))) {
+      for (const link of linksIn(resource)) {
         const key = normalizeUrl(link);
         if (seen.has(key)) continue;
-        if (link.hostname !== entry.hostname) continue;
-        if (!link.pathname.startsWith(basePath(entry))) continue;
+        if (!inScope(link, entry)) continue;
         seen.add(key);
         next.push(link);
       }
@@ -142,6 +163,24 @@ async function crawl(entry: URL): Promise<FetchedFile[]> {
   }
 
   return dedupe(files);
+}
+
+/**
+ * The links a fetched page carries, in whichever syntax it was served in.
+ *
+ * A host that honours `Accept: text/markdown` answers the crawl with markdown,
+ * and a crawl that only knew `<a href>` would stop dead on the first page.
+ */
+function linksIn(resource: FetchedResource): URL[] {
+  const base = new URL(resource.url);
+  if (resource.contentType.includes('html')) return htmlLinks(resource.body, base);
+  if (resource.contentType === 'text/markdown') return markdownLinks(resource.body, base);
+  return [];
+}
+
+/** Same host, and under the directory the entry point sits in. */
+function inScope(link: URL, entry: URL): boolean {
+  return link.hostname === entry.hostname && link.pathname.startsWith(basePath(entry));
 }
 
 /**
@@ -157,6 +196,106 @@ function basePath(entry: URL): string {
   const cut = path.lastIndexOf('/');
   return cut <= 0 ? '/' : path.slice(0, cut + 1);
 }
+
+/* ---------------------------------------------------------------- sitemaps */
+
+/**
+ * The pages a site's sitemap lists inside the crawl's scope.
+ *
+ * `robots.txt` names the sitemaps when the site bothered to; `/sitemap.xml` is
+ * where they are otherwise. A sitemap index is followed, a bounded number of
+ * files deep. Every failure here is silent: a site without a sitemap is normal,
+ * and the crawl falls back to following links.
+ */
+async function sitemapPages(entry: URL): Promise<URL[]> {
+  const queue = await sitemapLocations(entry);
+  const visited = new Set<string>();
+  const pages: URL[] = [];
+
+  while (queue.length > 0 && visited.size < MAX_SITEMAPS) {
+    const sitemap = queue.shift();
+    if (!sitemap) break;
+    if (visited.has(sitemap.toString())) continue;
+    visited.add(sitemap.toString());
+    if (pages.length >= INGESTION_LIMITS.maxCrawlPages) break;
+
+    let resource: FetchedResource;
+    try {
+      resource = await fetchDocument(sitemap.toString(), {
+        accept: 'application/xml, text/xml;q=0.9, */*;q=0.5',
+      });
+    } catch {
+      continue;
+    }
+
+    const parsed = parseSitemap(resource.body, new URL(resource.url));
+    for (const child of parsed.sitemaps) {
+      if (child.hostname === entry.hostname) queue.push(child);
+    }
+    for (const page of parsed.pages) {
+      if (inScope(page, entry)) pages.push(page);
+    }
+  }
+
+  return pages.slice(0, INGESTION_LIMITS.maxCrawlPages);
+}
+
+const ROBOTS_SITEMAP = /^\s*sitemap:\s*(\S+)/gim;
+
+/** `Sitemap:` lines from `robots.txt`, or the conventional path without one. */
+async function sitemapLocations(entry: URL): Promise<URL[]> {
+  const fallback = [new URL('/sitemap.xml', entry.origin)];
+  let robots: string;
+  try {
+    robots = (await fetchDocument(new URL('/robots.txt', entry.origin).toString())).body;
+  } catch {
+    return fallback;
+  }
+
+  const listed: URL[] = [];
+  for (const match of robots.matchAll(ROBOTS_SITEMAP)) {
+    const url = match[1] ? toUrl(match[1], entry) : null;
+    // A sitemap on another host is that host's list, not this one's.
+    if (url && url.hostname === entry.hostname && isReadableSitemap(url)) listed.push(url);
+  }
+  return listed.length > 0 ? listed : fallback;
+}
+
+/** The fetcher decodes text; a gzipped sitemap would come back as noise. */
+function isReadableSitemap(url: URL): boolean {
+  return !url.pathname.endsWith('.gz');
+}
+
+const LOC = /<loc>\s*([^<\s]+)\s*<\/loc>/gi;
+
+/**
+ * `<loc>` entries, sorted by which kind of file this is.
+ *
+ * A sitemap index and a URL set use the same element for their entries; only
+ * the root element says whether a location is a page or another sitemap.
+ */
+function parseSitemap(body: string, base: URL): { sitemaps: URL[]; pages: URL[] } {
+  const isIndex = /<sitemapindex\b/i.test(body);
+  const found: URL[] = [];
+  for (const match of body.matchAll(LOC)) {
+    const url = match[1] ? toUrl(decodeXml(match[1]), base) : null;
+    if (url) found.push(url);
+  }
+  return isIndex
+    ? { sitemaps: found.filter(isReadableSitemap), pages: [] }
+    : { sitemaps: [], pages: found };
+}
+
+function decodeXml(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+/* ------------------------------------------------------------------- links */
 
 const MARKDOWN_LINK = /\[[^\]]*\]\(([^)\s]+)/g;
 
@@ -205,11 +344,38 @@ function normalizeUrl(url: URL): string {
   return `${url.host}${path}${url.search}`;
 }
 
+/* ------------------------------------------------------------------- paths */
+
 function pathOf(target: string, entry: URL): string {
   const url = new URL(target);
-  const path = `${url.pathname}${url.search}`.replace(/^\/+/, '');
+  const path = `${url.pathname.replace(/\/+$/, '')}${url.search}`.replace(/^\/+/, '');
   if (url.hostname !== entry.hostname) return `${url.hostname}/${path}`;
   return path.length > 0 ? path : 'index';
+}
+
+/**
+ * What the server said a page was, made visible in its path.
+ *
+ * Parsing chooses a format by file extension (`documentFormat`), and a URL such
+ * as `/docs/routing` has none -- so without this, every page a crawl fetched
+ * was silently dropped at the parse step. The content type is the only place
+ * the answer exists, and it is also what tells markdown negotiated through
+ * `Accept` apart from the rendered page at the same address.
+ */
+const SUFFIX_FOR: Record<string, string> = {
+  'text/markdown': 'md',
+  'text/html': 'html',
+  'application/xhtml+xml': 'html',
+  'text/plain': 'txt',
+  'application/json': 'json',
+  'application/yaml': 'yaml',
+  'text/yaml': 'yaml',
+};
+
+function withFormat(path: string, contentType: string): string {
+  if (documentFormat(path)) return path;
+  const suffix = SUFFIX_FOR[contentType];
+  return suffix ? `${path}.${suffix}` : path;
 }
 
 /** A crawl reaches the same page by two paths often; a library should not. */

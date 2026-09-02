@@ -1,27 +1,34 @@
 import type { ReactNode } from 'react';
-import { RootProvider } from 'fumadocs-ui/provider';
 import { DocsLayout } from 'fumadocs-ui/layouts/docs';
+import { DocsRootProvider } from '@/components/docs/root-provider';
 import { source } from '@/lib/source';
+import { translations } from '@/lib/i18n/server';
 
 /**
- * RootProvider is mounted here, not at the app root -- see app/layout.tsx.
+ * The docs shell, in the reader's language.
  *
- * The docs site follows the reader's operating system: `system` is both the
- * default and a selectable option in the switcher, so a reader who never
- * touches the switcher tracks their OS appearance, and one who tried light or
- * dark once can hand control back to it.
+ * Both halves have to agree on the locale: the sidebar tree comes from the
+ * per-language page tree the loader built, and the chrome around it (search,
+ * table of contents, the language switcher itself) from this app's dictionary.
+ * Resolving it once here is what keeps them from disagreeing.
+ *
+ * `i18n` asks Fumadocs to draw the language toggle in the sidebar; what that
+ * toggle does when clicked is `DocsRootProvider`'s business.
  */
-export default function Layout({ children }: { children: ReactNode }) {
+export default async function Layout({ children }: { children: ReactNode }) {
+  const { locale, t } = await translations();
+
   return (
-    <RootProvider theme={{ defaultTheme: 'system', enableSystem: true }}>
+    <DocsRootProvider locale={locale} translations={t.docsChrome}>
       <DocsLayout
-        tree={source.pageTree}
-        nav={{ title: 'Re0 docs' }}
+        tree={source.getPageTree(locale)}
+        nav={{ title: `Re0 ${t.nav.docs}` }}
+        i18n
         githubUrl="https://github.com/symphonyprotocol-lab/re0"
         themeSwitch={{ mode: 'light-dark-system' }}
       >
         {children}
       </DocsLayout>
-    </RootProvider>
+    </DocsRootProvider>
   );
 }

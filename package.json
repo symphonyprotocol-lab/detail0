@@ -17,10 +17,14 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "postinstall": "fumadocs-mdx",
-    "admin:create": "tsx scripts/create-administrator.mts"
+    "admin:create": "tsx scripts/create-administrator.mts",
+    "profiles:rebuild": "tsx scripts/rebuild-profiles.mts"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.41",
+    "@ai-sdk/react": "^4.0.90",
     "@neondatabase/serverless": "^1.0.1",
+    "ai": "^7.0.87",
     "drizzle-orm": "^0.44.5",
     "fumadocs-core": "^15.8.4",
     "fumadocs-mdx": "^12.0.2",

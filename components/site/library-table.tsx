@@ -52,7 +52,7 @@ export async function LibraryTable({
               }`}
             >
               <span className="flex min-w-0 items-center gap-2.5">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-[7px] border-2 border-[#a3d9d5] bg-brandsoft text-brand">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-[7px] border-2 border-brandline bg-brandsoft text-brand">
                   <ShieldCheckIcon size={17} />
                 </span>
                 <span className="flex min-w-0 flex-col gap-[3px]">

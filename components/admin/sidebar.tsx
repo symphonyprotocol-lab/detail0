@@ -7,6 +7,7 @@ import {
   ArrowUpRightIcon,
   CircleDollarSignIcon,
   DatabaseIcon,
+  FilterIcon,
   GlobeIcon,
   LayoutDashboardIcon,
   Re0Mark,
@@ -93,8 +94,9 @@ export function AdminSidebar({
           Icon: CircleDollarSignIcon,
           needs: 'billing',
         },
-        /* Provider configuration is product configuration, like plans. */
+        /* Provider and retrieval configuration are product configuration, like plans. */
         { href: '/admin/llm', label: nav.llm, Icon: SparklesIcon, needs: 'plans' },
+        { href: '/admin/retrieval', label: nav.retrieval, Icon: FilterIcon, needs: 'plans' },
       ],
     },
     {

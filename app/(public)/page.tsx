@@ -42,25 +42,23 @@ export default async function HomePage() {
   return (
     <>
       {/* Hero -- geometry, type and icons follow the design source frame `hRx0w`. */}
-      <section className="site-wash">
-        <div className="mx-auto flex w-full max-w-[918px] flex-col items-center px-5 pt-[72px] pb-[40px]">
+      <section>
+        <div className="mx-auto flex w-full max-w-[918px] flex-col items-start px-5 pt-[72px] pb-[40px]">
           <p className="flex w-full items-center gap-[7px] text-[12px] leading-[1.5] font-[650] text-brandink">
             <ShieldCheckIcon size={15} />
             {t.home.badge}
           </p>
 
           <h1 className="mt-4 text-[38px] leading-[1.04] font-[650] tracking-[-0.052em] text-ink sm:text-[48px]">
-            {t.home.titleLead}
-            <br />
-            {t.home.titleRest}
+            {t.home.title}
           </h1>
 
-          <p className="mt-[18px] w-[680px] max-w-full text-[17px] leading-[1.7] tracking-[-0.025em] text-muted">
+          <p className="mt-[18px] max-w-full text-[17px] leading-[1.7] tracking-[-0.025em] text-muted">
             {t.home.lede}
           </p>
 
           <div className="mt-6 flex w-full flex-wrap items-center gap-2.5">
-            <div className="flex h-12 items-center gap-[92px] rounded-lg border-2 border-[#10292c] bg-inkdeep py-0.5 pr-[11px] pl-[18px] shadow-[0_4px_10px_rgba(45,45,83,0.12),0_1px_1px_rgba(45,45,83,0.12)]">
+            <div className="flex h-12 items-center gap-[92px] rounded-lg border-2 border-termline bg-inkdeep py-0.5 pr-[11px] pl-[18px] shadow-[0_4px_10px_rgba(45,45,83,0.12),0_1px_1px_rgba(45,45,83,0.12)]">
               <code className="font-mono text-[12px] tracking-[-0.03em] text-[#e4edee]">
                 $ npx re0 setup
               </code>
@@ -184,7 +182,7 @@ export default async function HomePage() {
 
       {/* CTA -- design source frame `B1XJrb`. */}
       <section className="mx-auto w-full max-w-[918px] px-5 pt-16 pb-16">
-        <div className="flex flex-col items-start justify-between gap-[30px] rounded-xl bg-[#f0f0f0] px-10 py-9 shadow-[0_4px_10px_rgba(45,45,83,0.06)] sm:flex-row sm:items-center">
+        <div className="flex flex-col items-start justify-between gap-[30px] rounded-xl bg-panel px-10 py-9 shadow-[0_4px_10px_rgba(45,45,83,0.06)] sm:flex-row sm:items-center">
           <div className="flex flex-col gap-[11px] pt-2">
             <span className="text-[11px] font-bold tracking-[-0.029em] text-brand">
               {t.home.ctaEyebrow}

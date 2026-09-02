@@ -3,14 +3,8 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { useI18n } from '@/lib/i18n/client';
-import {
-  HTML_LANG,
-  LOCALE_COOKIE,
-  LOCALE_COOKIE_MAX_AGE,
-  LOCALE_LABEL,
-  LOCALES,
-  type Locale,
-} from '@/lib/i18n/locale';
+import { rememberLocale } from '@/lib/i18n/remember';
+import { HTML_LANG, LOCALE_LABEL, LOCALES, type Locale } from '@/lib/i18n/locale';
 
 /**
  * Language menu -- design source frames `hRx0w` (marketing) and `E4GWD`
@@ -24,14 +18,9 @@ import {
  * Options are always labelled in their own language -- a reader stranded in a
  * language they cannot read still has to be able to find their way out.
  *
- * The cookie is deliberately script-readable: it holds a display preference,
- * never a credential.
+ * Writing the cookie itself lives in `rememberLocale`, shared with the docs
+ * site's switcher.
  */
-function remember(locale: Locale): void {
-  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
-  document.cookie = `${LOCALE_COOKIE}=${locale}; Path=/; Max-Age=${LOCALE_COOKIE_MAX_AGE}; SameSite=Lax${secure}`;
-  document.documentElement.lang = HTML_LANG[locale];
-}
 
 function GlobeIcon() {
   return (
@@ -134,7 +123,7 @@ export function LocaleSwitcher({ variant = 'link' }: { variant?: 'link' | 'pill'
     setOpen(false);
     trigger.current?.focus();
     if (next === locale) return;
-    remember(next);
+    rememberLocale(next);
     startTransition(() => router.refresh());
   }
 

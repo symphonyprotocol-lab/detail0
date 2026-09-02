@@ -40,48 +40,76 @@ import type { CallerContext } from './index';
 import { toTsquery } from './resolve-library';
 import { searchTokens } from '@/lib/domain/profile';
 import { cjkSearchTokens, containsCjk } from '@/lib/domain/cjk';
+import type { RetrievalConfidence } from '@/lib/domain/routing';
 import { sha256Hex } from '@/lib/domain/ingestion';
 import { cacheSetTagged, retrievalCache, type RetrievalCache } from '@/lib/infrastructure/cache/redis';
 import { ref } from '@/lib/application/administration/column-ref';
+import {
+  activeRetrievalSettings,
+  type ActiveRetrievalSettings,
+} from '@/lib/application/administration/manage-retrieval-config';
 
 export interface RetrievalDependencies {
   embeddings(): EmbeddingAdapter;
   rerank(): RerankAdapter;
   cache(): RetrievalCache;
   configured(): { embeddings: boolean; rerank: boolean };
+  /**
+   * The tunables in force: recall widths, fusion constant, rerank window,
+   * cache TTL (lib/domain/retrieval-config.ts). Read per request so a console
+   * save applies to the next call. Optional so a test that injects the rest
+   * keeps working against the stored configuration.
+   */
+  settings?(): Promise<ActiveRetrievalSettings>;
 }
 
-const defaultDependencies: RetrievalDependencies = {
+export const defaultRetrievalDependencies: RetrievalDependencies = {
   embeddings: embeddingAdapter,
   rerank: rerankAdapter,
   cache: retrievalCache,
   configured: () => ({ embeddings: isEmbeddingConfigured(), rerank: isRerankConfigured() }),
+  settings: activeRetrievalSettings,
 };
 
 /**
- * Participates in every cache key (architecture.md 9.4): recall widths,
- * fusion constants, rerank windows and trim rules all change what a cached
- * result means. Bump on any change to the retrieval pipeline's behaviour.
+ * Participates in every cache key (architecture.md 9.4), together with the
+ * id of the configuration row in force: fusion, dedupe and trim *code* is
+ * versioned here, and the *numbers* it runs with are versioned by the row.
+ * Bump on any change to the retrieval pipeline's behaviour.
  */
-export const RETRIEVAL_CONFIG_VERSION = 're0-retrieval-1';
-/** Entries expire on their own; the version in the key is the invalidation. */
-const CACHE_TTL_SECONDS = 21_600;
+export const RETRIEVAL_CONFIG_VERSION = 're0-retrieval-2';
+
+/**
+ * The contract's output plus what the retrieval learned about its own fit
+ * (lib/domain/routing.ts). Not part of /v1: the REST and MCP entries hand
+ * out `QueryDocsOutput`, and only the playground -- which has to decide
+ * whether to call a model on these passages -- reads the confidence. Null
+ * on a cache entry written before the confidence existed.
+ */
+export type QueryDocsResult = QueryDocsOutput & { confidence: RetrievalConfidence | null };
 /** The key's policy slot for callers with no workspace and hence no policy. */
 const NO_POLICY = 'p0';
-
-/** Per-path recall width inside the version. §9.3: bounded, never a full scan. */
-const RECALL_LIMIT = 50;
-const RRF_K = 60;
-/** §9.3: rerank only touches the fused head, never the whole recall. */
-const RERANK_WINDOW = 30;
-/** Enough of a chunk for a reranker to judge it; the rest is cost. */
-const RERANK_DOCUMENT_CHARS = 1_500;
+/** The key's configuration slot when the defaults are in force. */
+const NO_CONFIG = 'c0';
 
 export async function queryDocs(
   caller: CallerContext,
   input: QueryDocsInput,
-  dependencies: RetrievalDependencies = defaultDependencies,
+  dependencies: RetrievalDependencies = defaultRetrievalDependencies,
 ): Promise<QueryDocsOutput> {
+  const { confidence: _confidence, ...output } = await queryDocsDetailed(
+    caller,
+    input,
+    dependencies,
+  );
+  return output;
+}
+
+export async function queryDocsDetailed(
+  caller: CallerContext,
+  input: QueryDocsInput,
+  dependencies: RetrievalDependencies = defaultRetrievalDependencies,
+): Promise<QueryDocsResult> {
   const startedAt = Date.now();
   const database = db();
   /*
@@ -118,7 +146,8 @@ async function queryDocsInner(
   dependencies: RetrievalDependencies,
   startedAt: number,
   database: ReturnType<typeof db>,
-): Promise<QueryDocsOutput> {
+): Promise<QueryDocsResult> {
+  const settings = await (dependencies.settings ?? activeRetrievalSettings)();
 
   /* -------------------------------------------- resolve, authorize, pin */
 
@@ -206,10 +235,11 @@ async function queryDocsInner(
      * with it. The canonical JSON is the only cached shape; TXT derives from
      * it downstream, so one entry serves both response types. Metering runs
      * on hits exactly as on misses: a cached answer is still a served call.
+     * A TTL of zero is the console switching the cache off.
      */
-    const cacheable = library.visibility === 'public';
+    const cacheable = library.visibility === 'public' && settings.cacheTtlSeconds > 0;
     const cacheKey = cacheable
-      ? `ctx:pub:${version.id}:${pinnedPolicy.versionId ?? NO_POLICY}:${await sha256Hex(input.query)}:${input.maxTokens}:${RETRIEVAL_CONFIG_VERSION}`
+      ? `ctx:pub:${version.id}:${pinnedPolicy.versionId ?? NO_POLICY}:${await sha256Hex(input.query)}:${input.maxTokens}:${RETRIEVAL_CONFIG_VERSION}:${settings.configId ?? NO_CONFIG}`
       : null;
 
     if (cacheKey) {
@@ -219,8 +249,14 @@ async function queryDocsInner(
         .catch(() => null);
       if (hit) {
         let chunks: ChunkResult[] | null = null;
+        let confidence: RetrievalConfidence | null = null;
         try {
-          chunks = (JSON.parse(hit) as { chunks: ChunkResult[] }).chunks;
+          const entry = JSON.parse(hit) as {
+            chunks: ChunkResult[];
+            confidence?: RetrievalConfidence;
+          };
+          chunks = entry.chunks;
+          confidence = entry.confidence ?? null;
         } catch {
           chunks = null; /* a corrupt entry is a miss, never an error */
         }
@@ -246,6 +282,7 @@ async function queryDocsInner(
             chunks,
             usage: usageOf(reservation),
             requestId: caller.requestId,
+            confidence,
           };
         }
       }
@@ -291,7 +328,7 @@ async function queryDocsInner(
             .from(schema.chunk)
             .where(and(scopedTo(library.id, version.id), matches))
             .orderBy(desc(rank))
-            .limit(RECALL_LIMIT)
+            .limit(settings.recallLimit)
         : [];
 
     /*
@@ -301,7 +338,7 @@ async function queryDocsInner(
      * space, and comparing across spaces returns confident nonsense. On a
      * mismatch the keyword leg carries the request alone.
      */
-    let semantic: typeof keyword = [];
+    let semantic: ((typeof keyword)[number] & { distance: number })[] = [];
     if (
       dependencies.configured().embeddings &&
       dependencies.embeddings().model === version.embeddingModel
@@ -315,13 +352,25 @@ async function queryDocsInner(
             body: schema.chunk.body,
             tokens: schema.chunk.tokens,
             citation: schema.chunk.citation,
+            distance: sql<number>`${schema.chunk.embedding} <=> ${literal}::vector`,
           })
           .from(schema.chunk)
           .where(scopedTo(library.id, version.id))
           .orderBy(sql`${schema.chunk.embedding} <=> ${literal}::vector`)
-          .limit(RECALL_LIMIT);
+          .limit(settings.recallLimit);
       }
     }
+
+    /*
+     * What this retrieval can say about its own fit, for the playground's
+     * confirmation (lib/domain/routing.ts). The vector leg is ordered by
+     * distance, so its first row is the best; a leg that did not run says
+     * nothing rather than zero.
+     */
+    const confidence: RetrievalConfidence = {
+      bestDistance: semantic.length > 0 ? Number(semantic[0]!.distance) : null,
+      keywordHits: keyword.length,
+    };
 
     /* --------------------------------------- fuse, dedupe, trim, format */
 
@@ -329,7 +378,7 @@ async function queryDocsInner(
     for (const list of [keyword, semantic]) {
       list.forEach((row, index) => {
         const entry = fused.get(row.id);
-        const gain = 1 / (RRF_K + index + 1);
+        const gain = 1 / (settings.rrfK + index + 1);
         if (entry) entry.score += gain;
         else fused.set(row.id, { score: gain, row });
       });
@@ -343,16 +392,19 @@ async function queryDocsInner(
      * or a retry -- the adapter carries a tight timeout for the same reason.
      */
     if (dependencies.configured().rerank && ordered.length > 1) {
-      const head = ordered.slice(0, RERANK_WINDOW);
+      const head = ordered.slice(0, settings.rerankWindow);
       try {
         const scores = await dependencies
           .rerank()
-          .rerank(input.query, head.map((entry) => entry.row.body.slice(0, RERANK_DOCUMENT_CHARS)));
+          .rerank(
+            input.query,
+            head.map((entry) => entry.row.body.slice(0, settings.rerankDocumentChars)),
+          );
         if (scores.length === head.length) {
           const reranked = head
             .map((entry, at) => ({ ...entry, score: scores[at]! }))
             .sort((a, b) => b.score - a.score);
-          ordered = [...reranked, ...ordered.slice(RERANK_WINDOW)];
+          ordered = [...reranked, ...ordered.slice(settings.rerankWindow)];
         }
       } catch {
         /* fusion order stands */
@@ -386,8 +438,8 @@ async function queryDocsInner(
     if (cacheKey) {
       cacheSetTagged(dependencies.cache(), {
         key: cacheKey,
-        value: JSON.stringify({ chunks }),
-        ttlSeconds: CACHE_TTL_SECONDS,
+        value: JSON.stringify({ chunks, confidence }),
+        ttlSeconds: settings.cacheTtlSeconds,
         tag: `ctxtag:${library.id}`,
       }).catch(() => {});
     }
@@ -416,6 +468,7 @@ async function queryDocsInner(
       chunks,
       usage: usageOf(reservation),
       requestId: caller.requestId,
+      confidence,
     };
   } catch (error) {
     /*

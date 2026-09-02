@@ -1,10 +1,18 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 
+import { Re0Mark } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
 import type { Dictionary } from '@/lib/i18n/dictionary';
-import type { PlaygroundTranscript } from '@/lib/application/playground';
+import type {
+  PlaygroundOutcome,
+  PlaygroundRouting,
+  PlaygroundSource,
+  PlaygroundUIMessage,
+} from '@/lib/http/playground-stream';
 import { fill } from '@/lib/i18n/format';
 
 /**
@@ -14,65 +22,100 @@ import { fill } from '@/lib/i18n/format';
  * and puts eight hard rules on it. The live path runs through POST
  * /api/playground: the server routes the question to a library (the web
  * entry's auto-routing of architecture.md 9.6), retrieves through the shared
- * function, and generates with citation binding. What renders here follows
- * the same rules the backend enforces:
+ * function, and streams back parts. What renders here follows the same rules
+ * the backend enforces:
  *
  * - rule 2: zero retrieved chunks renders the no-context card -- the model
  *   was never called, and nothing here pretends otherwise.
  * - rule 5: every factual sentence carries footnotes that resolve to the
  *   retrieved chunks; a degraded answer shows the chunks and no prose.
  *
- * The seeded exchange at the top is illustrative copy, kept as a worked
- * example of what an answer looks like.
+ * The stream carries no model text part, so there is nothing here that could
+ * render unbound prose even by accident: a claim exists on the client only
+ * after the server bound it. Sentences therefore appear one at a time rather
+ * than character by character -- the visible unit of streaming is the unit
+ * rule 5 can vouch for.
  */
 
-const TOOL_CALLS = [
-  {
-    name: 'resolve-library-id',
-    params: [
-      ['libraryName', '"next.js"'],
-      ['query', '"App Router server authentication"'],
-    ],
+/**
+ * One question per request, and only the question.
+ *
+ * `useChat` would post the whole transcript by default. Rule 4 confines the
+ * model to the chunks this request retrieved, so replaying earlier turns would
+ * hand it exactly the outside knowledge that rule excludes -- and the server
+ * does not read them anyway.
+ */
+const transport = new DefaultChatTransport<PlaygroundUIMessage>({
+  api: '/api/playground',
+  prepareSendMessagesRequest: ({ messages }) => {
+    const last = messages[messages.length - 1];
+    const question = (last?.parts ?? [])
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join(' ')
+      .trim();
+    return { body: { question } };
   },
-  {
-    name: 'query-docs',
-    params: [
-      ['libraryId', '"/vercel/next.js"'],
-      ['query', '"App Router server authentication"'],
-    ],
-  },
-] as const;
+});
 
-const SAMPLE_CODE = `import { verifySession } from '@/lib/session'
-
-export async function getUser() {
-  const session = await verifySession()
-  if (!session) return null
-
-  return db.user.findUnique({
-    where: { id: session.userId }
-  })
-}`;
+function AssistantMark() {
+  return (
+    <span
+      aria-hidden
+      className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-line bg-subtle text-brand"
+    >
+      <Re0Mark size={18} />
+    </span>
+  );
+}
 
 function UserBubble({ text }: { text: string }) {
   return (
     <div className="flex justify-end">
-      <p className="max-w-[78%] rounded-[16px] rounded-br-[4px] bg-[#079b78] px-4 py-3 text-[13px] leading-[1.6] text-white">
+      <p className="max-w-[80%] rounded-[16px] rounded-br-[4px] bg-bubble px-4 py-3 text-[13px] leading-[1.6] text-white">
         {text}
       </p>
     </div>
   );
 }
 
-function ToolCall({ name, params }: { name: string; params: readonly (readonly [string, string])[] }) {
+/** Assistant turns are full-width rows with a mark, as in the reference chat. */
+function AssistantRow({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-[9px] border border-line/70 bg-[#f8f9f8] p-2.5">
-      <div className="flex items-center justify-between gap-3">
+    <div className="flex gap-3">
+      <AssistantMark />
+      <div className="flex min-w-0 flex-1 flex-col gap-2.5">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * A tool call, collapsed by default.
+ *
+ * `<details>` rather than a state hook: the disclosure is the whole
+ * interaction, and the element already answers to the keyboard and to
+ * assistive technology without any of it being written here.
+ */
+function ToolCall({
+  name,
+  params,
+  open = false,
+}: {
+  name: string;
+  params: readonly (readonly [string, string])[];
+  open?: boolean;
+}) {
+  return (
+    <details open={open} className="group rounded-[9px] border border-line/70 bg-tray p-2.5">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
         <code className="font-mono text-[11.5px] font-semibold text-ink">{name}</code>
-        <span aria-hidden className="text-[10px] text-faint">
+        <span
+          aria-hidden
+          className="text-[10px] text-faint transition-transform group-open:rotate-180"
+        >
           ▾
         </span>
-      </div>
+      </summary>
       <dl className="mt-1.5 flex flex-col gap-1">
         {params.map(([k, v]) => (
           <div key={k} className="flex gap-2">
@@ -81,61 +124,7 @@ function ToolCall({ name, params }: { name: string; params: readonly (readonly [
           </div>
         ))}
       </dl>
-    </div>
-  );
-}
-
-function SeedAnswer({ t }: { t: Dictionary['playground'] }) {
-  return (
-    <>
-      <div className="flex justify-start">
-        <p className="max-w-[78%] rounded-[13px] rounded-bl-[4px] bg-[#f2f4f3] px-3.5 py-2.5 text-[13px] leading-[1.6] text-ink">
-          {t.thinking}
-        </p>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        {TOOL_CALLS.map((t) => (
-          <ToolCall key={t.name} name={t.name} params={t.params} />
-        ))}
-      </div>
-
-      <p className="text-[11.5px] leading-[1.7] text-faint">
-        {t.groundingNote}
-      </p>
-
-      <article className="rounded-[12px] rounded-bl-[4px] bg-[#f2f4f3] p-3.5">
-        <h3 className="text-[14px] font-semibold tracking-[-0.02em] text-ink">
-          {t.answerTitle}
-        </h3>
-        <p className="mt-2 text-[12.5px] leading-[1.75] text-muted">
-          {t.answerBody}
-          <sup className="ml-0.5 rounded bg-[#087c6a]/12 px-1 text-[9px] font-semibold text-[#087c6a]">
-            1
-          </sup>
-        </p>
-
-        <p className="mt-3.5 text-[12.5px] font-semibold text-ink">{t.exampleLabel}</p>
-        <pre className="mt-2 overflow-x-auto rounded-lg bg-[#242a2f] p-3.5">
-          <code className="font-mono text-[11px] leading-[1.75] text-[#dbe4e4]">{SAMPLE_CODE}</code>
-        </pre>
-
-        <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-3">
-          <p className="flex items-center gap-1.5 text-[10.5px] text-[#087c6a]">
-            <span className="rounded bg-[#087c6a]/12 px-1 font-semibold">1</span>
-            <span className="font-semibold text-ink">Next.js</span>
-            {t.citationSource}
-          </p>
-          <p className="flex items-center gap-2 text-[10.5px] text-muted">
-            <span className="rounded-full bg-goodsoft px-2 py-0.5 font-semibold text-good">
-              {t.anchored}
-            </span>
-            {t.citationVersion}
-            <span className="font-mono">0x7f3c…a91b</span>
-          </p>
-        </div>
-      </article>
-    </>
+    </details>
   );
 }
 
@@ -148,217 +137,433 @@ function WarnCard({ title, body }: { title: string; body: string }) {
   );
 }
 
-/** Footnote numbers, in order of first citation; uncited sources come after. */
-function sourceNumbers(transcript: PlaygroundTranscript): Map<string, number> {
-  const numbers = new Map<string, number>();
-  for (const citation of transcript.citations) {
-    if (!numbers.has(citation.chunkId)) numbers.set(citation.chunkId, numbers.size + 1);
+/** What one assistant turn accumulated, gathered out of its stream parts. */
+interface Turn {
+  routing: PlaygroundRouting | null;
+  sources: PlaygroundSource[];
+  claims: { claim: string; chunkIds: string[] }[];
+  outcome: PlaygroundOutcome | null;
+}
+
+function readTurn(message: PlaygroundUIMessage): Turn {
+  const turn: Turn = { routing: null, sources: [], claims: [], outcome: null };
+  for (const part of message.parts) {
+    if (part.type === 'data-routing') turn.routing = part.data;
+    else if (part.type === 'data-sources') turn.sources = part.data.sources;
+    else if (part.type === 'data-claim') turn.claims.push(part.data);
+    else if (part.type === 'data-outcome') turn.outcome = part.data.kind;
   }
-  for (const source of transcript.sources) {
+  return turn;
+}
+
+/** How many distinct sources the claims cite -- the head of the numbering. */
+function citedCount(turn: Turn): number {
+  return new Set(turn.claims.flatMap((claim) => claim.chunkIds)).size;
+}
+
+/** Footnote numbers, in order of first citation; uncited sources come after. */
+function sourceNumbers(turn: Turn): Map<string, number> {
+  const numbers = new Map<string, number>();
+  for (const claim of turn.claims) {
+    for (const chunkId of claim.chunkIds) {
+      if (!numbers.has(chunkId)) numbers.set(chunkId, numbers.size + 1);
+    }
+  }
+  for (const source of turn.sources) {
     if (!numbers.has(source.chunkId)) numbers.set(source.chunkId, numbers.size + 1);
   }
   return numbers;
 }
 
 function SourceList({
-  transcript,
+  sources,
   numbers,
+  citedCount,
   t,
 }: {
-  transcript: PlaygroundTranscript;
+  sources: PlaygroundSource[];
   numbers: Map<string, number>;
+  /** How many of `sources` a claim cites; they carry the lowest numbers. */
+  citedCount: number;
   t: Dictionary['playground'];
 }) {
-  const ordered = [...transcript.sources].sort(
+  const ordered = [...sources].sort(
     (a, b) => (numbers.get(a.chunkId) ?? 99) - (numbers.get(b.chunkId) ?? 99),
   );
+  /*
+   * A degraded turn cites nothing, and then the passages are the whole
+   * answer -- all shown. Otherwise the uncited remainder is retrieval's
+   * working set, not evidence, and stays folded behind its count.
+   */
+  const shown = citedCount > 0 ? ordered.slice(0, citedCount) : ordered;
+  const folded = citedCount > 0 ? ordered.slice(citedCount) : [];
+
   return (
     <div className="mt-3.5 flex flex-col gap-1.5 border-t border-line/60 pt-3">
       <p className="text-[10.5px] font-semibold tracking-[0.02em] text-faint uppercase">
         {t.sourcesLabel}
       </p>
-      {ordered.map((source) => (
-        <p key={source.chunkId} className="flex items-baseline gap-1.5 text-[10.5px] text-muted">
-          <span className="rounded bg-[#087c6a]/12 px-1 font-semibold text-[#087c6a]">
-            {numbers.get(source.chunkId)}
-          </span>
-          <a
-            href={source.sourceUrl}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="font-semibold text-ink underline-offset-2 hover:underline"
-          >
-            {source.documentTitle}
-          </a>
-          {source.section ? <span>· {source.section}</span> : null}
-        </p>
+      {shown.map((source) => (
+        <SourceLine key={source.chunkId} source={source} number={numbers.get(source.chunkId)} />
       ))}
+      {folded.length > 0 ? (
+        <details className="group mt-1">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10.5px] text-faint hover:text-muted">
+            <span aria-hidden className="transition-transform group-open:rotate-90">
+              ▸
+            </span>
+            {fill(t.sourcesMore, { count: String(folded.length) })}
+          </summary>
+          <div className="mt-1.5 flex flex-col gap-1.5">
+            {folded.map((source) => (
+              <SourceLine
+                key={source.chunkId}
+                source={source}
+                number={numbers.get(source.chunkId)}
+              />
+            ))}
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }
 
-function LiveAnswer({ transcript, t }: { transcript: PlaygroundTranscript; t: Dictionary['playground'] }) {
-  const numbers = sourceNumbers(transcript);
+function SourceLine({ source, number }: { source: PlaygroundSource; number: number | undefined }) {
+  return (
+    <p className="flex items-baseline gap-1.5 text-[10.5px] text-muted">
+      <span className="rounded bg-cite/12 px-1 font-semibold text-cite">{number}</span>
+      <a
+        href={source.sourceUrl}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="font-semibold text-ink underline-offset-2 hover:underline"
+      >
+        {source.documentTitle}
+      </a>
+      {source.section ? <span>· {source.section}</span> : null}
+    </p>
+  );
+}
 
-  /* Sentences regroup with their footnote marks: one claim, all its refs. */
-  const claims: { claim: string; refs: number[] }[] = [];
-  for (const citation of transcript.citations) {
-    const last = claims[claims.length - 1];
-    const ref = numbers.get(citation.chunkId);
-    if (last && last.claim === citation.claim) {
-      if (ref) last.refs.push(ref);
-    } else {
-      claims.push({ claim: citation.claim, refs: ref ? [ref] : [] });
-    }
-  }
+/**
+ * The little Markdown a cited sentence can carry: bold, inline code, a
+ * bullet or a heading at the start of a line. Rendered by hand rather than
+ * by a Markdown library because the text is a single sentence with its
+ * line breaks kept (`whitespace-pre-line` on the paragraph), and a block
+ * renderer would fight the inline footnotes that follow it.
+ */
+const INLINE = /(\*\*[^*\n]+\*\*|`[^`\n]+`)/g;
 
+function ClaimText({ text }: { text: string }) {
   return (
     <>
-      <div className="flex flex-col gap-2">
-        <ToolCall
-          name="resolve-library-id"
-          params={[['query', JSON.stringify(transcript.question)]]}
-        />
-        {transcript.libraryId ? (
-          <ToolCall
-            name="query-docs"
-            params={[
-              ['libraryId', JSON.stringify(transcript.libraryId)],
-              ['query', JSON.stringify(transcript.question)],
-            ]}
-          />
-        ) : null}
-      </div>
-
-      {transcript.libraryTitle ? (
-        <p className="text-[11.5px] leading-[1.7] text-faint">
-          {fill(t.routedNote, {
-            title: transcript.libraryTitle,
-            version: transcript.version ?? '',
-          })}
-        </p>
-      ) : null}
-
-      {transcript.kind === 'no_library' ? (
-        <WarnCard title={t.noLibraryTitle} body={t.noLibraryBody} />
-      ) : null}
-      {transcript.kind === 'no_context' ? (
-        <WarnCard title={t.noContextTitle} body={t.noContextBody} />
-      ) : null}
-
-      {transcript.kind === 'degraded' ? (
-        <article className="rounded-[12px] rounded-bl-[4px] bg-[#f2f4f3] p-3.5">
-          <p className="text-[12.5px] font-semibold text-ink">{t.degradedTitle}</p>
-          <p className="mt-1.5 text-[12px] leading-[1.75] text-muted">{t.degradedBody}</p>
-          <SourceList transcript={transcript} numbers={numbers} t={t} />
-        </article>
-      ) : null}
-
-      {transcript.kind === 'answer' ? (
-        <article className="rounded-[12px] rounded-bl-[4px] bg-[#f2f4f3] p-3.5">
-          <p className="text-[12.5px] leading-[1.75] text-muted">
-            {claims.map((entry, index) => (
-              <span key={`${entry.claim}-${index}`}>
-                {entry.claim}
-                {entry.refs.map((ref) => (
-                  <sup
-                    key={ref}
-                    className="ml-0.5 rounded bg-[#087c6a]/12 px-1 text-[9px] font-semibold text-[#087c6a]"
-                  >
-                    {ref}
-                  </sup>
-                ))}{' '}
-              </span>
-            ))}
-          </p>
-          <SourceList transcript={transcript} numbers={numbers} t={t} />
-        </article>
-      ) : null}
+      {text.split('\n').map((line, at) => {
+        const heading = /^#{1,6}\s+(.*)$/.exec(line);
+        const body = heading ? heading[1]! : line.replace(/^[-*]\s+/, '• ');
+        const runs = body.split(INLINE).map((run, index) =>
+          run.startsWith('**') && run.endsWith('**') ? (
+            <strong key={index} className="font-semibold text-ink">
+              {run.slice(2, -2)}
+            </strong>
+          ) : run.startsWith('`') && run.endsWith('`') ? (
+            <code key={index} className="rounded bg-tray px-1 font-mono text-[11px] text-ink">
+              {run.slice(1, -1)}
+            </code>
+          ) : (
+            run
+          ),
+        );
+        return (
+          <span key={at}>
+            {at > 0 ? '\n' : null}
+            {heading ? <strong className="font-semibold text-ink">{runs}</strong> : runs}
+          </span>
+        );
+      })}
     </>
   );
 }
 
-type Exchange =
-  | { question: string; state: 'loading' }
-  | { question: string; state: 'error'; message: string }
-  | { question: string; state: 'done'; transcript: PlaygroundTranscript };
+/** Three dots while the server is routing and retrieving. */
+function Pending({ label }: { label: string }) {
+  return (
+    <p className="flex items-center gap-2 text-[12.5px] text-muted">
+      <span aria-hidden className="flex gap-1">
+        {[0, 1, 2].map((dot) => (
+          <span
+            key={dot}
+            className="size-1.5 animate-pulse rounded-full bg-faint"
+            style={{ animationDelay: `${dot * 160}ms` }}
+          />
+        ))}
+      </span>
+      {label}
+    </p>
+  );
+}
+
+function AssistantTurn({
+  message,
+  streaming,
+  t,
+}: {
+  message: PlaygroundUIMessage;
+  streaming: boolean;
+  t: Dictionary['playground'];
+}) {
+  const turn = readTurn(message);
+  const numbers = sourceNumbers(turn);
+
+  if (turn.routing === null) {
+    return (
+      <AssistantRow>
+        <Pending label={t.resolving} />
+      </AssistantRow>
+    );
+  }
+
+  return (
+    <AssistantRow>
+      <ToolCall
+        name="resolve-library-id"
+        params={[['query', JSON.stringify(turn.routing.question)]]}
+      />
+      {turn.routing.libraryId ? (
+        <ToolCall
+          name="query-docs"
+          params={[
+            ['libraryId', JSON.stringify(turn.routing.libraryId)],
+            ['query', JSON.stringify(turn.routing.question)],
+          ]}
+        />
+      ) : null}
+
+      {turn.routing.libraryTitle ? (
+        <p className="text-[11.5px] leading-[1.7] text-faint">
+          {fill(t.routedNote, {
+            title: turn.routing.libraryTitle,
+            version: turn.routing.version ?? '',
+          })}
+        </p>
+      ) : null}
+
+      {turn.outcome === 'no_library' ? (
+        <WarnCard title={t.noLibraryTitle} body={t.noLibraryBody} />
+      ) : null}
+      {turn.outcome === 'no_context' ? (
+        <WarnCard title={t.noContextTitle} body={t.noContextBody} />
+      ) : null}
+
+      {turn.outcome === 'degraded' ? (
+        <article className="rounded-[12px] rounded-bl-[4px] bg-reply p-3.5">
+          <p className="text-[12.5px] font-semibold text-ink">{t.degradedTitle}</p>
+          <p className="mt-1.5 text-[12px] leading-[1.75] text-muted">{t.degradedBody}</p>
+          <SourceList sources={turn.sources} numbers={numbers} citedCount={0} t={t} />
+        </article>
+      ) : null}
+
+      {turn.claims.length > 0 ? (
+        <article className="rounded-[12px] rounded-bl-[4px] bg-reply p-3.5">
+          <p className="text-[12.5px] leading-[1.75] whitespace-pre-line text-muted">
+            {turn.claims.map((entry, index) => (
+              <span key={`${entry.claim}-${index}`}>
+                <ClaimText text={entry.claim} />
+                {entry.chunkIds.map((chunkId) => (
+                  <sup
+                    key={chunkId}
+                    className="ml-0.5 rounded bg-cite/12 px-1 text-[9px] font-semibold text-cite"
+                  >
+                    {numbers.get(chunkId)}
+                  </sup>
+                ))}{' '}
+              </span>
+            ))}
+            {streaming ? (
+              <span
+                aria-hidden
+                className="ml-0.5 inline-block h-[1em] w-[2px] animate-pulse bg-brand align-text-bottom"
+              />
+            ) : null}
+          </p>
+          {turn.outcome !== null ? (
+            <SourceList
+              sources={turn.sources}
+              numbers={numbers}
+              citedCount={citedCount(turn)}
+              t={t}
+            />
+          ) : null}
+        </article>
+      ) : null}
+
+      {turn.outcome === null && turn.claims.length === 0 ? <Pending label={t.thinkingLive} /> : null}
+    </AssistantRow>
+  );
+}
+
+/** The uniform envelope carries a code; anything else is a generic failure. */
+function errorMessage(error: Error | undefined, t: Dictionary['playground']): string | null {
+  if (!error) return null;
+  try {
+    const body = JSON.parse(error.message) as { error?: { code?: string } };
+    const code = body.error?.code;
+    if (code === 'rate_limited' || code === 'quota_exceeded') return t.rateLimited;
+  } catch {
+    /* Not the envelope -- a transport failure, or an empty body. */
+  }
+  return t.askError;
+}
 
 export function Playground() {
   const { t: messages } = useI18n();
   const t = messages.playground;
   const [question, setQuestion] = useState('');
-  const [exchanges, setExchanges] = useState<Exchange[]>([]);
-  const [busy, setBusy] = useState(false);
+  const scroller = useRef<HTMLDivElement>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    const q = question.trim();
-    if (!q || busy) return;
+  const { messages: turns, sendMessage, status, stop, error } = useChat<PlaygroundUIMessage>({
+    transport,
+  });
+
+  const busy = status === 'submitted' || status === 'streaming';
+
+  /*
+   * Follow the stream, but only for a reader who is already at the bottom --
+   * yanking the viewport back while someone is reading an earlier citation is
+   * the one thing a growing transcript must not do.
+   */
+  useEffect(() => {
+    const box = scroller.current;
+    if (!box) return;
+    const distance = box.scrollHeight - box.scrollTop - box.clientHeight;
+    if (distance < 160) box.scrollTo({ top: box.scrollHeight });
+  }, [turns, status]);
+
+  function submit(text: string) {
+    const asked = text.trim();
+    if (!asked || busy) return;
     setQuestion('');
-    setBusy(true);
-    setExchanges((prev) => [...prev, { question: q, state: 'loading' }]);
-
-    let next: Exchange;
-    try {
-      const response = await fetch('/api/playground', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ question: q }),
-      });
-      if (response.status === 429) {
-        next = { question: q, state: 'error', message: t.rateLimited };
-      } else if (!response.ok) {
-        next = { question: q, state: 'error', message: t.askError };
-      } else {
-        next = { question: q, state: 'done', transcript: (await response.json()) as PlaygroundTranscript };
-      }
-    } catch {
-      next = { question: q, state: 'error', message: t.askError };
-    }
-    setExchanges((prev) => [...prev.slice(0, -1), next]);
-    setBusy(false);
+    void sendMessage({ text: asked });
   }
+
+  function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    submit(question);
+  }
+
+  /* Enter sends, Shift+Enter breaks the line -- the convention every chat has. */
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    submit(question);
+  }
+
+  const failure = errorMessage(error, t);
 
   return (
     <div className="mx-auto w-full">
-      <div className="overflow-hidden rounded-[14px] border-2 border-line bg-card">
-        <div className="flex flex-col gap-3.5 p-4">
-          <UserBubble text={t.seedQuestion} />
-          <SeedAnswer t={t} />
+      <div className="flex h-[640px] max-h-[78vh] flex-col overflow-hidden rounded-[14px] border-2 border-line bg-card">
+        <div ref={scroller} className="flex-1 overflow-y-auto">
+          <div className="flex min-h-full flex-col gap-5 p-4">
+            {/* The empty transcript is where the suggestions belong: centred
+                in the space they are about to fill, rather than crowding the
+                composer for the one moment before the first question. */}
+            {turns.length === 0 && !failure ? (
+              <div className="m-auto flex w-full max-w-[380px] flex-col items-center gap-3 py-8">
+                <p className="text-[15px] font-semibold tracking-[-0.02em] text-muted">
+                  {t.suggestionsTitle}
+                </p>
+                {t.suggestions.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    onClick={() => submit(suggestion)}
+                    className="w-full rounded-[10px] border border-line bg-subtle px-4 py-2.5 text-[12.5px] tracking-[-0.02em] text-muted transition-colors hover:border-brand/50 hover:bg-tray hover:text-ink"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
-          {exchanges.map((exchange, index) => (
-            <div key={`${exchange.question}-${index}`} className="flex flex-col gap-3.5">
-              <UserBubble text={exchange.question} />
-              {exchange.state === 'loading' ? (
-                <div className="flex justify-start">
-                  <p className="max-w-[78%] rounded-[13px] rounded-bl-[4px] bg-[#f2f4f3] px-3.5 py-2.5 text-[13px] leading-[1.6] text-muted">
-                    {t.resolving}
-                  </p>
-                </div>
-              ) : null}
-              {exchange.state === 'error' ? (
-                <WarnCard title={t.askErrorTitle} body={exchange.message} />
-              ) : null}
-              {exchange.state === 'done' ? <LiveAnswer transcript={exchange.transcript} t={t} /> : null}
-            </div>
-          ))}
+            {turns.map((message) =>
+              message.role === 'user' ? (
+                <UserBubble
+                  key={message.id}
+                  text={message.parts
+                    .filter((part) => part.type === 'text')
+                    .map((part) => part.text)
+                    .join(' ')}
+                />
+              ) : (
+                <AssistantTurn
+                  key={message.id}
+                  message={message}
+                  streaming={status === 'streaming' && message === turns[turns.length - 1]}
+                  t={t}
+                />
+              ),
+            )}
+
+            {/* The assistant message does not exist until the first part
+                arrives; until then the sent question would sit unanswered
+                with no sign anything was happening. */}
+            {busy && turns[turns.length - 1]?.role === 'user' ? (
+              <AssistantRow>
+                <Pending label={t.resolving} />
+              </AssistantRow>
+            ) : null}
+
+            {failure ? <WarnCard title={t.askErrorTitle} body={failure} /> : null}
+          </div>
         </div>
 
-        <form onSubmit={onSubmit} className="flex items-center gap-2 border-t-2 border-line p-3.5">
-          <input
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder={t.inputPlaceholder}
-            aria-label={t.inputPlaceholder}
-            className="h-[42px] min-w-0 flex-1 rounded-[9px] border-2 border-line bg-[#fdfefe] px-3.5 text-[13px] text-ink outline-none placeholder:text-muted/70 focus:border-brand"
-          />
-          <button
-            type="submit"
-            disabled={busy}
-            className="h-[42px] shrink-0 rounded-[9px] bg-brand px-5 text-[13px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-60"
-          >
-            {t.send}
-          </button>
+        <form onSubmit={onSubmit} className="p-3.5">
+          <div className="relative rounded-[12px] border-2 border-line bg-field transition-colors focus-within:border-brand">
+            <textarea
+              ref={composer}
+              rows={1}
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder={t.inputPlaceholder}
+              aria-label={t.inputPlaceholder}
+              className="block max-h-[160px] min-h-[46px] w-full resize-none bg-transparent px-3.5 py-3 pr-[52px] text-[13px] leading-[1.5] text-ink outline-none placeholder:text-muted/70"
+            />
+            {busy ? (
+              <button
+                type="button"
+                onClick={stop}
+                aria-label={t.stop}
+                className="absolute right-2 bottom-2 flex size-8 items-center justify-center rounded-full bg-ink text-card transition-opacity hover:opacity-90"
+              >
+                <span aria-hidden className="size-2.5 rounded-[2px] bg-card" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={question.trim().length === 0}
+                aria-label={t.send}
+                className="absolute right-2 bottom-2 flex size-8 items-center justify-center rounded-full bg-brand text-onbrand transition-opacity hover:opacity-90 disabled:opacity-40"
+              >
+                <svg
+                  aria-hidden
+                  viewBox="0 0 24 24"
+                  width={15}
+                  height={15}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 19V5" />
+                  <path d="m5 12 7-7 7 7" />
+                </svg>
+              </button>
+            )}
+          </div>
         </form>
       </div>
 

@@ -1,13 +1,16 @@
 /**
- * Replaceable AI provider adapters.
+ * Replaceable AI provider adapters for the retrieval path: embeddings and
+ * reranking.
  *
- * The LLM adapter is used only by the web playground (architecture.md 9.5).
- * REST and MCP must keep working with this module removed.
- *
- * All three speak the OpenAI-compatible HTTP shape and take their base URL from
+ * Both speak an HTTP shape their vendors share and take their base URL from
  * the environment, so a different provider is a configuration change rather
  * than a code change. That is the whole point of the seam: architecture.md 20
  * forbids a provider type from leaking into the domain or the SDK.
+ *
+ * The LLM adapter deliberately lives next door in `llm.ts` rather than here.
+ * 9.5 requires that REST and MCP keep working with the generation layer
+ * removed, and this module is on their request path -- so the AI SDK must not
+ * be reachable from it, which an import in this file would make it.
  */
 
 export interface EmbeddingAdapter {
@@ -19,21 +22,6 @@ export interface EmbeddingAdapter {
 
 export interface RerankAdapter {
   rerank(query: string, candidates: string[]): Promise<number[]>;
-}
-
-export interface LlmAdapter {
-  /**
-   * One completion, raw. The prompt arrives assembled -- the system prompt
-   * separate from the user message that carries the untrusted excerpts -- and
-   * the caller owns parsing and citation binding (architecture.md 9.5). Token
-   * counts come back for the cost metric, which is the only place they go.
-   */
-  generate(input: {
-    systemPrompt: string;
-    userMessage: string;
-    maxOutputTokens: number;
-    timeoutMs: number;
-  }): Promise<{ text: string; promptTokens: number; completionTokens: number }>;
 }
 
 /**
@@ -218,63 +206,6 @@ export function rerankAdapter(): RerankAdapter {
         }
       }
       return scores;
-    },
-  };
-}
-
-export function isLlmKeyPresent(): boolean {
-  return Boolean(process.env.LLM_PROVIDER_API_KEY);
-}
-
-/**
- * OpenAI-compatible chat completions. Endpoint and model are configuration
- * the console owns (`llm_config`); only the credential lives in the
- * environment (architecture.md 15.3, 19.1). One attempt, hard timeout, no
- * retries: 9.5 degrades to the chunk list rather than spending the budget on
- * a provider that is not answering.
- */
-export function llmAdapter(config: { baseUrl: string; model: string }): LlmAdapter {
-  const apiKey = process.env.LLM_PROVIDER_API_KEY;
-  if (!apiKey) throw new ProviderUnavailable('llm', 'LLM_PROVIDER_API_KEY is not set');
-  const baseUrl = config.baseUrl.replace(/\/+$/, '');
-
-  return {
-    async generate(input) {
-      const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: config.model,
-          max_tokens: input.maxOutputTokens,
-          temperature: 0,
-          messages: [
-            { role: 'system', content: input.systemPrompt },
-            { role: 'user', content: input.userMessage },
-          ],
-        }),
-        signal: AbortSignal.timeout(input.timeoutMs),
-        cache: 'no-store',
-      });
-      if (!response.ok) {
-        throw new ProviderUnavailable('llm', `provider answered ${response.status}`);
-      }
-
-      const payload = (await response.json()) as {
-        choices?: { message?: { content?: string } }[];
-        usage?: { prompt_tokens?: number; completion_tokens?: number };
-      };
-      const text = payload.choices?.[0]?.message?.content;
-      if (typeof text !== 'string') {
-        throw new ProviderUnavailable('llm', 'provider returned no completion');
-      }
-      return {
-        text,
-        promptTokens: payload.usage?.prompt_tokens ?? 0,
-        completionTokens: payload.usage?.completion_tokens ?? 0,
-      };
     },
   };
 }

@@ -730,25 +730,82 @@ export const libraryProfileVector = pgTable(
 );
 
 /**
- * The playground's LLM configuration. architecture.md 9.5 -- the playground is
- * the only entry that calls a model, and this row is what the console
- * configures: provider endpoint, model, budgets and unit prices. Immutable
- * versions like plans and policies; the newest row is active. The API key is
- * NOT here -- 15.3 keeps secrets in the environment, so the console configures
- * everything about the provider except the credential.
+ * Retrieval's tunables, in force as the newest row. architecture.md 9.2, 9.6.
+ *
+ * Append-only like `llm_config`: a save mints a row, and the history is the
+ * record of what retrieval was doing when. An empty table means the domain
+ * defaults (`lib/domain/retrieval-config.ts`), which are the constants the
+ * code used before this table existed. The newest row's id joins every
+ * public cache key, so a change retires cached results without a flush.
  */
-export const llmConfig = pgTable('llm_config', {
-  id: uuid('id').primaryKey(),
-  baseUrl: text('base_url').notNull(),
-  model: text('model').notNull(),
-  maxOutputTokens: integer('max_output_tokens').notNull(),
-  timeoutMs: integer('timeout_ms').notNull(),
-  /** Micro-USD per million tokens, frozen per version like every price here. */
-  promptPriceMicro: bigint('prompt_price_micro', { mode: 'number' }).notNull(),
-  completionPriceMicro: bigint('completion_price_micro', { mode: 'number' }).notNull(),
-  enabled: boolean('enabled').notNull().default(true),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const retrievalConfig = pgTable(
+  'retrieval_config',
+  {
+    id: uuid('id').primaryKey(),
+    recallLimit: integer('recall_limit').notNull(),
+    rrfK: integer('rrf_k').notNull(),
+    rerankWindow: integer('rerank_window').notNull(),
+    rerankDocumentChars: integer('rerank_document_chars').notNull(),
+    cacheTtlSeconds: integer('cache_ttl_seconds').notNull(),
+    playgroundTokensDefault: integer('playground_tokens_default').notNull(),
+    playgroundTokensMax: integer('playground_tokens_max').notNull(),
+    routingRecallLimit: integer('routing_recall_limit').notNull(),
+    routingRareSampleCap: integer('routing_rare_sample_cap').notNull(),
+    routingResultLimit: integer('routing_result_limit').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('retrieval_config_time_idx').on(t.createdAt.desc())],
+);
+
+/**
+ * The playground's selectable models. architecture.md 9.5 -- the playground is
+ * the only entry that calls a model, and these rows are what the console
+ * configures: provider endpoint, model id, budgets and unit prices. The API
+ * key is NOT here -- 15.3 keeps secrets in the environment, so the console
+ * configures everything about the provider except the credential.
+ *
+ * Immutable versions like plans and policies, but a chain per `slug` rather
+ * than one for the table: an entry's history is its rows in slug order, and
+ * the configuration in force is the newest row of each slug. Editing an entry
+ * appends; nothing here is ever updated, which is what keeps a cost event's
+ * frozen prices meaning what they meant when it was written.
+ */
+export const llmConfig = pgTable(
+  'llm_config',
+  {
+    id: uuid('id').primaryKey(),
+    /** One model entry's stable identity; an edit mints a successor sharing it. */
+    slug: text('slug').notNull(),
+    /** What the console calls it -- a model id is rarely readable on its own. */
+    label: text('label').notNull(),
+    baseUrl: text('base_url').notNull(),
+    model: text('model').notNull(),
+    /** The model's context window; the playground sizes retrieval from it. */
+    maxInputTokens: integer('max_input_tokens').notNull().default(8_000),
+    maxOutputTokens: integer('max_output_tokens').notNull(),
+    timeoutMs: integer('timeout_ms').notNull(),
+    /** Micro-USD per million tokens, frozen per version like every price here. */
+    promptPriceMicro: bigint('prompt_price_micro', { mode: 'number' }).notNull(),
+    completionPriceMicro: bigint('completion_price_micro', { mode: 'number' }).notNull(),
+    /** Rate for input tokens the provider served from its cache, read-side. */
+    cachePriceMicro: bigint('cache_price_micro', { mode: 'number' }).notNull().default(0),
+    /*
+     * Declared abilities. Only `supportsReasoning` changes how the playground
+     * calls the model today (it gates `reasoningEffort`); the other two record
+     * what an entry is capable of, for entry points that can use them.
+     */
+    supportsTools: boolean('supports_tools').notNull().default(false),
+    supportsReasoning: boolean('supports_reasoning').notNull().default(false),
+    supportsVision: boolean('supports_vision').notNull().default(false),
+    /** Null unless `supportsReasoning`; the application enforces that pairing. */
+    reasoningEffort: text('reasoning_effort').$type<'minimal' | 'low' | 'medium' | 'high'>(),
+    enabled: boolean('enabled').notNull().default(true),
+    /** The entry the playground falls back to when the caller names no model. */
+    isDefault: boolean('is_default').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('llm_config_slug_time_idx').on(t.slug, t.createdAt.desc())],
+);
 
 /**
  * One row per model call the playground made: the cost metric of 9.5 ("模型
@@ -767,6 +824,10 @@ export const llmCostEvent = pgTable(
     model: text('model').notNull(),
     promptTokens: integer('prompt_tokens').notNull(),
     completionTokens: integer('completion_tokens').notNull(),
+    /** Of `promptTokens`, the ones the provider served from cache. */
+    cachedTokens: integer('cached_tokens').notNull().default(0),
+    /** Of `completionTokens`, the ones spent thinking. A breakdown, not an addition. */
+    reasoningTokens: integer('reasoning_tokens').notNull().default(0),
     costMicroUsd: bigint('cost_micro_usd', { mode: 'number' }).notNull(),
     latencyMs: integer('latency_ms'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

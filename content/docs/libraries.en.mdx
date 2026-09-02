@@ -1,0 +1,22 @@
+---
+title: Libraries and versions
+description: Stable Library IDs, immutable versions, and what a query reads during a refresh.
+---
+
+## Library ID
+
+| Source | Shape |
+| --- | --- |
+| Git repository | `/owner/repository` |
+| Website | `/websites/slug` |
+| Uploaded documents | `/docs/slug` |
+| Notion | `/notion/slug` |
+| Pinned version | `/owner/repository/version` |
+
+A changed slug keeps a redirect, and the API returns the new Library ID.
+
+## Versions are immutable
+
+Every version freezes the source digest, the parser version, the chunker version and the embedding model. Publishing is an atomic switch of `current_version_id`.
+
+A query pins its version when the request starts, so **a refresh never mixes old and new chunks**. If a refresh fails, the previous version stays available.

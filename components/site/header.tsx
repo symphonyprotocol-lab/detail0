@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { LocaleSwitcher } from '@/components/site/locale-switcher';
+import { MobileNav } from '@/components/site/mobile-nav';
 import { Wordmark } from '@/components/site/wordmark';
 import { getMessages } from '@/lib/i18n/server';
 import { optionalSession } from '@/lib/http/session';
@@ -38,10 +39,11 @@ export async function SiteHeader() {
           </nav>
         </div>
         <div className="flex items-center gap-4">
+          <MobileNav items={nav} label={t.nav.menu} />
           <LocaleSwitcher />
           <Link
             href={session ? '/dashboard' : '/login'}
-            className="inline-flex h-8 items-center rounded-full bg-brand px-4 text-[13px] font-medium text-white transition-colors hover:bg-brand/90"
+            className="inline-flex h-8 items-center rounded-full bg-brand px-4 text-[13px] font-medium text-onbrand transition-colors hover:bg-brand/90"
           >
             {session ? t.nav.dashboard : t.nav.signIn}
           </Link>
