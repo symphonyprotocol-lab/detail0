@@ -1,0 +1,24 @@
+---
+title: On-chain proof and independent verification
+description: Version digests are written to Aptos mainnet, and checking one calls no Re0 endpoint.
+---
+
+Published versions, daily audit chain heads and closed publisher settlements have their digests written to **Aptos mainnet**.
+
+**Digests only**: no knowledge text, no queries, no user identifiers, no assets.
+
+## What it does and does not prove
+
+<Callout type="warn">
+A proof establishes that "this exact content existed at this moment". It is **not a guarantee that the content is correct**. For a settlement it proves only that the figures were not rewritten after anchoring, never that the allocation was computed correctly.
+</Callout>
+
+## When the chain is unavailable
+
+If the chain or the signing account is unreachable, publishing, refreshing, retrieval, metering, review and billing are **all unaffected**; the proof simply stays pending.
+
+Anchoring consumes no call quota and is included on both Free and Pro. No wallet, no signature and no gas is involved for you at any point.
+
+## Verifying it yourself
+
+The verifier is published separately and open. It depends only on on-chain data and the cited content you already hold — it **calls no Re0 endpoint**.

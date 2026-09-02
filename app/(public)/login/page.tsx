@@ -46,7 +46,7 @@ export default async function LoginPage({
   const error = isLoginError(params.error) ? params.error : null;
 
   return (
-    <section className="site-wash flex flex-1 items-center justify-center">
+    <section className="flex flex-1 items-center justify-center">
       <div className="mx-auto flex w-full max-w-[918px] flex-col items-center gap-5 px-5 py-[66px]">
         <div className="w-full max-w-[430px] rounded-[14px] bg-card/85 pt-9 shadow-[0_2px_6px_rgba(3,26,30,0.05),0_26px_70px_-14px_rgba(3,26,30,0.22)] backdrop-blur-sm">
           <div className="flex justify-center px-[30px]">

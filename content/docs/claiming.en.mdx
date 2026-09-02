@@ -1,0 +1,28 @@
+---
+title: Claiming a library
+description: Prove you control the source to gain management rights and revenue share eligibility.
+---
+
+Submitting a public library **is not owning it**. Ownership comes only from a claim.
+
+A claim does not ask "who are you" but "**do you control this source**" — OAuth establishes identity, not the right to publish.
+
+## How ownership is verified
+
+| Source type | Method |
+| --- | --- |
+| GitHub repository | Repository permission check (`admin` or `maintain`), DNS TXT as fallback |
+| Website, `llms.txt` | DNS TXT record, well-known file as fallback |
+| Uploaded documents, OpenAPI, Notion | Not applicable — the creator is the owner |
+
+<Callout type="warn" title="A config file grants nothing">
+Putting a public key, a token or any declaration in `re0.json` **does not** change ownership. Being able to write a config file is not the same as controlling the source — forks, pull requests and mirrors can all write that file.
+</Callout>
+
+## What a claim gets you
+
+- Management rights: edit metadata, configure parsing scope, refresh manually, pause or delete, read parse logs
+- Eligibility to receive a publisher's revenue share
+- Attribution on the library page
+
+An unclaimed public library earns nothing, and revenue is not backdated to before the claim.

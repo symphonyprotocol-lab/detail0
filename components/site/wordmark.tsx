@@ -16,7 +16,7 @@ export function Wordmark() {
     <Link href="/" className="flex items-center gap-2">
       <span
         aria-hidden
-        className="flex size-6 items-center justify-center rounded-md bg-brand text-white"
+        className="flex size-6 items-center justify-center rounded-md bg-brand text-onbrand"
       >
         <Re0Mark size={24} />
       </span>

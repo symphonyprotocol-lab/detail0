@@ -551,6 +551,7 @@ authenticate caller
 - 两路召回可以合并为单条 SQL，但融合参数与候选上限仍按下列规则版本化；
 - Reciprocal Rank Fusion 参数版本化；
 - Rerank 只处理融合后的有限候选；
+- **候选上限、RRF 常数、Rerank 窗口与输入长度、公共缓存 TTL、在线试用的片段预算、选库的召回与采样上限是管理后台的「召回管理」配置**（`retrieval_config`，追加式版本行，最新一行生效，取值范围由 `lib/domain/retrieval-config.ts` 约束）。每次检索按请求读取最新一行，保存即对下一次请求生效；未保存过时使用代码默认值，即改造前的常量；
 - 近重复 Chunk 按内容 Hash、来源段落和版本去重；
 - `quarantined`、`unsafe`、低分或 Citation 缺失 Chunk 不返回；
 - `maxTokens` 在格式化前严格裁剪，代码块不得被无提示截断。
@@ -560,8 +561,10 @@ authenticate caller
 只缓存不可变版本的检索结果。Cache Key 包含：
 
 ```text
-libraryVersion + policyVersion + queryHash + maxTokens + responseType + retrievalConfigVersion
+libraryVersion + policyVersion + queryHash + maxTokens + responseType + retrievalConfigVersion + retrievalConfigRowId
 ```
+
+`retrievalConfigVersion` 是代码行为的版本，`retrievalConfigRowId` 是后台「召回管理」生效行的 id：改参数不需要清缓存，旧 Key 自然不再被命中。TTL 也来自同一配置，填 0 即关闭公共缓存。
 
 缓存承载在 Upstash Redis，Key 按 Workspace 前缀分区。
 
@@ -577,13 +580,18 @@ libraryVersion + policyVersion + queryHash + maxTokens + responseType + retrieva
 调用 §9.2 的同一个检索函数取得 Chunk 与 Citation
   -> 零结果：直接返回 no_relevant_context，不调用模型
   -> 构造 Prompt：系统提示 + Chunk（标注为不可信数据）+ 用户问题
-  -> 调用 LLM Provider，带硬性 Token 与超时预算
+  -> 调用 LLM Provider（流式），带硬性 Token 预算；超时是「无输出」超时（等首个 Token、等下一个 Token），总时长另有硬上限
+  -> 逐句闸门：一句话的标记全部到齐、且证明不会再追加标记后才出闸
   -> 引用绑定校验：每条事实性陈述必须映射到本次返回的 chunk_id
   -> 未绑定的段落丢弃或降级为非事实展示
   -> 追加一个 Usage Event（1 Call）
 ```
 
 - 生成层**只包裹**检索结果，不得自行访问 Postgres、对象存储或缓存，也不得改写 Chunk 正文；
+- 生成是流式的，但**模型正文不直接过给前端**：服务端按句缓冲、绑定成功才下发，所以「未绑定内容不得作为事实展示」在传输层就已成立，前端没有可以渲染未绑定正文的通道；每次提问都是独立的一轮，不回放历史消息——历史正是第 4 条排除的外部知识；
+- `llm_config` 按 `slug` 分链存放多个可选模型：一条 slug 的最新一行是该模型当前的配置，其中一个模型标记为默认。**选用哪个模型只由控制台决定**，请求体没有模型字段，访客不能替平台挑更贵的模型；
+- 每个模型带上下文窗口（`max_input_tokens`）、输入/输出/缓存三档单价，以及工具调用、推理、图片识别三项能力声明；**检索预算由上下文窗口推算**，不再是所有模型共用一个常量，但上限 16k Token——窗口说明模型能装多少，不说明一个问题需要多少；128k 窗口推出的 64k 预算等于没有预算，Prompt 大小只由召回上限决定，这个上限让预算重新成为约束。推理模型可设推理强度，非推理模型带强度会被拒绝而不是静默丢弃；
+- 成本口径：`prompt_tokens` 仍是供应商口径的全部输入（含缓存命中），其中 `cached_tokens` 按缓存单价计、其余按输入单价计，两者不重复计费；`reasoning_tokens` 是 `completion_tokens` 的构成部分，只记录不另计价；
 - REST、MCP 与在线试用共用同一个检索函数，Contract Test 对「三者返回相同 Version 与 Citation」有断言；
 - 检索阶段的 Usage、Policy 与额度逻辑完全复用 §10 与 §11，生成阶段不再做第二次计量；
 - LLM Provider Key 只在服务端 Route Handler 与 Workflow 中读取，不进入前端 Bundle；Provider 通过 `lib/providers` 的 Adapter 隔离，类型不得泄漏到 Domain 或 SDK；

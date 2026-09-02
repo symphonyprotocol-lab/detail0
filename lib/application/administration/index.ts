@@ -87,11 +87,23 @@ export {
 } from './manage-administrators';
 export {
   activeLlmConfig,
+  llmConfigEntries,
   readLlmConfiguration,
   recordLlmCost,
+  selectableLlmModels,
   updateLlmConfig,
   LlmConfigRefused,
   type LlmConfigRow,
   type LlmConfiguration,
   type LlmUsageStats,
 } from './manage-llm-config';
+export {
+  activeRetrievalSettings,
+  readRetrievalConfiguration,
+  retrievalProviderStatus,
+  updateRetrievalConfig,
+  type ActiveRetrievalSettings,
+  type RetrievalConfigRow,
+  type RetrievalConfiguration,
+  type UpdateRetrievalConfigInput,
+} from './manage-retrieval-config';

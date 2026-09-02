@@ -97,7 +97,7 @@ export default async function LibraryDetailPage({ params }: Params) {
           </div>
 
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            <code className="rounded-md border-2 border-line bg-subtle px-2.5 py-1 font-mono text-[12px] text-[#2d4e54]">
+            <code className="rounded-md border-2 border-line bg-subtle px-2.5 py-1 font-mono text-[12px] text-steel">
               {entry.publicId}
             </code>
             <span className="text-[12px] text-faint">
@@ -181,7 +181,7 @@ export default async function LibraryDetailPage({ params }: Params) {
 
           <Panel title={l.examplesPanel} right={l.examplesPanelRight}>
             <div className="rounded-lg border-2 border-line bg-subtle p-3.5">
-              <pre className="overflow-x-auto font-mono text-[11px] leading-[1.75] text-[#278f5c]">
+              <pre className="overflow-x-auto font-mono text-[11px] leading-[1.75] text-good">
 {`query-docs
   libraryId: "${entry.publicId}"
   query:     "how do I get started"
@@ -199,7 +199,7 @@ export default async function LibraryDetailPage({ params }: Params) {
             {entry.sources.map((source) => (
               <div key={`${source.type}-${source.location}`} className="flex items-center gap-2">
                 <Chip>{source.type}</Chip>
-                <span className="truncate font-mono text-[11.5px] text-[#2d4e54]">
+                <span className="truncate font-mono text-[11.5px] text-steel">
                   {source.location}
                 </span>
               </div>

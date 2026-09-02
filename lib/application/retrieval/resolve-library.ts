@@ -27,17 +27,22 @@
  * and every candidate carries evidence -- which titles and terms matched -- so
  * the calling agent can decide in one round without trusting the name.
  *
- * The workspace policy filters candidates before ranking (architecture.md
- * 10.2: Library Search applies policy at the metadata stage -- recall is
- * content, admission is policy, and a blocked library must not appear at
- * all). What is NOT here yet, by design: the scatter-gather confirmation
- * stage, which belongs to query-docs.
+ * Recall is generous, so admission is a separate step (lib/domain/routing.ts):
+ * a candidate stays only if some path found *evidence* -- a profile term,
+ * a rare term in its chunks, a name hint, or a semantic match close enough to
+ * stand alone. Without it, the nearest centroid of a one-library platform
+ * answered every question, and the workspace policy filters candidates
+ * before ranking (architecture.md 10.2: Library Search applies policy at the
+ * metadata stage -- recall is content, admission is policy, and a blocked
+ * library must not appear at all). What is NOT here yet, by design: the
+ * scatter-gather confirmation stage, which belongs to query-docs.
  */
 import { and, desc, eq, inArray, isNotNull, or, sql, type SQL } from 'drizzle-orm';
 import type { CallerContext } from './index';
 import type { LibraryCandidate, ResolveLibraryInput, ResolveLibraryOutput } from '@/contracts/schemas';
-import { searchTokens } from '@/lib/domain/profile';
+import { routingTokens, searchTokens } from '@/lib/domain/profile';
 import { containsCjk } from '@/lib/domain/cjk';
+import { admitsCandidate, RARE_TERM_MAX_DOCUMENTS } from '@/lib/domain/routing';
 import { pinPolicy, policyIsOpen, policyVerdicts } from '@/lib/application/policies';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import {
@@ -45,31 +50,40 @@ import {
   isEmbeddingConfigured,
   type EmbeddingAdapter,
 } from '@/lib/infrastructure/ai/providers';
+import {
+  activeRetrievalSettings,
+  type ActiveRetrievalSettings,
+} from '@/lib/application/administration/manage-retrieval-config';
 
 export interface ResolveDependencies {
   embeddings(): EmbeddingAdapter;
   configured(): { embeddings: boolean };
+  /** The routing limits in force (lib/domain/retrieval-config.ts); see query-docs. */
+  settings?(): Promise<ActiveRetrievalSettings>;
 }
 
 const defaultDependencies: ResolveDependencies = {
   embeddings: embeddingAdapter,
   configured: () => ({ embeddings: isEmbeddingConfigured() }),
+  settings: activeRetrievalSettings,
 };
 
-/** Per-path recall width; the fusion sees at most this many per path. */
-const RECALL_LIMIT = 24;
-/**
- * The rare-term path reads at most this many chunk rows, whatever the term's
- * frequency. That cap is the whole cost model (architecture.md 9.6): an
- * inverted-index probe is priced by posting-list length, so a genuinely rare
- * term is covered completely, and a common one stops at the sample instead of
- * walking the corpus -- no word-frequency table needed to know which is which.
+/*
+ * Three of the limits here are console settings (`routingRecallLimit`,
+ * `routingRareSampleCap`, `routingResultLimit`), read per request:
+ *
+ * - recall width: the fusion sees at most this many per path;
+ * - rare sample cap: the rare-term path reads at most this many chunk rows,
+ *   whatever the term's frequency. That cap is the whole cost model
+ *   (architecture.md 9.6): an inverted-index probe is priced by posting-list
+ *   length, so a genuinely rare term is covered completely, and a common one
+ *   stops at the sample instead of walking the corpus -- no word-frequency
+ *   table needed to know which is which;
+ * - result limit: candidates returned to the caller.
  */
-const RARE_SAMPLE_CAP = 400;
+
 /** Specific tokens per query; longest first, the rest add little. */
 const RARE_TOKEN_CAP = 8;
-/** Candidates returned to the caller. */
-const RESULT_LIMIT = 10;
 /** Standard reciprocal-rank-fusion constant. */
 const RRF_K = 60;
 /**
@@ -97,8 +111,10 @@ export async function resolveLibrary(
   dependencies: ResolveDependencies = defaultDependencies,
 ): Promise<ResolveLibraryOutput> {
   const database = db();
+  const settings = await (dependencies.settings ?? activeRetrievalSettings)();
   const visible = visibleTo(caller);
-  const tokens = searchTokens(input.query);
+  /* Minus stopwords: "how do I use the" is evidence of nothing. */
+  const tokens = routingTokens(input.query);
 
   /* ------------------------------------------------------- path 1: profile FTS */
 
@@ -121,12 +137,12 @@ export async function resolveLibrary(
           ),
         )
         .orderBy(desc(sql`ts_rank(${schema.libraryProfile.searchVector}, to_tsquery('simple', ${tsquery}))`))
-        .limit(RECALL_LIMIT)
+        .limit(settings.routingRecallLimit)
     : [];
 
   /* ------------------------------------------------------- path 2: profile ANN */
 
-  let semantic: { libraryId: string }[] = [];
+  let semantic: { libraryId: string; distance: number }[] = [];
   if (dependencies.configured().embeddings) {
     const [queryVector] = await dependencies.embeddings().embed([input.query]);
     if (queryVector) {
@@ -148,7 +164,7 @@ export async function resolveLibrary(
         .where(visible)
         .groupBy(schema.libraryProfileVector.libraryId)
         .orderBy(sql`min(${schema.libraryProfileVector.embedding} <=> ${literal}::vector)`)
-        .limit(RECALL_LIMIT);
+        .limit(settings.routingRecallLimit);
     }
   }
 
@@ -162,7 +178,8 @@ export async function resolveLibrary(
    * only chunks of a library's *current* version may route to it.
    */
   let rare: { libraryId: string }[] = [];
-  const rareQuery = rareTsquery(tokens);
+  const specific = specificTokens(tokens);
+  const rareQuery = specific.length > 0 ? specific.map(rareTermQuery).join(' | ') : null;
   if (rareQuery) {
     const sampled = database
       .select({ libraryId: schema.chunk.libraryId })
@@ -181,7 +198,7 @@ export async function resolveLibrary(
                or ${schema.chunk.searchVectorCjk} @@ to_tsquery('simple', ${rareQuery}))`,
         ),
       )
-      .limit(RARE_SAMPLE_CAP)
+      .limit(settings.routingRareSampleCap)
       .as('sampled');
 
     rare = await database
@@ -192,7 +209,49 @@ export async function resolveLibrary(
       .from(sampled)
       .groupBy(sampled.libraryId)
       .orderBy(desc(sql`count(*)`), sampled.libraryId)
-      .limit(RECALL_LIMIT);
+      .limit(settings.routingRecallLimit);
+  }
+
+  /*
+   * Which of those terms are actually rare. The sampled probe above ranks
+   * libraries by how many chunks matched any specific term, which is fine
+   * for order and useless for admission: "next" and "app" match chunks in
+   * every technical corpus. So each term is probed on its own, reading at
+   * most RARE_TERM_MAX_DOCUMENTS + 1 rows, and only a term that stops short
+   * of that -- one that lives in a paragraph or two, platform-wide -- is
+   * evidence for the libraries it lives in.
+   */
+  const rareEvidence = new Map<string, number>();
+  for (const token of specific) {
+    const query = rareTermQuery(token);
+    const probe = database
+      .select({ libraryId: schema.chunk.libraryId })
+      .from(schema.chunk)
+      .innerJoin(
+        schema.library,
+        and(
+          eq(schema.library.id, schema.chunk.libraryId),
+          eq(schema.library.currentVersionId, schema.chunk.versionId),
+        ),
+      )
+      .where(
+        and(
+          visible,
+          sql`(${schema.chunk.searchVector} @@ to_tsquery('simple', ${query})
+               or ${schema.chunk.searchVectorCjk} @@ to_tsquery('simple', ${query}))`,
+        ),
+      )
+      .limit(RARE_TERM_MAX_DOCUMENTS + 1)
+      .as('probe');
+    const rows = await database
+      .select({ libraryId: probe.libraryId, hits: sql<number>`count(*)::int` })
+      .from(probe)
+      .groupBy(probe.libraryId);
+    const total = rows.reduce((sum, row) => sum + Number(row.hits), 0);
+    if (total === 0 || total > RARE_TERM_MAX_DOCUMENTS) continue;
+    for (const row of rows) {
+      rareEvidence.set(row.libraryId, (rareEvidence.get(row.libraryId) ?? 0) + 1);
+    }
   }
 
   /* -------------------------------------------------------- path 4: name hint */
@@ -211,7 +270,7 @@ export async function resolveLibrary(
           ),
         )
         .orderBy(schema.library.publicId)
-        .limit(RECALL_LIMIT)
+        .limit(settings.routingRecallLimit)
     : [];
 
   /* ------------------------------------------------------------------- fusion */
@@ -234,7 +293,24 @@ export async function resolveLibrary(
   }
   if (fused.size === 0) return { results: [], requestId: caller.requestId };
 
-  let candidateIds = [...fused.keys()];
+  /*
+   * Admission (lib/domain/routing.ts): fusion ranks whatever recall
+   * returned, and recall returns its nearest neighbours whatever the
+   * distance. A candidate without evidence is not a weak match, it is no
+   * match, and leaves here before policy, ranking or evidence assembly.
+   */
+  const profileRank = new Map(keyword.map((row) => [row.libraryId, Number(row.rank) || 0]));
+  const centroid = new Map(semantic.map((row) => [row.libraryId, Number(row.distance)]));
+  const namedIds = new Set(named.map((row) => row.libraryId));
+  let candidateIds = [...fused.keys()].filter((id) =>
+    admitsCandidate({
+      profileRank: profileRank.get(id) ?? 0,
+      centroidDistance: centroid.get(id) ?? null,
+      rareTerms: rareEvidence.get(id) ?? 0,
+      nameHint: namedIds.has(id),
+    }),
+  );
+  if (candidateIds.length === 0) return { results: [], requestId: caller.requestId };
 
   /*
    * §10.2: policy admission at the metadata stage, over the bounded candidate
@@ -301,7 +377,7 @@ export async function resolveLibrary(
     .sort(
       (a, b) => b.score - a.score || a.row.publicId.localeCompare(b.row.publicId),
     )
-    .slice(0, RESULT_LIMIT);
+    .slice(0, settings.routingResultLimit);
 
   const results: LibraryCandidate[] = ranked.map(({ row, quality }) => ({
     libraryId: row.publicId,
@@ -364,34 +440,35 @@ function escapeLike(value: string): string {
 }
 
 /**
- * The query's specific tokens as one OR tsquery, or null when it has none.
- *
- * Specific means long enough to carry routing signal on its own: Han grams of
- * three or more characters, latin words of four or more. A Han gram is
- * rewritten as a phrase of its consecutive bigrams (「影翅虫」 becomes
- * 影翅 <-> 翅虫), which is exactly how the CJK chunk index stores text --
- * adjacent bigram positions -- so the phrase matches the precise character
- * sequence. Latin tokens are quoted as-is; rare identifiers stem to
- * themselves, and a stemmed miss only costs this one path its vote.
+ * The query's specific tokens: the ones long enough to carry routing signal
+ * on their own. Han grams of three or more characters, latin words of three
+ * or more -- stopwords are already gone, so "eth" and "evm" qualify, and
+ * whether a word is *rare* is measured against the corpus, not its length.
+ * Longest first, capped: past a handful the rest add little.
  */
-function rareTsquery(tokens: readonly string[]): string | null {
-  const clean = (token: string) => token.replace(/['\\]/g, '');
-  const specific = tokens
-    .map(clean)
-    .filter((token) => (containsCjk(token) ? token.length >= 3 : token.length >= 4))
+function specificTokens(tokens: readonly string[]): string[] {
+  return tokens
+    .map((token) => token.replace(/['\\]/g, ''))
+    .filter((token) => token.length >= 3)
     .sort((a, b) => b.length - a.length || a.localeCompare(b))
     .slice(0, RARE_TOKEN_CAP);
-  if (specific.length === 0) return null;
+}
 
-  const parts = specific.map((token) => {
-    if (!containsCjk(token)) return `'${token}'`;
-    const bigrams: string[] = [];
-    /* By code point: slicing UTF-16 units would split astral Han characters. */
-    const chars = Array.from(token);
-    for (let at = 0; at + 2 <= chars.length; at += 1) {
-      bigrams.push(`'${chars[at]!}${chars[at + 1]!}'`);
-    }
-    return `(${bigrams.join(' <-> ')})`;
-  });
-  return parts.join(' | ');
+/**
+ * One specific token as a tsquery. A Han gram is rewritten as a phrase of
+ * its consecutive bigrams (「影翅虫」 becomes 影翅 <-> 翅虫), which is exactly
+ * how the CJK chunk index stores text -- adjacent bigram positions -- so the
+ * phrase matches the precise character sequence. Latin tokens are quoted
+ * as-is; rare identifiers stem to themselves, and a stemmed miss only costs
+ * this one path its vote.
+ */
+function rareTermQuery(token: string): string {
+  if (!containsCjk(token)) return `'${token}'`;
+  const bigrams: string[] = [];
+  /* By code point: slicing UTF-16 units would split astral Han characters. */
+  const chars = Array.from(token);
+  for (let at = 0; at + 2 <= chars.length; at += 1) {
+    bigrams.push(`'${chars[at]!}${chars[at + 1]!}'`);
+  }
+  return `(${bigrams.join(' <-> ')})`;
 }

@@ -19,7 +19,7 @@
  */
 
 /** Frozen into `library_profile.profile_version`; bump on any change here. */
-export const PROFILE_VERSION = 're0-profile-1';
+export const PROFILE_VERSION = 're0-profile-2';
 
 export const PROFILE_LIMITS = {
   /** Titles kept on the profile row. Routing only needs the vocabulary. */
@@ -34,6 +34,46 @@ export const PROFILE_LIMITS = {
    */
   maxCentroids: 32,
 } as const;
+
+/* -------------------------------------------------------------- stopwords */
+
+/**
+ * Words that say nothing about what a library is about.
+ *
+ * Without this list the profile of a large English library is half function
+ * words -- "the", "and", "for", "that" outnumber every real term, and the
+ * 256 slots fill before "eth" or "staking" get one -- and a question that
+ * contains "the" matches every profile on the platform. The list is
+ * deliberately short: function words, pronouns, auxiliaries, and the handful
+ * of verbs and nouns every question is made of ("how do I use", "show me an
+ * example"). Product words are never here, however common: "next", "page",
+ * "router" and "install" are what some library is about.
+ *
+ * The Han entries are the question-shaped grams ("什么", "怎么", "如何")
+ * that the 2-4 gram segmentation would otherwise turn into terms.
+ */
+const STOPWORDS = new Set([
+  ...`a an the and or but nor not no if then else than as at by for from in into of off on onto
+  to up down out over under with within without about above below between through during before
+  after again further once here there where when why how what which who whom whose this that
+  these those is are was were be been being am do does did doing done have has had having
+  i me my mine we us our ours you your yours he him his she her hers it its they them their
+  theirs itself myself yourself ourselves themselves all any both each few more most other
+  others some such only own same so too very can could will would shall should may might must
+  also just ever never always often still yet already even much many every either neither via
+  per etc use using used uses make makes making made get gets getting got set sets need needs
+  needed want wants wanted show shows showing tell tells give gives take takes see seen let
+  know like way ways thing things something anything nothing please help work works working
+  write read example examples latest`.split(/\s+/),
+  ...['什么', '怎么', '怎样', '如何', '为什么', '是什么', '怎么做', '怎么办', '怎么样', '什么是',
+    '哪些', '哪个', '哪里', '可以', '能否', '是否', '如果', '我们', '你们', '他们', '这个', '那个',
+    '这些', '那些', '一个', '一下', '一些', '请问', '有没有', '没有', '或者', '以及', '但是', '因为',
+    '所以', '关于', '需要', '应该', '的', '了', '是', '在', '和', '与', '或', '吗', '呢'],
+]);
+
+export function isStopword(token: string): boolean {
+  return STOPWORDS.has(token);
+}
 
 /* ------------------------------------------------------------------ terms */
 
@@ -75,7 +115,7 @@ export function extractTerms(
       const run = match[0];
       if (HAS_HAN.test(run)) continue; // counted below, as grams
       const word = run.toLowerCase();
-      if (word.length < 3 || /^[\p{N}_-]+$/u.test(word)) continue;
+      if (word.length < 3 || /^[\p{N}_-]+$/u.test(word) || isStopword(word)) continue;
       bump(word, 1);
     }
     for (const match of text.matchAll(HAN_RUN)) {
@@ -83,7 +123,8 @@ export function extractTerms(
       const chars = Array.from(match[0]);
       for (let size = 2; size <= 4; size += 1) {
         for (let at = 0; at + size <= chars.length; at += 1) {
-          bump(chars.slice(at, at + size).join(''), size);
+          const gram = chars.slice(at, at + size).join('');
+          if (!isStopword(gram)) bump(gram, size);
         }
       }
     }
@@ -93,16 +134,27 @@ export function extractTerms(
     (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
   );
 
-  const kept: { term: string; score: number }[] = [];
+  /*
+   * Absorption is for Han grams only. A shorter gram inside a kept longer
+   * one with comparable frequency is that gram's shadow (「隐翅」 under
+   * 「隐翅虫」). A latin word inside a longer latin word is a different word:
+   * "eth" is not a shadow of "ethereum", nor "validator" of "validators",
+   * and absorbing them once kept the corpus's own name out of its profile.
+   */
+  const kept: { term: string; score: number; han: boolean }[] = [];
   for (const [term, score] of ranked) {
     if (kept.length >= limit) break;
-    const absorbed = kept.some(
-      (longer) =>
-        longer.term.length > term.length &&
-        longer.term.includes(term) &&
-        score <= longer.score * 2,
-    );
-    if (!absorbed) kept.push({ term, score });
+    const han = HAS_HAN.test(term);
+    const absorbed =
+      han &&
+      kept.some(
+        (longer) =>
+          longer.han &&
+          longer.term.length > term.length &&
+          longer.term.includes(term) &&
+          score <= longer.score * 2,
+      );
+    if (!absorbed) kept.push({ term, score, han });
   }
 
   return kept.map((entry) => entry.term);
@@ -134,6 +186,17 @@ export function searchTokens(text: string): string[] {
   const tokens = new Set<string>();
   collectTokens(text, tokens);
   return [...tokens];
+}
+
+/**
+ * The tokens of a question that can say which library it is about: the
+ * same segmentation, minus the stopwords above. Routing recalls and gathers
+ * evidence with these, so "how do I write the" matches nothing, while the
+ * chunk-level retrieval inside a library keeps every token -- there, the
+ * version's own text-search configuration decides what a stopword is.
+ */
+export function routingTokens(text: string): string[] {
+  return searchTokens(text).filter((token) => !isStopword(token));
 }
 
 function collectTokens(text: string, into: Set<string>): void {

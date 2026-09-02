@@ -25,6 +25,7 @@ const { createPlatformLibrary } = await import(
 const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
+const { DEFAULT_RETRIEVAL_SETTINGS } = await import('@/lib/domain/retrieval-config');
 
 const actor = { administratorId: null as unknown as string, email: 'ops@example.test' };
 const created: string[] = [];
@@ -220,6 +221,33 @@ describeWithDb('query-docs', () => {
         .delete(schema.planVersion)
         .where(inArray(schema.planVersion.id, planVersions));
     }
+  });
+
+  it('recalls as wide as the configuration in force says, and no wider', async () => {
+    /* The settings are a dependency read per request, so a narrower width
+       injected here is exactly what a console save would do to the next
+       call. With no embeddings only the keyword leg runs, so its width is
+       the whole recall. */
+    const stamp = Date.now();
+    await publishedLibrary(`qd-width-${stamp}`);
+    const workspaceId = await workspaceOnPlan(100);
+    const narrow = {
+      ...noEmbeddings,
+      settings: async () => ({
+        ...DEFAULT_RETRIEVAL_SETTINGS,
+        recallLimit: 5,
+        configId: null,
+        createdAt: null,
+      }),
+    };
+
+    const output = await queryDocs(
+      caller(workspaceId),
+      { libraryId: `/websites/qd-width-${stamp}`, query: 'rove beetle treatment', maxTokens: 4000, format: 'json' },
+      narrow,
+    );
+    expect(output.chunks.length).toBeGreaterThan(0);
+    expect(output.chunks.length).toBeLessThanOrEqual(5);
   });
 
   it('returns cited chunks and meters exactly one call', async () => {

@@ -96,7 +96,14 @@ export async function fetchDocument(
       response = await fetch(url, {
         method,
         headers: {
-          accept: options.accept ?? 'text/markdown, text/plain, text/html;q=0.9, */*;q=0.5',
+          /*
+           * Markdown first: documentation hosts that negotiate on `Accept`
+           * (Mintlify, Fumadocs, Vercel's docs) return the source page instead
+           * of the rendered one, which is smaller, has no chrome to strip and
+           * keeps its headings. `web.ts` reads the content type back to decide
+           * what the page is.
+           */
+          accept: options.accept ?? 'text/markdown, text/plain;q=0.9, text/html;q=0.8, */*;q=0.5',
           'user-agent': USER_AGENT,
           ...(sendBody ? { 'content-type': 'application/json' } : {}),
           ...credentialSafe(options.headers, url, origin),
@@ -163,7 +170,16 @@ export async function fetchDocument(
   throw new IngestionFailure('source_unreachable', STAGE, 'too many redirects');
 }
 
-const USER_AGENT = 're0-ingestion/1.0 (+https://re0.com)';
+/**
+ * Browser-shaped, and honest about who is asking.
+ *
+ * A bare product token is what most CDN bot rules match on first, and a 403 at
+ * the edge looks exactly like a site that refuses to be indexed. The
+ * `Mozilla/5.0 (compatible; ...)` form is the one well-behaved crawlers have
+ * used for two decades: it passes the coarse filters while still naming the
+ * bot and a contact URL, so an operator who wants us gone can say so.
+ */
+const USER_AGENT = 'Mozilla/5.0 (compatible; re0-ingestion/1.0; +https://re0.com)';
 
 /**
  * Headers that authenticate us, and must not survive a change of origin.

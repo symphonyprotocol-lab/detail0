@@ -4,6 +4,11 @@
  * answers from it -- and with no LLM configured (as here), the transcript
  * degrades to retrieved passages with sources, never an error.
  *
+ * The response is a UI message stream, so the assertions read the parts off
+ * the wire. That the stream carries no text part is itself the check that
+ * matters: requirement.md 5.1 rule 5 is enforced by there being no channel
+ * through which unbound prose could reach the client.
+ *
  * Runs only when TEST_DATABASE_URL points at a disposable database.
  */
 import { afterAll, describe, expect, it } from 'vitest';
@@ -139,30 +144,56 @@ describeWithDb('playground route', () => {
 
     const response = await playgroundRoute(ask('when are zug-tide tables recalibrated'));
     expect(response.status).toBe(200);
-    const transcript = (await response.json()) as {
-      kind: string;
-      libraryId: string | null;
-      candidates: { libraryId: string }[];
-      sources: { sourceUrl: string }[];
-      text: string | null;
-    };
-    expect(transcript.kind).toBe('degraded');
-    expect(transcript.libraryId).toBe(`/websites/pgr-route-${stamp}`);
-    expect(transcript.candidates.map((c) => c.libraryId)).toContain(
-      `/websites/pgr-route-${stamp}`,
+    const parts = await readStream(response);
+
+    const routing = partData<{ libraryId: string | null; candidates: { libraryId: string }[] }>(
+      parts,
+      'data-routing',
     );
-    expect(transcript.text).toBeNull();
-    expect(transcript.sources[0]?.sourceUrl).toBe('https://example.test/tides');
+    expect(routing?.libraryId).toBe(`/websites/pgr-route-${stamp}`);
+    expect(routing?.candidates.map((c) => c.libraryId)).toContain(`/websites/pgr-route-${stamp}`);
+
+    const sources = partData<{ sources: { sourceUrl: string }[] }>(parts, 'data-sources');
+    expect(sources?.sources[0]?.sourceUrl).toBe('https://example.test/tides');
+
+    expect(partData<{ kind: string }>(parts, 'data-outcome')?.kind).toBe('degraded');
+    /* No claims and no text part: nothing was presented as fact. */
+    expect(parts.filter((part) => part.type === 'data-claim')).toHaveLength(0);
+    expect(parts.some((part) => part.type.startsWith('text'))).toBe(false);
   });
 
   it('says so when no library matches, and refuses bad input', async () => {
     const missing = await playgroundRoute(ask('zzz-quantum-flux-nothing-zzz'));
     expect(missing.status).toBe(200);
-    const transcript = (await missing.json()) as { kind: string; sources: unknown[] };
-    expect(transcript.kind).toBe('no_library');
-    expect(transcript.sources).toHaveLength(0);
+    const parts = await readStream(missing);
+    expect(partData<{ kind: string }>(parts, 'data-outcome')?.kind).toBe('no_library');
+    expect(parts.filter((part) => part.type === 'data-sources')).toHaveLength(0);
 
+    /* Bad input is refused before the stream opens, so it is still a status. */
     const empty = await playgroundRoute(ask(''));
     expect(empty.status).toBe(400);
   });
 });
+
+interface StreamPart {
+  type: string;
+  data?: unknown;
+}
+
+/** Collect the SSE frames of a UI message stream into their parts. */
+async function readStream(response: Response): Promise<StreamPart[]> {
+  const body = await response.text();
+  const parts: StreamPart[] = [];
+  for (const line of body.split('\n')) {
+    if (!line.startsWith('data:')) continue;
+    const payload = line.slice(5).trim();
+    if (payload === '' || payload === '[DONE]') continue;
+    parts.push(JSON.parse(payload) as StreamPart);
+  }
+  return parts;
+}
+
+function partData<T>(parts: StreamPart[], type: string): T | null {
+  const found = parts.find((part) => part.type === type);
+  return found ? (found.data as T) : null;
+}

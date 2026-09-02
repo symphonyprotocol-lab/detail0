@@ -4,8 +4,12 @@
 
 /*
  * Design tokens lifted from knowleg-market.pen.
- * The public marketing site commits to a single light look, matching the
- * design source; only the docs site follows the reader's theme.
+ *
+ * These are the light values, and they are what the dashboard and the admin
+ * console render in -- those follow the design source's single light look. The
+ * public marketing site re-declares the same names for a dark system theme,
+ * further down; everything it paints is spelled as one of these tokens so that
+ * one block is the whole of its dark look.
  */
 @theme {
   --color-surface: #f9fdff;
@@ -19,6 +23,9 @@
   --color-steel: #2d4e54;
   --color-faint: #8aa0a4;
   --color-brand: #00bba7;
+  /* Label on a brand fill. White in the design source; in dark the fill is
+     lifted for contrast against the page, which leaves white too faint on it. */
+  --color-onbrand: #ffffff;
   --color-brandink: #006363;
   --color-brandsoft: #e4f2f2;
   --color-good: #079566;
@@ -29,6 +36,19 @@
   --color-bar: #62ddbd;
   --color-barstrong: #00ad8d;
   --color-terminal: #171d20;
+  /* Marketing-only: the CTA panel, and the two hairlines that are not `line` --
+     the install chip's outer edge and the catalogue row's brand badge. */
+  --color-panel: #f0f0f0;
+  --color-termline: #10292c;
+  --color-brandline: #a3d9d5;
+  /* Playground transcript: the tray, the two bubbles, the input and the
+     citation accent. The code block inside an answer is dark in both themes,
+     so it stays spelled inline there. */
+  --color-tray: #f8f9f8;
+  --color-bubble: #079b78;
+  --color-reply: #f2f4f3;
+  --color-field: #fdfefe;
+  --color-cite: #087c6a;
   /* Library scope + review-status palette, from the dashboard design frames. */
   --color-pubsoft: #e9f8f4;
   --color-pubink: #087c6a;
@@ -58,66 +78,6 @@
 }
 
 /*
- * Radial wash behind the hero, as in the design source.
- *
- * It is painted by a pseudo-element rather than the section's own background so
- * it can bleed upward past the floating header capsule (54px pill plus its 12px
- * gutters). The wash running behind the capsule is what makes it read as
- * suspended over the page instead of welded to the top edge.
- *
- * The box covers the whole first screen rather than just the hero section, so
- * the gradient is sized against the viewport and keeps going past the hero.
- * The ellipse is in turn taller than that box (118%) so the tint is still
- * fading when it reaches the bottom edge -- sized to 100% it would land on zero
- * exactly there and read as a flat band.
- *
- * Because the ellipse has not finished fading at that edge, a white ramp is
- * layered over its lower half. That is what lands the wash on exactly the page
- * background below, instead of stepping off a residual tint onto white.
- */
-.site-wash {
-  position: relative;
-}
-
-.site-wash::before {
-  content: '';
-  position: absolute;
-  inset: -78px 0 0 0;
-  min-height: 100vh;
-  min-height: 100dvh;
-  z-index: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(
-      to bottom,
-      rgba(255, 255, 255, 0) 60%,
-      rgba(255, 255, 255, 0.55) 82%,
-      #ffffff 100%
-    ),
-    radial-gradient(
-      92% 118% at 50% 0%,
-      rgba(88, 208, 185, 0.66) 0%,
-      rgba(112, 215, 197, 0.5) 34%,
-      rgba(148, 227, 211, 0.34) 66%,
-      rgba(195, 236, 223, 0) 100%
-    );
-}
-
-.site-wash > * {
-  position: relative;
-  z-index: 1;
-}
-
-/*
- * Whatever follows the hero has to paint above the wash, which now overhangs
- * the hero section to reach the bottom of the first screen.
- */
-.site-wash ~ * {
-  position: relative;
-  z-index: 1;
-}
-
-/*
  * Product surfaces (public site, dashboard, admin) commit to the single light
  * look of the design source.
  *
@@ -134,16 +94,79 @@
 }
 
 /*
- * The marketing site sits on white rather than the tinted product surface, so
- * the hero wash has something to land on: it ramps to #ffffff at the bottom of
- * the first screen and the page carries that same white downward. Its cards are
- * read from their borders, not from a card/background contrast, so nothing is
- * lost by dropping the tint. Unlayered like `.product-surface` above it -- a
- * `bg-card` utility would lose to that rule, since Tailwind's utilities are
- * layered and unlayered CSS outranks them.
+ * The marketing site sits on flat white rather than the tinted product surface.
+ * Its cards are read from their borders, not from a card/background contrast,
+ * so nothing is lost by dropping the tint. Unlayered like `.product-surface`
+ * above it -- a `bg-card` utility would lose to that rule, since Tailwind's
+ * utilities are layered and unlayered CSS outranks them.
  */
 .site-surface {
   background-color: var(--color-card);
+}
+
+/*
+ * The marketing site follows the reader's system theme.
+ *
+ * It is done by re-declaring the design tokens on the marketing wrapper rather
+ * than by writing `dark:` variants across the pages, for two reasons. The
+ * utilities all resolve `var(--color-*)` at use, so redefining the names here
+ * repaints every one of them at once -- and it keeps the switch off the
+ * dashboard and the admin console, which carry `.product-surface` without this
+ * class and stay light, as the design source has them.
+ *
+ * There is no in-page toggle, so this is `prefers-color-scheme` alone. The
+ * `color-scheme` line has to be repeated: `.product-surface` pins it to light
+ * on the same element, and without overriding it here the page would be dark
+ * while its scrollbars and native controls stayed light.
+ *
+ * The palette is the design source's own dark family -- the admin console's
+ * rail and sign-in panel -- so the two dark surfaces of the product agree.
+ */
+@media (prefers-color-scheme: dark) {
+  /*
+   * The wrapper is only as tall as the page; the canvas behind it belongs to
+   * the document, and left at the UA default it flashes white on an overscroll
+   * bounce and on the paint before the wrapper mounts. Matched here rather than
+   * in the root layout, which must stay colourless for the docs site -- the
+   * `:has()` is what keeps this to pages the marketing wrapper is on.
+   */
+  html:has(.site-surface) {
+    background-color: #0d262b;
+    color-scheme: dark;
+  }
+
+  .site-surface {
+    --color-surface: #0a1f24;
+    --color-card: #0d262b;
+    --color-subtle: #123037;
+    --color-mutedbg: #1a3a41;
+    --color-line: #244850;
+    --color-ink: #e9f4f4;
+    --color-muted: #93aeb3;
+    --color-steel: #bad1d5;
+    --color-faint: #6d888d;
+    --color-brand: #2fd3b8;
+    --color-onbrand: #062521;
+    --color-brandink: #5fdcc4;
+    --color-brandsoft: #103a39;
+    --color-good: #3fc78f;
+    --color-goodsoft: #0f3129;
+    --color-warn: #d9a05a;
+    --color-warnsoft: #37281a;
+    --color-err: #e57373;
+    --color-errsoft: #3a2020;
+    --color-panel: #123037;
+    --color-termline: #2b4a50;
+    --color-brandline: #2a6660;
+    --color-tray: #0f2b31;
+    --color-bubble: #0b7f63;
+    --color-reply: #16323a;
+    --color-field: #0a2126;
+    --color-cite: #4fd0b4;
+
+    background-color: var(--color-card);
+    color-scheme: dark;
+  }
 }
 
 /* Work area of the admin console, as in the design source. */

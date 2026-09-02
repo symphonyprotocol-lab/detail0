@@ -39,7 +39,7 @@ export function Button({
   }`;
   const style =
     variant === 'primary'
-      ? 'bg-brand text-white hover:bg-brand/90'
+      ? 'bg-brand text-onbrand hover:bg-brand/90'
       : 'border-2 border-line bg-card text-ink hover:bg-subtle';
   return (
     <Link href={href} className={`${base} ${style} ${className}`}>

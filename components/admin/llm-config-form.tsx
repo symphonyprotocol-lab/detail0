@@ -1,111 +1,302 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
+
+import { Bounded, FIELD, Field, range } from '@/components/admin/form-fields';
 import { submitOn } from '@/components/admin/platform-library-shared';
-import { ConsoleButton } from '@/components/admin/ui';
+import { ConsoleButton, Pill } from '@/components/admin/ui';
 import type { LlmConfigActionResult } from '@/app/admin/(console)/llm/actions';
 import { useI18n } from '@/lib/i18n/client';
+import {
+  MAX_INPUT_TOKENS,
+  MAX_OUTPUT_TOKENS,
+  priceUsdFromMicro,
+  REASONING_EFFORTS,
+  TIMEOUT_MS,
+} from '@/lib/domain/generation';
 
-const FIELD =
-  'h-9 w-full rounded-[7px] border-2 border-line bg-card px-2.5 text-[12px] tracking-[-0.023em] text-ink placeholder:text-faint focus:border-brand focus:outline-none';
-
-interface Prefill {
+export interface LlmEntry {
+  slug: string;
+  label: string;
   baseUrl: string;
   model: string;
+  maxInputTokens: number;
   maxOutputTokens: number;
   timeoutMs: number;
   promptPriceMicro: number;
   completionPriceMicro: number;
+  cachePriceMicro: number;
+  supportsTools: boolean;
+  supportsReasoning: boolean;
+  supportsVision: boolean;
+  reasoningEffort: string | null;
   enabled: boolean;
+  isDefault: boolean;
 }
 
+/** What a brand new entry starts from, so the form is never empty. */
+const BLANK: LlmEntry = {
+  slug: '',
+  label: '',
+  baseUrl: 'https://api.openai.com/v1',
+  model: '',
+  maxInputTokens: 128_000,
+  maxOutputTokens: 800,
+  timeoutMs: 30_000,
+  promptPriceMicro: 0,
+  completionPriceMicro: 0,
+  cachePriceMicro: 0,
+  supportsTools: false,
+  supportsReasoning: false,
+  supportsVision: false,
+  reasoningEffort: null,
+  enabled: true,
+  isDefault: false,
+};
+
 /**
- * The playground-model form. Every save mints an immutable new version
- * (manage-llm-config.ts); the form is prefilled from the active one so a
- * save with no edits is a faithful re-mint, not a reset to defaults.
+ * The playground's model registry.
+ *
+ * Every save mints an immutable new row (manage-llm-config.ts), so there is
+ * one mutation behind all four things this screen does: adding an entry,
+ * editing one, switching one off, and choosing which one the playground uses
+ * by default. Picking an entry loads it into the form, which means a save with
+ * no edits is a faithful re-mint rather than a reset to defaults.
+ *
+ * `key` on the form is what makes that work: switching entries has to replace
+ * the uncontrolled inputs, not merely change the defaults they ignored.
  */
 export function LlmConfigForm({
-  prefill,
+  entries,
   action,
 }: {
-  prefill: Prefill;
+  entries: LlmEntry[];
   action: (previous: LlmConfigActionResult | null, form: FormData) => Promise<LlmConfigActionResult>;
 }) {
   const { t } = useI18n();
   const p = t.admin.llm;
   const [state, formAction, pending] = useActionState(action, null);
+  const [selected, setSelected] = useState<string | null>(entries[0]?.slug ?? null);
+
+  const editing = entries.find((entry) => entry.slug === selected) ?? BLANK;
+  const isNew = editing === BLANK;
+
+  /*
+   * The one field whose availability depends on another. Held in state rather
+   * than read off the checkbox, because the effort select has to follow the
+   * capability as it is toggled, not only as it was loaded.
+   */
+  const [reasoning, setReasoning] = useState(editing.supportsReasoning);
 
   return (
-    <form onSubmit={submitOn(formAction)} className="flex flex-col gap-4 px-[19px] py-4">
-      <Field label={p.baseUrl}>
-        <input name="baseUrl" defaultValue={prefill.baseUrl} className={FIELD} required />
-      </Field>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label={p.model}>
-          <input name="model" defaultValue={prefill.model} className={FIELD} required />
-        </Field>
-        <label className="flex items-end gap-2 pb-2 text-[12px] tracking-[-0.023em] text-steel">
-          <input
-            type="checkbox"
-            name="enabled"
-            defaultChecked={prefill.enabled}
-            className="size-4 accent-brand"
-          />
-          {p.enabled}
-        </label>
-        <Field label={p.maxOutputTokens}>
-          <input
-            name="maxOutputTokens"
-            type="number"
-            defaultValue={prefill.maxOutputTokens}
-            className={FIELD}
-          />
-        </Field>
-        <Field label={p.timeoutMs}>
-          <input name="timeoutMs" type="number" defaultValue={prefill.timeoutMs} className={FIELD} />
-        </Field>
-        <Field label={p.promptPrice}>
-          <input
-            name="promptPriceMicro"
-            type="number"
-            defaultValue={prefill.promptPriceMicro}
-            className={FIELD}
-          />
-        </Field>
-        <Field label={p.completionPrice}>
-          <input
-            name="completionPriceMicro"
-            type="number"
-            defaultValue={prefill.completionPriceMicro}
-            className={FIELD}
-          />
-        </Field>
+    <div className="flex flex-col">
+      <div className="flex flex-wrap gap-2 px-[19px] pt-4">
+        {entries.map((entry) => {
+          const active = entry.slug === selected;
+          return (
+            <button
+              key={entry.slug}
+              type="button"
+              onClick={() => {
+                setSelected(entry.slug);
+                setReasoning(entry.supportsReasoning);
+              }}
+              aria-current={active ? 'true' : undefined}
+              className={`flex items-center gap-2 rounded-[9px] border-2 px-3 py-2 text-left transition-colors ${
+                active ? 'border-brand bg-brandsoft' : 'border-line bg-card hover:bg-subtle'
+              }`}
+            >
+              <span className="flex flex-col gap-0.5">
+                <span className="text-[12px] font-semibold tracking-[-0.023em] text-ink">
+                  {entry.label}
+                </span>
+                <span className="font-mono text-[10.5px] text-faint">{entry.model}</span>
+              </span>
+              {entry.isDefault ? <Pill tone="ok">{p.defaultBadge}</Pill> : null}
+              {entry.enabled ? null : <Pill tone="neutral">{p.stateDisabled}</Pill>}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => {
+            setSelected(null);
+            setReasoning(BLANK.supportsReasoning);
+          }}
+          aria-current={isNew ? 'true' : undefined}
+          className={`rounded-[9px] border-2 border-dashed px-3 py-2 text-[12px] font-semibold tracking-[-0.023em] transition-colors ${
+            isNew ? 'border-brand text-brandink' : 'border-line text-muted hover:text-ink'
+          }`}
+        >
+          {p.newEntry}
+        </button>
       </div>
-      <Field label={p.reason}>
-        <input name="reason" className={FIELD} required />
-      </Field>
-      {state && !state.ok ? (
-        <p className="text-[12px] tracking-[-0.023em] text-danger">
-          {p.errors[state.error ?? 'unavailable']}
-        </p>
-      ) : null}
-      {state?.ok ? (
-        <p className="text-[12px] tracking-[-0.023em] text-steel">{p.saved}</p>
-      ) : null}
-      <div>
-        <ConsoleButton type="submit" variant="primary" disabled={pending}>
-          {p.save}
-        </ConsoleButton>
-      </div>
-    </form>
+
+      <form
+        key={editing.slug || 'new'}
+        onSubmit={submitOn(formAction)}
+        className="flex flex-col gap-4 px-[19px] py-4"
+      >
+        {editing.slug ? <input type="hidden" name="slug" value={editing.slug} /> : null}
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label={p.label} hint={isNew ? p.labelHint : editing.slug}>
+            <input name="label" defaultValue={editing.label} className={FIELD} required />
+          </Field>
+          <Field label={p.model}>
+            <input name="model" defaultValue={editing.model} className={FIELD} required />
+          </Field>
+        </div>
+        <Field label={p.baseUrl}>
+          <input name="baseUrl" defaultValue={editing.baseUrl} className={FIELD} required />
+        </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label={p.maxInputTokens} hint={p.maxInputTokensHint}>
+            <Bounded name="maxInputTokens" value={editing.maxInputTokens} range={MAX_INPUT_TOKENS} />
+          </Field>
+          <Field label={p.maxOutputTokens} hint={range(MAX_OUTPUT_TOKENS)}>
+            <Bounded
+              name="maxOutputTokens"
+              value={editing.maxOutputTokens}
+              range={MAX_OUTPUT_TOKENS}
+            />
+          </Field>
+          <Field label={p.timeoutMs} hint={`${p.timeoutMsHint} ${range(TIMEOUT_MS)}`}>
+            <Bounded name="timeoutMs" value={editing.timeoutMs} range={TIMEOUT_MS} />
+          </Field>
+          <Field label={p.promptPrice}>
+            <PriceInput name="promptPriceUsd" micro={editing.promptPriceMicro} />
+          </Field>
+          <Field label={p.completionPrice}>
+            <PriceInput name="completionPriceUsd" micro={editing.completionPriceMicro} />
+          </Field>
+          <Field label={p.cachePrice} hint={p.cachePriceHint}>
+            <PriceInput name="cachePriceUsd" micro={editing.cachePriceMicro} />
+          </Field>
+        </div>
+
+        <fieldset className="flex flex-col gap-3 rounded-[9px] border-2 border-line px-3 py-2.5">
+          <legend className="px-1 text-[11px] font-semibold tracking-[-0.023em] text-steel">
+            {p.capabilities}
+          </legend>
+          <div className="flex flex-wrap gap-x-6 gap-y-2">
+            <Capability name="supportsTools" label={p.capTools} checked={editing.supportsTools} />
+            <Capability
+              name="supportsReasoning"
+              label={p.capReasoning}
+              checked={editing.supportsReasoning}
+              onChange={setReasoning}
+            />
+            <Capability name="supportsVision" label={p.capVision} checked={editing.supportsVision} />
+          </div>
+          <Field label={p.reasoningEffort} hint={reasoning ? undefined : p.reasoningEffortHint}>
+            <select
+              name="reasoningEffort"
+              defaultValue={editing.reasoningEffort ?? ''}
+              disabled={!reasoning}
+              className={`${FIELD} disabled:opacity-50`}
+            >
+              <option value="">{p.effortUnset}</option>
+              {REASONING_EFFORTS.map((effort) => (
+                <option key={effort} value={effort}>
+                  {p.efforts[effort]}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </fieldset>
+
+        <div className="flex flex-wrap gap-x-6 gap-y-2">
+          <label className="flex items-center gap-2 text-[12px] tracking-[-0.023em] text-steel">
+            <input
+              type="checkbox"
+              name="enabled"
+              defaultChecked={editing.enabled}
+              className="size-4 accent-brand"
+            />
+            {p.enabled}
+          </label>
+          <label className="flex items-center gap-2 text-[12px] tracking-[-0.023em] text-steel">
+            <input
+              type="checkbox"
+              name="isDefault"
+              defaultChecked={editing.isDefault}
+              className="size-4 accent-brand"
+            />
+            {p.isDefault}
+          </label>
+        </div>
+        <Field label={p.reason}>
+          <input name="reason" className={FIELD} required />
+        </Field>
+        {state && !state.ok ? (
+          <p className="text-[12px] tracking-[-0.023em] text-danger">
+            {p.errors[state.error ?? 'unavailable']}
+          </p>
+        ) : null}
+        {state?.ok ? <p className="text-[12px] tracking-[-0.023em] text-steel">{p.saved}</p> : null}
+        <div>
+          <ConsoleButton type="submit" variant="primary" disabled={pending}>
+            {isNew ? p.saveNew : p.save}
+          </ConsoleButton>
+        </div>
+      </form>
+    </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+/**
+ * A unit price, in dollars per million tokens.
+ *
+ * The row holds micro-USD, so the value is converted on the way in and the
+ * action converts it back on the way out; the `Usd` suffix on the field name
+ * is what keeps the two units from being posted into each other. `step="any"`
+ * because provider price lists are not on a fixed grid -- $0.075 and $1.25 are
+ * both real -- and a step would make the browser reject them.
+ */
+function PriceInput({ name, micro }: { name: string; micro: number }) {
   return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">{label}</span>
-      {children}
+    <span className="relative block">
+      <span
+        aria-hidden
+        className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[12px] text-faint"
+      >
+        $
+      </span>
+      <input
+        name={name}
+        type="number"
+        min={0}
+        step="any"
+        defaultValue={priceUsdFromMicro(micro)}
+        className={`${FIELD} pl-5`}
+      />
+    </span>
+  );
+}
+
+/** A declared ability. `onChange` only where another field depends on it. */
+function Capability({
+  name,
+  label,
+  checked,
+  onChange,
+}: {
+  name: string;
+  label: string;
+  checked: boolean;
+  onChange?: (next: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-[12px] tracking-[-0.023em] text-steel">
+      <input
+        type="checkbox"
+        name={name}
+        defaultChecked={checked}
+        onChange={onChange ? (event) => onChange(event.target.checked) : undefined}
+        className="size-4 accent-brand"
+      />
+      {label}
     </label>
   );
 }

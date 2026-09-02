@@ -47,7 +47,7 @@ function CtaBanner({
 }) {
   return (
     <div className={`mx-auto w-full max-w-[918px] px-5 ${className}`}>
-      <section className="flex flex-wrap items-center justify-between gap-7 rounded-[11px] bg-[#f0f0f0] px-10 py-[34px] shadow-[0_4px_10px_rgba(45,45,83,0.06)] md:h-[150px] md:flex-nowrap md:py-0">
+      <section className="flex flex-wrap items-center justify-between gap-7 rounded-[11px] bg-panel px-10 py-[34px] shadow-[0_4px_10px_rgba(45,45,83,0.06)] md:h-[150px] md:flex-nowrap md:py-0">
         <div className="flex flex-col gap-[11px] pt-2">
           <p className="text-[11px] font-bold tracking-[-0.03em] text-brand">{eyebrow}</p>
           <h2 className="text-[25px] leading-[1.5] font-semibold tracking-[-0.04em] text-ink">
@@ -56,7 +56,7 @@ function CtaBanner({
         </div>
         <Link
           href={href}
-          className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-brand px-[18px] text-sm font-medium tracking-[-0.03em] text-white transition-colors hover:bg-brand/90"
+          className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-brand px-[18px] text-sm font-medium tracking-[-0.03em] text-onbrand transition-colors hover:bg-brand/90"
         >
           {cta}
           <ArrowRightIcon size={15} />
@@ -79,7 +79,7 @@ export default async function PricingPage() {
         * the tint starts at the very top of the page rather than under the
         * header.
         */}
-      <div className="-mt-[78px] bg-[#f6fafc] pt-[78px]">
+      <div className="-mt-[78px] bg-subtle pt-[78px]">
         <section className="mx-auto w-full max-w-[918px] px-5 pt-[50px] pb-[70px]">
           <SectionHeading
             eyebrow="PLANS"
@@ -94,17 +94,17 @@ export default async function PricingPage() {
                 key={plan.id}
                 className={`flex flex-col rounded-lg border-2 bg-card p-6 ${
                   plan.featured
-                    ? 'border-[#46c8bb] shadow-[0_4px_10px_rgba(45,45,83,0.12),0_1px_1px_rgba(45,45,83,0.12)]'
+                    ? 'border-brand/70 shadow-[0_4px_10px_rgba(45,45,83,0.12),0_1px_1px_rgba(45,45,83,0.12)]'
                     : 'border-line shadow-[0_4px_10px_rgba(45,45,83,0.06)]'
                 }`}
               >
                 <div className="flex items-center justify-between gap-3">
-                  <span className="flex size-[34px] shrink-0 items-center justify-center rounded-lg border-2 border-[#a3d9d5] bg-brandsoft text-brand">
+                  <span className="flex size-[34px] shrink-0 items-center justify-center rounded-lg border-2 border-brandline bg-brandsoft text-brand">
                     {plan.icon}
                   </span>
                   <span
                     className={`inline-flex items-center rounded-full px-2 py-1 text-[10px] font-bold tracking-[-0.03em] whitespace-nowrap ${
-                      plan.featured ? 'bg-brand text-white' : 'bg-brandsoft text-brandink'
+                      plan.featured ? 'bg-brand text-onbrand' : 'bg-brandsoft text-brandink'
                     }`}
                   >
                     {plan.kicker}
@@ -144,7 +144,7 @@ export default async function PricingPage() {
                     href="/login"
                     className={`flex h-10 items-center justify-center gap-2 rounded-full text-sm font-medium tracking-[-0.03em] transition-colors ${
                       plan.featured
-                        ? 'bg-brand text-white hover:bg-brand/90'
+                        ? 'bg-brand text-onbrand hover:bg-brand/90'
                         : 'border-2 border-line bg-surface text-ink hover:bg-subtle'
                     }`}
                   >

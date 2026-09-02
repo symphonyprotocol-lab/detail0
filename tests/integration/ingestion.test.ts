@@ -38,6 +38,7 @@ const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers
 const { IngestionFailure, snapshotDigest } = await import('@/lib/domain/ingestion');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
+const { PROFILE_VERSION } = await import('@/lib/domain/profile');
 
 const actor = { administratorId: null as unknown as string, email: 'ops@example.test' };
 
@@ -217,7 +218,7 @@ describeWithDb('ingestion', () => {
       .select()
       .from(schema.libraryProfile)
       .where(eq(schema.libraryProfile.versionId, built.versionId));
-    expect(profile?.profileVersion).toBe('re0-profile-1');
+    expect(profile?.profileVersion).toBe(PROFILE_VERSION);
     expect(profile?.documentTitles).toContain('Guide');
     expect(profile?.terms).toContain('installer');
 

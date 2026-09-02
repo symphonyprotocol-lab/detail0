@@ -15,6 +15,8 @@ import {
   PROFILE_LIMITS,
   PROFILE_VERSION,
   profileSearchText,
+  routingTokens,
+  searchTokens,
 } from '@/lib/domain/profile';
 
 describe('term extraction', () => {
@@ -37,12 +39,36 @@ describe('term extraction', () => {
     expect(terms).not.toContain('翅虫');
   });
 
+  it('never absorbs a latin word into a longer one that contains it', () => {
+    const terms = extractTerms([
+      'Ethereum ethereum ethereum ethereum: stake ETH, earn ETH. A validator joins the validators.',
+    ]);
+    expect(terms).toContain('ethereum');
+    expect(terms).toContain('eth');
+    expect(terms).toContain('validator');
+    expect(terms).toContain('validators');
+  });
+
   it('counts latin words case-folded and skips noise', () => {
     const terms = extractTerms(['Install the Installer. install 42 -- a b cd']);
     expect(terms).toContain('install');
     expect(terms).toContain('installer');
     expect(terms).not.toContain('42');
     expect(terms).not.toContain('cd'); // shorter than three characters
+  });
+
+  it('leaves function words out, so the slots go to what the library is about', () => {
+    const terms = extractTerms([
+      'The validator and the staking guide: how you use eth for the deposit, and what the slashing is.',
+      '什么是隐翅虫?怎么防治隐翅虫?',
+    ]);
+    expect(terms).toEqual(expect.arrayContaining(['validator', 'staking', 'eth', 'deposit', 'slashing']));
+    for (const word of ['the', 'and', 'how', 'you', 'use', 'for', 'what', 'is']) {
+      expect(terms).not.toContain(word);
+    }
+    expect(terms).toContain('隐翅虫');
+    expect(terms).not.toContain('什么');
+    expect(terms).not.toContain('怎么');
   });
 
   it('respects the limit and is deterministic', () => {
@@ -59,6 +85,15 @@ describe('profile search text', () => {
     const tokens = text.split(' ');
     expect(tokens).toContain('隐翅虫'); // the gram a query will carry
     expect(tokens).toContain('隐翅虫的防治'); // and the exact title
+  });
+
+  it('routes with the question\'s content words only', () => {
+    expect(routingTokens('How do I use the eth staking guide?')).toEqual(['eth', 'staking', 'guide']);
+    /* The full tokenizer keeps them: inside a library the version's own
+       text-search configuration decides what a stopword is. */
+    expect(searchTokens('How do I use the eth staking guide?')).toContain('how');
+    expect(routingTokens('Next.js App Router 怎么做服务端鉴权？')).not.toContain('怎么');
+    expect(routingTokens('Next.js App Router 怎么做服务端鉴权？')).toContain('next');
   });
 
   it('folds titles through the tokenizer and deduplicates against terms', () => {
@@ -121,6 +156,6 @@ describe('centroid accumulator', () => {
 
 describe('versioning', () => {
   it('stamps a stable extractor version', () => {
-    expect(PROFILE_VERSION).toBe('re0-profile-1');
+    expect(PROFILE_VERSION).toBe('re0-profile-2');
   });
 });
