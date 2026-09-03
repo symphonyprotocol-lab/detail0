@@ -8,14 +8,22 @@
  * that entry's configuration, and the unit prices frozen on each row keep
  * historical cost events meaning what they meant. The provider API key is not
  * managed here at all -- 15.3 keeps secrets in the environment.
+ *
+ * The registry says what models exist. Which of them answers whom is a
+ * separate, append-only assignment (`llm_audience_assignment`): one entry for
+ * trial callers -- visitors and free workspaces -- and one a paid
+ * subscription buys. Resolution for a caller reads both.
  */
 import { desc, eq, gte, sql } from 'drizzle-orm';
 import { normalizeReason } from '@/lib/domain/admin';
 import {
+  DEFAULT_LLM_API_KEY_ENV,
+  isApiKeyEnvName,
   MAX_INPUT_TOKENS,
   MAX_OUTPUT_TOKENS,
   REASONING_EFFORTS,
   TIMEOUT_MS,
+  type LlmAudience,
   type ReasoningEffort,
 } from '@/lib/domain/generation';
 import { uuidv7 } from '@/lib/domain/id';
@@ -28,6 +36,8 @@ export interface LlmConfigRow {
   label: string;
   baseUrl: string;
   model: string;
+  /** Name of the environment variable holding the key; never the key. */
+  apiKeyEnv: string;
   maxInputTokens: number;
   maxOutputTokens: number;
   timeoutMs: number;
@@ -39,8 +49,17 @@ export interface LlmConfigRow {
   supportsVision: boolean;
   reasoningEffort: ReasoningEffort | null;
   enabled: boolean;
-  isDefault: boolean;
   createdAt: Date;
+  /** Which audiences the assignment in force points at this entry. Derived, never stored. */
+  assignedTo: LlmAudience[];
+}
+
+/** The assignment in force. Nulls carry the meanings documented on the table. */
+export interface LlmAssignment {
+  trialSlug: string | null;
+  subscriberSlug: string | null;
+  /** Null when nothing was ever assigned. */
+  createdAt: Date | null;
 }
 
 export interface LlmUsageStats {
@@ -57,70 +76,119 @@ export interface LlmUsageStats {
 }
 
 export interface LlmConfiguration {
-  /** The configuration in force for each entry, newest slug first. */
+  /** The registry in force, newest entry first. */
   entries: LlmConfigRow[];
-  /** What an unqualified playground request resolves to, if anything. */
-  fallback: LlmConfigRow | null;
-  history: LlmConfigRow[];
+  assignment: LlmAssignment;
+  /** What a request that names no model resolves to, for each audience. */
+  resolved: Record<LlmAudience, LlmConfigRow | null>;
+  history: Omit<LlmConfigRow, 'assignedTo'>[];
   stats: LlmUsageStats;
 }
 
+/** The newest assignment row, or the empty assignment. */
+export async function readLlmAssignment(): Promise<LlmAssignment> {
+  const [row] = await db()
+    .select()
+    .from(schema.llmAudienceAssignment)
+    .orderBy(desc(schema.llmAudienceAssignment.createdAt))
+    .limit(1);
+  if (!row) return { trialSlug: null, subscriberSlug: null, createdAt: null };
+  return { trialSlug: row.trialSlug, subscriberSlug: row.subscriberSlug, createdAt: row.createdAt };
+}
+
+function assignedTo(slug: string, assignment: LlmAssignment): LlmAudience[] {
+  const audiences: LlmAudience[] = [];
+  if (assignment.trialSlug === slug) audiences.push('trial');
+  if (assignment.subscriberSlug === slug) audiences.push('subscriber');
+  return audiences;
+}
+
 /**
- * The configuration in force for every entry: the newest row of each slug.
+ * The configuration in force for every entry: the newest row of each slug,
+ * marked with what the assignment in force points at it.
  *
  * Done as one `distinct on` rather than a query per slug -- the playground
  * resolves this on the request path, and the set is small but the history
  * behind it is not.
  */
 export async function llmConfigEntries(): Promise<LlmConfigRow[]> {
-  return db()
-    .selectDistinctOn([schema.llmConfig.slug])
-    .from(schema.llmConfig)
-    .orderBy(schema.llmConfig.slug, desc(schema.llmConfig.createdAt));
+  const [rows, assignment] = await Promise.all([
+    db()
+      .selectDistinctOn([schema.llmConfig.slug])
+      .from(schema.llmConfig)
+      .orderBy(schema.llmConfig.slug, desc(schema.llmConfig.createdAt)),
+    readLlmAssignment(),
+  ]);
+  return rows.map((row) => ({ ...row, assignedTo: assignedTo(row.slug, assignment) }));
 }
 
 /**
- * The entries a caller may pick from: in force, and switched on.
+ * The entry a request that named no model gets, for one audience.
  *
- * Ordered with the default first and the rest newest-first, which is the
- * order the console lists them in and the order a picker should offer them.
+ * Trial: the assigned entry, if it is still enabled; otherwise the newest
+ * enabled entry, so a one-model installation and an installation whose
+ * assigned model was switched off both keep answering. Subscriber: the
+ * assigned entry, if enabled; otherwise whatever trial resolves to -- a paid
+ * plan is never answered by nothing because the console has not named what
+ * it buys.
  */
-export async function selectableLlmModels(): Promise<LlmConfigRow[]> {
-  const enabled = (await llmConfigEntries()).filter((entry) => entry.enabled);
-  const fallback = resolveFallback(enabled);
+function resolveFor(entries: LlmConfigRow[], audience: LlmAudience): LlmConfigRow | null {
+  const enabled = entries
+    .filter((entry) => entry.enabled)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  const assigned = enabled.find((entry) => entry.assignedTo.includes(audience)) ?? null;
+  if (assigned) return assigned;
+  if (audience === 'subscriber') return resolveFor(entries, 'trial');
+  return enabled[0] ?? null;
+}
+
+/**
+ * The entries an audience may use: in force, switched on, and -- for a trial
+ * caller -- not the one a subscription buys. A paid plan buys more, never
+ * less, so a subscriber may call anything a visitor can.
+ */
+function usableBy(entries: LlmConfigRow[], audience: LlmAudience): LlmConfigRow[] {
+  return entries.filter(
+    (entry) =>
+      entry.enabled &&
+      (audience === 'subscriber' ||
+        !entry.assignedTo.includes('subscriber') ||
+        entry.assignedTo.includes('trial')),
+  );
+}
+
+/**
+ * The entries a caller may pick from: in force, switched on, and open to its
+ * audience. Ordered with that audience's resolution first and the rest
+ * newest-first, which is the order a picker should offer them.
+ */
+export async function selectableLlmModels(audience: LlmAudience): Promise<LlmConfigRow[]> {
+  const entries = await llmConfigEntries();
+  const usable = usableBy(entries, audience);
+  const first = resolveFor(entries, audience);
   return [
-    ...enabled.filter((entry) => entry.slug === fallback?.slug),
-    ...enabled
-      .filter((entry) => entry.slug !== fallback?.slug)
+    ...usable.filter((entry) => entry.slug === first?.slug),
+    ...usable
+      .filter((entry) => entry.slug !== first?.slug)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()),
   ];
 }
 
 /**
- * The entry a request that named no model gets.
+ * Resolve what the playground should call for a caller of this audience.
  *
- * Setting a default mints a row rather than rewriting the entry that held it,
- * so more than one slug's newest row can carry the flag; the most recently
- * written one is the one that was chosen last, and wins. An installation that
- * has never chosen falls back to the newest entry, so a single configured
- * model works with no further ceremony.
+ * A `slug` that is unknown, switched off, or closed to the audience resolves
+ * to null rather than to the fallback: a caller naming a model it may not
+ * use is a rejected request, not a silently substituted one -- and a visitor
+ * naming the subscriber model is exactly the request this exists to refuse.
  */
-function resolveFallback(entries: LlmConfigRow[]): LlmConfigRow | null {
-  const byRecency = [...entries].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  return byRecency.find((entry) => entry.isDefault) ?? byRecency[0] ?? null;
-}
-
-/**
- * Resolve what the playground should call.
- *
- * A `slug` that is unknown or switched off resolves to null rather than to
- * the fallback: a caller naming a model it may not use is a rejected request,
- * not a silently substituted one.
- */
-export async function activeLlmConfig(slug?: string | null): Promise<LlmConfigRow | null> {
-  const enabled = (await llmConfigEntries()).filter((entry) => entry.enabled);
-  if (slug) return enabled.find((entry) => entry.slug === slug) ?? null;
-  return resolveFallback(enabled);
+export async function activeLlmConfig(
+  slug: string | null | undefined,
+  audience: LlmAudience,
+): Promise<LlmConfigRow | null> {
+  const entries = await llmConfigEntries();
+  if (slug) return usableBy(entries, audience).find((entry) => entry.slug === slug) ?? null;
+  return resolveFor(entries, audience);
 }
 
 export async function readLlmConfiguration(): Promise<LlmConfiguration> {
@@ -149,11 +217,15 @@ export async function readLlmConfiguration(): Promise<LlmConfiguration> {
     .where(gte(schema.llmCostEvent.createdAt, monthStart));
   const [total] = await database.select(aggregate).from(schema.llmCostEvent);
 
-  const entries = await llmConfigEntries();
+  const [entries, assignment] = await Promise.all([llmConfigEntries(), readLlmAssignment()]);
 
   return {
     entries: [...entries].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()),
-    fallback: resolveFallback(entries.filter((entry) => entry.enabled)),
+    assignment,
+    resolved: {
+      trial: resolveFor(entries, 'trial'),
+      subscriber: resolveFor(entries, 'subscriber'),
+    },
     history,
     stats: {
       monthCalls: month?.calls ?? 0,
@@ -178,7 +250,9 @@ export class LlmConfigRefused extends Error {
       | 'invalid_timeout'
       | 'invalid_price'
       | 'invalid_slug'
-      | 'invalid_effort',
+      | 'invalid_effort'
+      | 'invalid_api_key_env'
+      | 'unknown_model',
   ) {
     super(code);
     this.name = 'LlmConfigRefused';
@@ -192,6 +266,8 @@ export interface UpdateLlmConfigInput {
   label: string;
   baseUrl: string;
   model: string;
+  /** Blank means the default variable; anything else must be a shell-safe name. */
+  apiKeyEnv?: string | null;
   maxInputTokens: number;
   maxOutputTokens: number;
   timeoutMs: number;
@@ -204,7 +280,6 @@ export interface UpdateLlmConfigInput {
   /** Ignored unless `supportsReasoning`; sending both is refused, not coerced. */
   reasoningEffort: string | null;
   enabled: boolean;
-  isDefault: boolean;
   reason: string;
 }
 
@@ -234,6 +309,8 @@ export async function updateLlmConfig(input: UpdateLlmConfigInput): Promise<{ co
   if (model.length === 0 || model.length > 120) throw new LlmConfigRefused('invalid_model');
 
   const label = input.label.trim().slice(0, 120) || model;
+  const apiKeyEnv = input.apiKeyEnv?.trim() ? input.apiKeyEnv.trim() : DEFAULT_LLM_API_KEY_ENV;
+  if (!isApiKeyEnvName(apiKeyEnv)) throw new LlmConfigRefused('invalid_api_key_env');
   const slug = input.slug?.trim() ? input.slug.trim() : slugFromLabel(label);
   if (!SLUG.test(slug)) throw new LlmConfigRefused('invalid_slug');
 
@@ -318,6 +395,7 @@ export async function updateLlmConfig(input: UpdateLlmConfigInput): Promise<{ co
     label,
     baseUrl: baseUrl.toString().replace(/\/+$/, ''),
     model,
+    apiKeyEnv,
     maxInputTokens: input.maxInputTokens,
     maxOutputTokens: input.maxOutputTokens,
     timeoutMs: input.timeoutMs,
@@ -329,7 +407,6 @@ export async function updateLlmConfig(input: UpdateLlmConfigInput): Promise<{ co
     supportsVision: input.supportsVision,
     reasoningEffort: effort as ReasoningEffort | null,
     enabled: input.enabled,
-    isDefault: input.isDefault,
   };
 
   const configId = uuidv7();
@@ -347,6 +424,7 @@ export async function updateLlmConfig(input: UpdateLlmConfigInput): Promise<{ co
           label: before.label,
           baseUrl: before.baseUrl,
           model: before.model,
+          apiKeyEnv: before.apiKeyEnv,
           maxInputTokens: before.maxInputTokens,
           maxOutputTokens: before.maxOutputTokens,
           timeoutMs: before.timeoutMs,
@@ -358,7 +436,6 @@ export async function updateLlmConfig(input: UpdateLlmConfigInput): Promise<{ co
           supportsVision: before.supportsVision,
           reasoningEffort: before.reasoningEffort,
           enabled: before.enabled,
-          isDefault: before.isDefault,
         }
       : null,
     afterValue: written,
@@ -367,6 +444,58 @@ export async function updateLlmConfig(input: UpdateLlmConfigInput): Promise<{ co
   });
 
   return { configId };
+}
+
+export interface UpdateLlmAssignmentInput {
+  actor: { administratorId: string; email: string; clientAddress?: string | null };
+  /** Null: the newest enabled entry. */
+  trialSlug: string | null;
+  /** Null: the trial model. */
+  subscriberSlug: string | null;
+  reason: string;
+}
+
+/**
+ * Point the two audiences at registry entries. Append-only, like the
+ * registry: the newest row is in force, and the audit chain keeps the rest.
+ * A slug must name an entry that exists and is switched on -- assigning a
+ * model that cannot answer is a configuration that lies.
+ */
+export async function updateLlmAssignment(
+  input: UpdateLlmAssignmentInput,
+): Promise<{ assignmentId: string }> {
+  const reason = normalizeReason(input.reason);
+  const entries = await llmConfigEntries();
+  const clean = (slug: string | null) => (slug?.trim() ? slug.trim() : null);
+  const trialSlug = clean(input.trialSlug);
+  const subscriberSlug = clean(input.subscriberSlug);
+  for (const slug of [trialSlug, subscriberSlug]) {
+    if (slug && !entries.some((entry) => entry.slug === slug && entry.enabled)) {
+      throw new LlmConfigRefused('unknown_model');
+    }
+  }
+
+  const before = await readLlmAssignment();
+  const assignmentId = uuidv7();
+  await db()
+    .insert(schema.llmAudienceAssignment)
+    .values({ id: assignmentId, trialSlug, subscriberSlug });
+
+  await recordAudit({
+    administratorId: input.actor.administratorId,
+    action: 'llm_assignment.update',
+    targetType: 'llm_audience_assignment',
+    targetId: assignmentId,
+    reason,
+    beforeValue: before.createdAt
+      ? { trialSlug: before.trialSlug, subscriberSlug: before.subscriberSlug }
+      : null,
+    afterValue: { trialSlug, subscriberSlug },
+    clientAddress: input.actor.clientAddress,
+    result: 'success',
+  });
+
+  return { assignmentId };
 }
 
 /** The playground's spend recorder -- append-only, never the text. */

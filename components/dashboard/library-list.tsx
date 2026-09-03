@@ -3,12 +3,14 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { DeleteLibraryControl, type DeleteLibraryAction } from '@/components/dashboard/library-delete';
 import { Badge, PANEL, SearchField, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
 import { ArrowRightIcon } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
 
 /** One row of the live list, mapped by the page from the workspace's rows. */
 export interface LibraryListRow {
+  id: string;
   slug: string;
   title: string;
   version: string | null;
@@ -29,8 +31,20 @@ function tileColor(slug: string): string {
   return TILE_COLORS[hash % TILE_COLORS.length]!;
 }
 
-/** Library table with its toolbar -- design source frame `fiSE2`, live rows. */
-export function LibraryList({ rows: allRows }: { rows: LibraryListRow[] }) {
+/**
+ * Library table with its toolbar -- design source frame `fiSE2`, live rows.
+ *
+ * `deleteAction` is offered only to a member who may delete (requirement.md
+ * 3.3: owners and admins); the action re-checks the role, so the prop decides
+ * what is drawn, not what is allowed.
+ */
+export function LibraryList({
+  rows: allRows,
+  deleteAction,
+}: {
+  rows: LibraryListRow[];
+  deleteAction?: DeleteLibraryAction;
+}) {
   const { locale, t } = useI18n();
   const l = t.dashboard.libraries;
   const number = useMemo(() => new Intl.NumberFormat(locale), [locale]);
@@ -83,7 +97,11 @@ export function LibraryList({ rows: allRows }: { rows: LibraryListRow[] }) {
 
       <div className="overflow-x-auto">
         <div className="min-w-[620px]">
-          <div className="grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center bg-subtle px-[18px] py-3 text-[11px] font-semibold tracking-[-0.023em] text-muted">
+          <div
+            className={`grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center bg-subtle px-[18px] py-3 text-[11px] font-semibold tracking-[-0.023em] text-muted ${
+              deleteAction ? 'pr-[64px]' : ''
+            }`}
+          >
             {l.columns.map((column) => (
               <span key={column}>{column}</span>
             ))}
@@ -137,20 +155,38 @@ export function LibraryList({ rows: allRows }: { rows: LibraryListRow[] }) {
                 {routable ? <ArrowRightIcon size={14} className="text-muted" /> : <span />}
               </>
             );
-            const rowClass =
-              'grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center border-t-2 border-line px-[18px] py-[19px]';
+            /* Room on the right for the delete control, which sits beside the
+               row rather than inside it -- see DeleteLibraryControl. */
+            const rowClass = `grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center border-t-2 border-line px-[18px] py-[19px] ${
+              deleteAction ? 'pr-[64px]' : ''
+            }`;
 
-            return routable ? (
-              <Link
-                key={library.slug}
-                href={`/libraries${library.slug}`}
-                className={`${rowClass} transition-colors hover:bg-subtle`}
-              >
-                {cells}
-              </Link>
-            ) : (
-              <div key={library.slug} className={rowClass}>
-                {cells}
+            return (
+              <div key={library.id} className="relative">
+                {routable ? (
+                  <Link
+                    href={`/libraries${library.slug}`}
+                    className={`${rowClass} transition-colors hover:bg-subtle`}
+                  >
+                    {cells}
+                  </Link>
+                ) : (
+                  <div className={rowClass}>{cells}</div>
+                )}
+                {deleteAction ? (
+                  <span className="absolute top-1/2 right-[18px] -translate-y-1/2">
+                    <DeleteLibraryControl
+                      action={deleteAction}
+                      target={{
+                        id: library.id,
+                        publicId: library.slug,
+                        title: library.title,
+                        initial: library.initial,
+                        color: tileColor(library.slug),
+                      }}
+                    />
+                  </span>
+                ) : null}
               </div>
             );
           })}

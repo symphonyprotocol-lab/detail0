@@ -2,7 +2,10 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { FilterSelect } from '@/components/admin/list-controls';
 import { CreatePlatformLibraryControl } from '@/components/admin/platform-library-dialog';
-import { PlatformRefreshControl } from '@/components/admin/platform-library-controls';
+import {
+  PlatformDeleteControl,
+  PlatformRefreshControl,
+} from '@/components/admin/platform-library-controls';
 import {
   CONSOLE_PANEL,
   ConsoleButton,
@@ -43,7 +46,11 @@ import {
   searchTerm,
   utcStamp,
 } from '../list-params';
-import { refreshPlatformLibraryAction, createPlatformLibraryAction } from './actions';
+import {
+  createPlatformLibraryAction,
+  deletePlatformLibraryAction,
+  refreshPlatformLibraryAction,
+} from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).admin.platformLibraries.title };
@@ -267,6 +274,16 @@ export default async function AdminPlatformLibrariesPage({
                       <PlatformRefreshControl
                         action={refreshPlatformLibraryAction}
                         disabled={library.lifecycleStatus === 'archived'}
+                        target={{
+                          id: library.id,
+                          publicId: library.publicId,
+                          title: library.title,
+                          initial: initialsOf(library.title),
+                          sourceLabel: sourceLabel(library.sourceType, library.sourceCount, p),
+                        }}
+                      />
+                      <PlatformDeleteControl
+                        action={deletePlatformLibraryAction}
                         target={{
                           id: library.id,
                           publicId: library.publicId,

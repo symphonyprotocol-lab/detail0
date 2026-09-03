@@ -1,4 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { ADMIN_SESSION_LIFETIME_MS } from '@/lib/domain/admin';
+import { SESSION_LIFETIME_MS } from '@/lib/domain/auth';
 
 /**
  * Cheap gate in front of the dashboard.
@@ -18,19 +20,62 @@ import { NextResponse, type NextRequest } from 'next/server';
 const SESSION_COOKIES = ['__Host-r0_session', 'r0_session'];
 const ADMIN_COOKIES = ['__Secure-r0_admin', 'r0_admin'];
 
+/**
+ * Re-issues the session cookie with its window moved out again.
+ *
+ * The session row's expiry slides on use (lib/domain/auth.ts, admin.ts), and
+ * the browser's copy has to slide with it or the cookie dies on the sign-in
+ * date while the row is still live. Same value, same attributes, new
+ * `Expires`; the row stays the only authority on whether the session is
+ * alive -- a cookie that outlives its row simply resolves to nothing.
+ * Set-Cookie on every gated request is the price of not needing a response
+ * hook in every server component.
+ */
+function slideCookie(
+  request: NextRequest,
+  response: NextResponse,
+  names: readonly string[],
+  path: '/' | '/admin',
+  lifetimeMs: number,
+): NextResponse {
+  for (const name of names) {
+    const value = request.cookies.get(name)?.value;
+    if (!value) continue;
+    response.cookies.set(name, value, {
+      httpOnly: true,
+      /* The prefixed names exist only on https deployments (lib/http/session.ts). */
+      secure: name.startsWith('__'),
+      sameSite: 'lax',
+      path,
+      expires: new Date(Date.now() + lifetimeMs),
+    });
+  }
+  return response;
+}
+
 export function middleware(request: NextRequest): NextResponse {
   const path = request.nextUrl.pathname;
   /* Query string included: `safeReturnTo` preserves it on the way back. */
   const returnTo = path + request.nextUrl.search;
 
   if (path.startsWith('/admin')) {
-    if (ADMIN_COOKIES.some((name) => request.cookies.has(name))) return NextResponse.next();
+    if (ADMIN_COOKIES.some((name) => request.cookies.has(name))) {
+      return slideCookie(
+        request,
+        NextResponse.next(),
+        ADMIN_COOKIES,
+        '/admin',
+        ADMIN_SESSION_LIFETIME_MS,
+      );
+    }
     const signIn = new URL('/admin/login', request.url);
     signIn.searchParams.set('returnTo', returnTo);
     return NextResponse.redirect(signIn);
   }
 
-  if (SESSION_COOKIES.some((name) => request.cookies.has(name))) return NextResponse.next();
+  if (SESSION_COOKIES.some((name) => request.cookies.has(name))) {
+    return slideCookie(request, NextResponse.next(), SESSION_COOKIES, '/', SESSION_LIFETIME_MS);
+  }
 
   const login = new URL('/login', request.url);
   login.searchParams.set('returnTo', returnTo);

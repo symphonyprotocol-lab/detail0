@@ -16,11 +16,20 @@ export function isIdentityProvider(value: unknown): value is IdentityProvider {
   return typeof value === 'string' && IDENTITY_PROVIDERS.includes(value as IdentityProvider);
 }
 
-/** Absolute lifetime of a signed-in session. */
-export const SESSION_ABSOLUTE_MS = 30 * 24 * 60 * 60 * 1000;
-/** A session that goes untouched for this long is dead even if not expired. */
-export const SESSION_IDLE_MS = 14 * 24 * 60 * 60 * 1000;
-/** `last_seen_at` is only rewritten once per hour, to keep reads read-mostly. */
+/**
+ * How long a signed-in session lives past its last use.
+ *
+ * Sliding, not absolute: every touch (below) moves `expires_at` this far
+ * out again, so a session that is used at least once a month never expires,
+ * and one left alone for a month is dead. There is no separate idle rule --
+ * the sliding expiry *is* the idle rule, with one number to reason about.
+ */
+export const SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
+/**
+ * `last_seen_at` and `expires_at` are rewritten at most once per hour, to
+ * keep reads read-mostly. The window therefore slides in hour steps; a
+ * session's real expiry is within an hour of "last use plus 30 days".
+ */
 export const SESSION_TOUCH_INTERVAL_MS = 60 * 60 * 1000;
 /** How long the OAuth handshake may stay open. */
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -84,19 +93,20 @@ export interface SessionRow {
   revokedAt: Date | null;
 }
 
-/** Live means: not revoked, inside its absolute window, and not idled out. */
+/** Live means: not revoked, and its sliding window has not closed. */
 export function isSessionLive(session: SessionRow, now: Date): boolean {
   if (session.revokedAt !== null) return false;
-  if (session.expiresAt.getTime() <= now.getTime()) return false;
-  return now.getTime() - session.lastSeenAt.getTime() < SESSION_IDLE_MS;
+  return session.expiresAt.getTime() > now.getTime();
 }
 
+/** Whether this use should move the window (and rewrite `last_seen_at`). */
 export function shouldTouchSession(session: SessionRow, now: Date): boolean {
   return now.getTime() - session.lastSeenAt.getTime() >= SESSION_TOUCH_INTERVAL_MS;
 }
 
+/** Where the window ends for a session used now: at sign-in and on every touch. */
 export function sessionExpiryFrom(now: Date): Date {
-  return new Date(now.getTime() + SESSION_ABSOLUTE_MS);
+  return new Date(now.getTime() + SESSION_LIFETIME_MS);
 }
 
 /**
@@ -139,10 +149,7 @@ export interface WorkspaceNaming {
   fallbackOwner: string;
 }
 
-export function personalWorkspaceName(
-  profile: IdentityProfile,
-  naming: WorkspaceNaming,
-): string {
+export function personalWorkspaceName(profile: IdentityProfile, naming: WorkspaceNaming): string {
   const base = profile.displayName?.trim() || profile.email.split('@')[0] || naming.fallbackOwner;
   return fill(naming.personalWorkspace, { owner: base.slice(0, 40) });
 }

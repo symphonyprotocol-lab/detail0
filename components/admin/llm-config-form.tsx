@@ -1,18 +1,23 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useRef, useState, useTransition } from 'react';
 
 import { Bounded, FIELD, Field, range } from '@/components/admin/form-fields';
 import { submitOn } from '@/components/admin/platform-library-shared';
 import { ConsoleButton, Pill } from '@/components/admin/ui';
-import type { LlmConfigActionResult } from '@/app/admin/(console)/llm/actions';
+import type {
+  LlmConfigActionResult,
+  LlmProbeActionResult,
+} from '@/app/admin/(console)/llm/actions';
 import { useI18n } from '@/lib/i18n/client';
 import {
+  DEFAULT_LLM_API_KEY_ENV,
   MAX_INPUT_TOKENS,
   MAX_OUTPUT_TOKENS,
   priceUsdFromMicro,
   REASONING_EFFORTS,
   TIMEOUT_MS,
+  type LlmAudience,
 } from '@/lib/domain/generation';
 
 export interface LlmEntry {
@@ -20,6 +25,7 @@ export interface LlmEntry {
   label: string;
   baseUrl: string;
   model: string;
+  apiKeyEnv: string;
   maxInputTokens: number;
   maxOutputTokens: number;
   timeoutMs: number;
@@ -31,7 +37,8 @@ export interface LlmEntry {
   supportsVision: boolean;
   reasoningEffort: string | null;
   enabled: boolean;
-  isDefault: boolean;
+  /** What the assignment in force points at this entry; display only. */
+  assignedTo: LlmAudience[];
 }
 
 /** What a brand new entry starts from, so the form is never empty. */
@@ -40,6 +47,7 @@ const BLANK: LlmEntry = {
   label: '',
   baseUrl: 'https://api.openai.com/v1',
   model: '',
+  apiKeyEnv: DEFAULT_LLM_API_KEY_ENV,
   maxInputTokens: 128_000,
   maxOutputTokens: 800,
   timeoutMs: 30_000,
@@ -51,17 +59,18 @@ const BLANK: LlmEntry = {
   supportsVision: false,
   reasoningEffort: null,
   enabled: true,
-  isDefault: false,
+  assignedTo: [],
 };
 
 /**
- * The playground's model registry.
+ * The playground's model registry: what models exist.
  *
  * Every save mints an immutable new row (manage-llm-config.ts), so there is
- * one mutation behind all four things this screen does: adding an entry,
- * editing one, switching one off, and choosing which one the playground uses
- * by default. Picking an entry loads it into the form, which means a save with
- * no edits is a faithful re-mint rather than a reset to defaults.
+ * one mutation behind the three things this form does: adding an entry,
+ * editing one, and switching one off. Which entry answers whom is the
+ * assignment form's decision, not a property of an entry; the badges here
+ * only report it. Picking an entry loads it into the form, which means a save
+ * with no edits is a faithful re-mint rather than a reset to defaults.
  *
  * `key` on the form is what makes that work: switching entries has to replace
  * the uncontrolled inputs, not merely change the defaults they ignored.
@@ -69,14 +78,32 @@ const BLANK: LlmEntry = {
 export function LlmConfigForm({
   entries,
   action,
+  probe,
 }: {
   entries: LlmEntry[];
   action: (previous: LlmConfigActionResult | null, form: FormData) => Promise<LlmConfigActionResult>;
+  /** One call against the endpoint as typed, saved or not. */
+  probe: (form: FormData) => Promise<LlmProbeActionResult>;
 }) {
   const { t } = useI18n();
   const p = t.admin.llm;
   const [state, formAction, pending] = useActionState(action, null);
   const [selected, setSelected] = useState<string | null>(entries[0]?.slug ?? null);
+
+  /*
+   * The probe reads the form the save would post, but is not the form's
+   * action: a click on it must not mint a version. Its result lives beside
+   * the save result and is cleared when a different entry is picked.
+   */
+  const formRef = useRef<HTMLFormElement>(null);
+  const [probing, startProbe] = useTransition();
+  const [probed, setProbed] = useState<LlmProbeActionResult | null>(null);
+  function runProbe() {
+    const form = formRef.current;
+    if (!form) return;
+    const data = new FormData(form);
+    startProbe(async () => setProbed(await probe(data)));
+  }
 
   const editing = entries.find((entry) => entry.slug === selected) ?? BLANK;
   const isNew = editing === BLANK;
@@ -100,6 +127,7 @@ export function LlmConfigForm({
               onClick={() => {
                 setSelected(entry.slug);
                 setReasoning(entry.supportsReasoning);
+                setProbed(null);
               }}
               aria-current={active ? 'true' : undefined}
               className={`flex items-center gap-2 rounded-[9px] border-2 px-3 py-2 text-left transition-colors ${
@@ -112,7 +140,11 @@ export function LlmConfigForm({
                 </span>
                 <span className="font-mono text-[10.5px] text-faint">{entry.model}</span>
               </span>
-              {entry.isDefault ? <Pill tone="ok">{p.defaultBadge}</Pill> : null}
+              {entry.assignedTo.map((audience) => (
+                <Pill key={audience} tone={audience === 'subscriber' ? 'brand' : 'ok'}>
+                  {p.audiences[audience]}
+                </Pill>
+              ))}
               {entry.enabled ? null : <Pill tone="neutral">{p.stateDisabled}</Pill>}
             </button>
           );
@@ -122,6 +154,7 @@ export function LlmConfigForm({
           onClick={() => {
             setSelected(null);
             setReasoning(BLANK.supportsReasoning);
+            setProbed(null);
           }}
           aria-current={isNew ? 'true' : undefined}
           className={`rounded-[9px] border-2 border-dashed px-3 py-2 text-[12px] font-semibold tracking-[-0.023em] transition-colors ${
@@ -134,6 +167,7 @@ export function LlmConfigForm({
 
       <form
         key={editing.slug || 'new'}
+        ref={formRef}
         onSubmit={submitOn(formAction)}
         className="flex flex-col gap-4 px-[19px] py-4"
       >
@@ -147,9 +181,20 @@ export function LlmConfigForm({
             <input name="model" defaultValue={editing.model} className={FIELD} required />
           </Field>
         </div>
-        <Field label={p.baseUrl}>
-          <input name="baseUrl" defaultValue={editing.baseUrl} className={FIELD} required />
-        </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label={p.baseUrl}>
+            <input name="baseUrl" defaultValue={editing.baseUrl} className={FIELD} required />
+          </Field>
+          <Field label={p.apiKeyEnv} hint={p.apiKeyEnvHint}>
+            <input
+              name="apiKeyEnv"
+              defaultValue={editing.apiKeyEnv}
+              placeholder={DEFAULT_LLM_API_KEY_ENV}
+              spellCheck={false}
+              className={`${FIELD} font-mono`}
+            />
+          </Field>
+        </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label={p.maxInputTokens} hint={p.maxInputTokensHint}>
             <Bounded name="maxInputTokens" value={editing.maxInputTokens} range={MAX_INPUT_TOKENS} />
@@ -216,15 +261,6 @@ export function LlmConfigForm({
             />
             {p.enabled}
           </label>
-          <label className="flex items-center gap-2 text-[12px] tracking-[-0.023em] text-steel">
-            <input
-              type="checkbox"
-              name="isDefault"
-              defaultChecked={editing.isDefault}
-              className="size-4 accent-brand"
-            />
-            {p.isDefault}
-          </label>
         </div>
         <Field label={p.reason}>
           <input name="reason" className={FIELD} required />
@@ -235,13 +271,46 @@ export function LlmConfigForm({
           </p>
         ) : null}
         {state?.ok ? <p className="text-[12px] tracking-[-0.023em] text-steel">{p.saved}</p> : null}
-        <div>
-          <ConsoleButton type="submit" variant="primary" disabled={pending}>
+        {probed ? <ProbeOutcome result={probed} /> : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <ConsoleButton type="submit" variant="primary" disabled={pending || probing}>
             {isNew ? p.saveNew : p.save}
           </ConsoleButton>
+          <ConsoleButton type="button" onClick={runProbe} disabled={pending || probing}>
+            {probing ? p.probing : p.probe}
+          </ConsoleButton>
+          <span className="text-[11px] text-faint">{p.probeHint}</span>
         </div>
       </form>
     </div>
+  );
+}
+
+/** What the probe found, in one line: reachable and what it said, or why not. */
+function ProbeOutcome({ result }: { result: LlmProbeActionResult }) {
+  const { t, locale } = useI18n();
+  const p = t.admin.llm;
+  if (result.kind === 'refused') {
+    return (
+      <p className="text-[12px] tracking-[-0.023em] text-danger">{p.errors[result.error]}</p>
+    );
+  }
+  const seconds = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(
+    result.latencyMs / 1000,
+  );
+  if (!result.ok) {
+    return (
+      <p className="text-[12px] tracking-[-0.023em] text-danger">
+        {p.probeFailed} · {seconds} s · {result.error}
+      </p>
+    );
+  }
+  return (
+    <p className="text-[12px] tracking-[-0.023em] text-steel">
+      <span className="font-semibold text-good">{p.probeOk}</span> · {seconds} s ·{' '}
+      {result.promptTokens} / {result.completionTokens} tokens · {p.probeReply}{' '}
+      <span className="font-mono text-ink">{result.reply}</span>
+    </p>
   );
 }
 

@@ -73,13 +73,25 @@ export async function publishVersion(input: {
     }
 
     const [library] = await tx
-      .select({ currentVersionId: schema.library.currentVersionId })
+      .select({
+        currentVersionId: schema.library.currentVersionId,
+        deletedAt: schema.library.deletedAt,
+      })
       .from(schema.library)
       .where(eq(schema.library.id, input.libraryId))
       .limit(1);
 
     if (!library) {
       throw new IngestionFailure('publish_failed', 'publish', 'no such library');
+    }
+    /*
+     * A build that was already running when the library was deleted lands
+     * here. architecture.md 8.4: deletion withdraws the pointer and nothing
+     * may put it back -- the version stays unpublished and the purge takes
+     * its rows with the rest.
+     */
+    if (library.deletedAt) {
+      throw new IngestionFailure('publish_failed', 'publish', 'the library is deleted');
     }
     const superseded =
       library.currentVersionId && library.currentVersionId !== version.id

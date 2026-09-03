@@ -16,9 +16,14 @@ import {
   PlusIcon,
   ShieldCheckIcon,
 } from '@/components/ui/icons';
-import { listWorkspaceLibraries, type WorkspaceLibraryRow } from '@/lib/application/libraries';
+import {
+  canDeleteLibraries,
+  listWorkspaceLibraries,
+  type WorkspaceLibraryRow,
+} from '@/lib/application/libraries';
 import { requireSession } from '@/lib/http/session';
 import { getMessages, translations } from '@/lib/i18n/server';
+import { deleteWorkspaceLibraryAction } from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).dashboard.libraries.title };
@@ -82,6 +87,7 @@ export default async function DashboardLibrariesPage() {
   const rows: LibraryListRow[] = libraries.map((row) => {
     const status = statusOf(row);
     return {
+      id: row.id,
       slug: row.publicId,
       title: row.title,
       version: row.versionLabel,
@@ -132,7 +138,13 @@ export default async function DashboardLibrariesPage() {
         action={<ArrowLink href="/docs">{l.anchorNoticeLink}</ArrowLink>}
       />
 
-      <LibraryList rows={rows} />
+      {/* requirement.md 5.2: deletion is for the library's owner side only. */}
+      <LibraryList
+        rows={rows}
+        deleteAction={
+          canDeleteLibraries(session.workspace.role) ? deleteWorkspaceLibraryAction : undefined
+        }
+      />
     </div>
   );
 }

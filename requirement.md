@@ -325,7 +325,9 @@ ID 规则：
 - Website：`/websites/slug`；
 - 上传文档：`/docs/slug`；
 - Notion：`/notion/slug`；
-- 指定版本：`/owner/repository/version`；
+- `websites`、`docs`、`notion` 三个命名空间下的 slug 可以分级（最多四级），如 `/websites/ethereum/whitepaper` 是一个独立的 Library，目录中归在 `/websites/ethereum` 之下；Git 仓库固定两段；
+- 指定版本：`/owner/repository/version`，分级命名空间下同样是在 Library ID 后追加一段。一个 ID 先按「最长存在的 Library ID」解析，剩余段才视为版本；为保证这一点，slug 不得与版本标签同形（`YYYYMMDD-xxxxxxxx[.n]`）；
+- 访问规则的允许 / 阻止 / 例外名单可以写 `/websites/ethereum/*`，覆盖该库及其下全部分级库；
 - Slug 变更保留 Redirect，API 返回新的 Library ID；
 - 私有 Library ID 不得通过公共搜索、错误差异或统计接口枚举。
 

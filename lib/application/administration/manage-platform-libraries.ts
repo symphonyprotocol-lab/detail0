@@ -2,9 +2,10 @@
  * Use cases behind the platform-library screens: the list, one library in
  * full, and the four things an operator may do to it.
  *
- * requirement.md 5.3 gives the console exactly four verbs over a library
- * re0 publishes itself -- create, refresh, suspend, publish -- and this
- * module is all four, plus the two reads the screens need.
+ * requirement.md 5.3 gives the console four verbs over a library re0
+ * publishes itself -- create, refresh, suspend, publish -- and this module is
+ * all four, plus the two reads the screens need, plus the one verb the
+ * requirement leaves to architecture.md 8.4: delete.
  *
  * What is real here and what is not, stated once so no screen has to guess:
  *
@@ -22,12 +23,17 @@
  *   whose index is empty would be a library that answers queries with nothing.
  * - suspending is immediate and needs no version: it takes the library out of
  *   circulation, which is a property of the row itself.
+ * - deleting is a tombstone plus a queued purge (`lib/application/libraries/
+ *   delete`). The row stays for billing history, the Library ID is released,
+ *   and the content is removed by the Delete Workflow after the response.
  *
  * Every mutation records the operator, the target, the values before and after,
  * the reason, the result, the time and a summary of the network origin.
  */
-import { and, count, desc, eq, gte, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { markLibraryDeleted } from '@/lib/application/libraries/delete';
 import { normalizeReason } from '@/lib/domain/admin';
+import type { FetchSummary } from '@/lib/domain/ingestion';
 import { uuidv7 } from '@/lib/domain/id';
 import {
   draftPlatformLibrary,
@@ -43,6 +49,8 @@ import {
   type PlatformSourceType,
   type RefreshPolicy,
 } from '@/lib/domain/library';
+import { PROFILE_VERSION } from '@/lib/domain/profile';
+import { rebuildProfile } from '@/lib/application/ingestion/rebuild-profile';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { recordAudit } from './audit';
 import { ref } from './column-ref';
@@ -67,7 +75,9 @@ export const PLATFORM_STATUS_FILTERS: readonly PlatformStatusFilter[] = [
 ];
 
 export function isPlatformStatusFilter(value: unknown): value is PlatformStatusFilter {
-  return typeof value === 'string' && (PLATFORM_STATUS_FILTERS as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' && (PLATFORM_STATUS_FILTERS as readonly string[]).includes(value)
+  );
 }
 
 export interface PlatformLibraryRow {
@@ -84,8 +94,15 @@ export interface PlatformLibraryRow {
   createdAt: Date;
 }
 
-/** Only ever true rows: everything below is scoped to the platform's own. */
-const IS_PLATFORM = eq(schema.library.isPlatformLibrary, true);
+/**
+ * Only ever true rows: everything below is scoped to the platform's own -- and
+ * to the ones that still exist. A deleted library is a tombstone (8.4), kept
+ * for billing history and shown on no console screen.
+ */
+const IS_PLATFORM = and(
+  eq(schema.library.isPlatformLibrary, true),
+  isNull(schema.library.deletedAt),
+)!;
 
 /** The type of the first source, when a library has one. */
 const firstSourceType = sql<string | null>`(
@@ -118,7 +135,12 @@ export interface PlatformLibraryList {
 }
 
 export async function listPlatformLibraries(
-  input: { query?: string; status?: PlatformStatusFilter; limit?: number; offset?: number } = {},
+  input: {
+    query?: string;
+    status?: PlatformStatusFilter;
+    limit?: number;
+    offset?: number;
+  } = {},
 ): Promise<PlatformLibraryList> {
   const database = db();
   const term = input.query?.trim();
@@ -198,7 +220,9 @@ export interface PlatformLibrarySummary {
  * omitted, and the screen says why, because a metric that disappears when it is
  * zero is a metric nobody notices is broken.
  */
-export async function platformLibrarySummary(now: Date = new Date()): Promise<PlatformLibrarySummary> {
+export async function platformLibrarySummary(
+  now: Date = new Date(),
+): Promise<PlatformLibrarySummary> {
   const database = db();
   const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -269,6 +293,8 @@ export interface PlatformOperationView {
   status: string;
   attempts: number;
   error: string | null;
+  /** How the build fetched its pages; null before the fetch, or when not applicable. */
+  fetchSummary: FetchSummary | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -279,6 +305,29 @@ export interface PlatformAuditView {
   administrator: string | null;
   reason: string | null;
   result: string;
+  createdAt: Date;
+}
+
+/**
+ * The current version's routing profile, as the console shows it.
+ *
+ * The profile is what `resolve-library-id` searches instead of the title
+ * (architecture.md 9.6), and until now nothing on screen showed it: a crawl
+ * that escaped its section, or a term table full of navigation text, could
+ * only be found by reading the table. Terms are the head of the list -- the
+ * extractor writes them by weight -- so the head is where the noise shows.
+ */
+export interface PlatformProfileView {
+  /** Which extractor wrote the row; stale means a newer one exists. */
+  extractorVersion: string;
+  stale: boolean;
+  titleCount: number;
+  /** The first few document titles, as the crawl found them. */
+  sampleTitles: string[];
+  termCount: number;
+  /** The heaviest terms, in the extractor's order. */
+  topTerms: string[];
+  centroids: number;
   createdAt: Date;
 }
 
@@ -309,10 +358,15 @@ export interface PlatformLibraryDetail {
   audit: PlatformAuditView[];
   /** Whether publishing would be accepted right now. */
   hasReadyVersion: boolean;
+  /** Null until a version has been built and profiled. */
+  profile: PlatformProfileView | null;
 }
 
 /** How much history the detail screen shows. Deeper reading is the audit log. */
 const DETAIL_LIMIT = 20;
+/** Of the profile: enough to see what the extractor thinks the library is about. */
+const PROFILE_TERMS_SHOWN = 40;
+const PROFILE_TITLES_SHOWN = 8;
 
 /**
  * One platform library, with everything the four decisions depend on.
@@ -343,14 +397,26 @@ export async function getPlatformLibrary(libraryId: string): Promise<PlatformLib
       lastSyncedAt: schema.library.lastSuccessfulRefreshAt,
       createdAt: schema.library.createdAt,
       isPlatformLibrary: schema.library.isPlatformLibrary,
+      deletedAt: schema.library.deletedAt,
     })
     .from(schema.library)
     .where(eq(schema.library.id, libraryId))
     .limit(1);
 
-  if (!record || !record.isPlatformLibrary) return null;
+  /* A deleted one is gone from here too: the 404 says so, the audit log
+     says who did it. */
+  if (!record || !record.isPlatformLibrary || record.deletedAt) return null;
 
-  const [sources, versions, operations, audit, [documentRow], [current]] = await Promise.all([
+  const [
+    sources,
+    versions,
+    operations,
+    audit,
+    [documentRow],
+    [current],
+    [profileRow],
+    [centroidRow],
+  ] = await Promise.all([
     database
       .select({
         id: schema.source.id,
@@ -387,6 +453,7 @@ export async function getPlatformLibrary(libraryId: string): Promise<PlatformLib
         status: schema.workflowOperation.status,
         attempts: schema.workflowOperation.attempts,
         error: schema.workflowOperation.error,
+        fetchSummary: schema.workflowOperation.fetchSummary,
         createdAt: schema.workflowOperation.createdAt,
         updatedAt: schema.workflowOperation.updatedAt,
       })
@@ -435,6 +502,24 @@ export async function getPlatformLibrary(libraryId: string): Promise<PlatformLib
           .where(eq(schema.libraryVersion.id, record.currentVersionId))
           .limit(1)
       : [],
+    record.currentVersionId
+      ? database
+          .select({
+            profileVersion: schema.libraryProfile.profileVersion,
+            documentTitles: schema.libraryProfile.documentTitles,
+            terms: schema.libraryProfile.terms,
+            createdAt: schema.libraryProfile.createdAt,
+          })
+          .from(schema.libraryProfile)
+          .where(eq(schema.libraryProfile.versionId, record.currentVersionId))
+          .limit(1)
+      : [],
+    record.currentVersionId
+      ? database
+          .select({ n: sql<number>`count(*)::int` })
+          .from(schema.libraryProfileVector)
+          .where(eq(schema.libraryProfileVector.versionId, record.currentVersionId))
+      : [],
   ]);
 
   return {
@@ -469,7 +554,72 @@ export async function getPlatformLibrary(libraryId: string): Promise<PlatformLib
     operations,
     audit,
     hasReadyVersion: current?.indexStatus === 'ready',
+    profile: profileRow
+      ? {
+          extractorVersion: profileRow.profileVersion,
+          stale: profileRow.profileVersion !== PROFILE_VERSION,
+          titleCount: profileRow.documentTitles.length,
+          sampleTitles: profileRow.documentTitles.slice(0, PROFILE_TITLES_SHOWN),
+          termCount: profileRow.terms.length,
+          topTerms: profileRow.terms.slice(0, PROFILE_TERMS_SHOWN),
+          centroids: centroidRow?.n ?? 0,
+          createdAt: profileRow.createdAt,
+        }
+      : null,
   };
+}
+
+/* ---------------------------------------------------------------- profile */
+
+export interface ProfileRebuildResult {
+  titles: number;
+  terms: number;
+}
+
+/**
+ * Rebuilds the current version's routing profile from its stored content.
+ *
+ * Maintenance of derived data (architecture.md 6.4), not a lifecycle verb:
+ * nothing about whether the library is served changes. It exists as a console
+ * action because the profile can be wrong without the content being wrong --
+ * a newer extractor, or one that let navigation text through -- and the
+ * alternative was a script only a deployer could run. Audited like every
+ * other console mutation.
+ */
+export async function rebuildPlatformLibraryProfile(input: {
+  actor: PlatformActor;
+  libraryId: string;
+  reason: string;
+}): Promise<ProfileRebuildResult> {
+  const reason = normalizeReason(input.reason);
+  const database = db();
+  const target = await loadTarget(database, input.libraryId);
+  if (!target.currentVersionId) {
+    throw new PlatformLibraryRefused('no_version', 'nothing has been built to profile');
+  }
+
+  const result = await rebuildProfile(target.currentVersionId);
+
+  await recordAudit({
+    administratorId: input.actor.administratorId,
+    action: 'platform_library.profile_rebuild',
+    targetType: AUDIT_TARGET,
+    targetId: target.id,
+    reason,
+    beforeValue: {
+      publicId: target.publicId,
+      versionId: target.currentVersionId,
+    },
+    afterValue: {
+      publicId: target.publicId,
+      versionId: target.currentVersionId,
+      ...result,
+    },
+    clientAddress: input.actor.clientAddress ?? null,
+    result: 'success',
+  });
+
+  return result;
 }
 
 /**
@@ -520,7 +670,8 @@ export async function createPlatformLibrary(
   const [existing] = await database
     .select({ id: schema.library.id })
     .from(schema.library)
-    .where(eq(schema.library.publicId, draft.publicId))
+    /* Live rows only: a deleted library released its id (8.4). */
+    .where(and(eq(schema.library.publicId, draft.publicId), isNull(schema.library.deletedAt)))
     .limit(1);
   if (existing) {
     throw new PlatformLibraryRefused('public_id_taken', 'that Library ID is already in use');
@@ -685,7 +836,10 @@ export async function setPlatformLibraryLifecycle(input: {
     targetType: AUDIT_TARGET,
     targetId: target.id,
     reason,
-    beforeValue: { publicId: target.publicId, lifecycleStatus: target.lifecycleStatus },
+    beforeValue: {
+      publicId: target.publicId,
+      lifecycleStatus: target.lifecycleStatus,
+    },
     afterValue: { publicId: target.publicId, lifecycleStatus: next },
     clientAddress: input.actor.clientAddress ?? null,
     result: 'success',
@@ -765,7 +919,10 @@ export async function requestPlatformLibraryRefresh(input: {
     targetType: AUDIT_TARGET,
     targetId: target.id,
     reason,
-    beforeValue: { publicId: target.publicId, lastCheckedAt: target.lastCheckedAt },
+    beforeValue: {
+      publicId: target.publicId,
+      lastCheckedAt: target.lastCheckedAt,
+    },
     afterValue: { publicId: target.publicId, operationId, status: 'pending' },
     clientAddress: input.actor.clientAddress ?? null,
     result: 'success',
@@ -843,7 +1000,7 @@ export async function updatePlatformLibrary(input: {
     const [clash] = await database
       .select({ id: schema.library.id })
       .from(schema.library)
-      .where(eq(schema.library.publicId, edit.publicId))
+      .where(and(eq(schema.library.publicId, edit.publicId), isNull(schema.library.deletedAt)))
       .limit(1);
     if (clash) {
       throw new PlatformLibraryRefused('public_id_taken', 'that Library ID is already in use');
@@ -901,7 +1058,11 @@ export async function updatePlatformLibrary(input: {
          */
         await tx
           .insert(schema.libraryAlias)
-          .values({ id: uuidv7(), fromPublicId: before.publicId, libraryId: target.id })
+          .values({
+            id: uuidv7(),
+            fromPublicId: before.publicId,
+            libraryId: target.id,
+          })
           .onConflictDoNothing();
       }
     });
@@ -977,7 +1138,12 @@ export async function addPlatformLibrarySource(input: {
     targetId: target.id,
     reason,
     beforeValue: null,
-    afterValue: { sourceId, type: draft.type, location: draft.location, refreshPolicy: draft.refreshPolicy },
+    afterValue: {
+      sourceId,
+      type: draft.type,
+      location: draft.location,
+      refreshPolicy: draft.refreshPolicy,
+    },
     clientAddress: input.actor.clientAddress ?? null,
     result: 'success',
   });
@@ -1018,7 +1184,10 @@ export async function updatePlatformLibrarySource(input: {
 
   await database
     .update(schema.source)
-    .set({ location: draft.location, refreshPolicy: { cadence: draft.refreshPolicy } })
+    .set({
+      location: draft.location,
+      refreshPolicy: { cadence: draft.refreshPolicy },
+    })
     .where(and(eq(schema.source.id, before.id), eq(schema.source.libraryId, target.id)));
 
   await recordAudit({
@@ -1027,8 +1196,16 @@ export async function updatePlatformLibrarySource(input: {
     targetType: AUDIT_TARGET,
     targetId: target.id,
     reason,
-    beforeValue: { sourceId: before.id, location: before.location, refreshPolicy: before.refreshPolicy },
-    afterValue: { sourceId: before.id, location: draft.location, refreshPolicy: draft.refreshPolicy },
+    beforeValue: {
+      sourceId: before.id,
+      location: before.location,
+      refreshPolicy: before.refreshPolicy,
+    },
+    afterValue: {
+      sourceId: before.id,
+      location: draft.location,
+      refreshPolicy: draft.refreshPolicy,
+    },
     clientAddress: input.actor.clientAddress ?? null,
     result: 'success',
   });
@@ -1100,18 +1277,118 @@ export async function removePlatformLibrarySource(input: {
     targetType: AUDIT_TARGET,
     targetId: target.id,
     reason,
-    beforeValue: { sourceId: before.id, type: before.type, location: before.location },
+    beforeValue: {
+      sourceId: before.id,
+      type: before.type,
+      location: before.location,
+    },
     afterValue: null,
     clientAddress: input.actor.clientAddress ?? null,
     result: 'success',
   });
 }
 
+/* ------------------------------------------------------------------ delete */
+
+export interface PlatformDeleteResult {
+  libraryId: string;
+  publicId: string;
+  /** The queued Delete Operation, run after the response and by the drain. */
+  operationId: string | null;
+}
+
+/**
+ * Deletes one platform library. architecture.md 8.4.
+ *
+ * Available from every state, `archived` included: a library that has been
+ * taken out of circulation and will not come back is exactly the one an
+ * operator deletes. What the transaction does is in `markLibraryDeleted`; what
+ * this adds is the console's contract -- the target is checked to be the
+ * platform's own, and the operator, the reason and what the library was are
+ * recorded before it stops being anything.
+ *
+ * The audit entry carries the counts rather than the content: the rows it
+ * describes are about to be purged, and the entry is what an operator reads
+ * to know how much a deletion removed.
+ */
+export async function deletePlatformLibrary(input: {
+  actor: PlatformActor;
+  libraryId: string;
+  reason: string;
+}): Promise<PlatformDeleteResult> {
+  const reason = normalizeReason(input.reason);
+  const database = db();
+  const target = await loadTarget(database, input.libraryId);
+
+  const [[sources], [versions], [before]] = await Promise.all([
+    database
+      .select({ n: count() })
+      .from(schema.source)
+      .where(eq(schema.source.libraryId, target.id)),
+    database
+      .select({ n: count() })
+      .from(schema.libraryVersion)
+      .where(eq(schema.libraryVersion.libraryId, target.id)),
+    database
+      .select({
+        title: schema.library.title,
+        visibility: schema.library.visibility,
+        indexStatus: schema.library.indexStatus,
+        storageBytes: schema.library.storageBytes,
+      })
+      .from(schema.library)
+      .where(eq(schema.library.id, target.id))
+      .limit(1),
+  ]);
+
+  const deleted = await markLibraryDeleted(target.id);
+
+  await recordAudit({
+    administratorId: input.actor.administratorId,
+    action: 'platform_library.delete',
+    targetType: AUDIT_TARGET,
+    targetId: target.id,
+    reason,
+    beforeValue: {
+      publicId: target.publicId,
+      title: before?.title ?? null,
+      visibility: before?.visibility ?? null,
+      lifecycleStatus: target.lifecycleStatus,
+      indexStatus: before?.indexStatus ?? null,
+      currentVersionId: target.currentVersionId,
+      storageBytes: before?.storageBytes ?? 0,
+      sources: sources?.n ?? 0,
+      versions: versions?.n ?? 0,
+    },
+    afterValue: {
+      publicId: target.publicId,
+      lifecycleStatus: 'archived',
+      indexStatus: 'deleting',
+      deleted: true,
+      operationId: deleted.operationId,
+      alreadyDeleted: deleted.alreadyDeleted,
+    },
+    clientAddress: input.actor.clientAddress ?? null,
+    result: 'success',
+  });
+
+  return {
+    libraryId: target.id,
+    publicId: target.publicId,
+    operationId: deleted.operationId,
+  };
+}
+
 async function loadSource(
   database: ReturnType<typeof db>,
   libraryId: string,
   sourceId: string,
-): Promise<{ id: string; type: string; location: string; refreshPolicy: RefreshPolicy | 'unknown' }> {
+): Promise<{
+  id: string;
+  type: string;
+  location: string;
+  refreshPolicy: RefreshPolicy | 'unknown';
+}> {
   if (!isUuid(sourceId)) throw new PlatformLibraryRefused('source_not_found', 'no such source');
 
   const [row] = await database
@@ -1198,12 +1475,15 @@ async function loadTarget(
       currentVersionId: schema.library.currentVersionId,
       lastCheckedAt: schema.library.lastCheckedAt,
       isPlatformLibrary: schema.library.isPlatformLibrary,
+      deletedAt: schema.library.deletedAt,
     })
     .from(schema.library)
     .where(eq(schema.library.id, libraryId))
     .limit(1);
 
-  if (!row) throw new PlatformLibraryRefused('not_found', 'no such library');
+  /* A tombstone is not a target. It is not found, the way the detail page
+     already answers, rather than "archived" -- there is nothing to un-archive. */
+  if (!row || row.deletedAt) throw new PlatformLibraryRefused('not_found', 'no such library');
   if (!row.isPlatformLibrary) {
     throw new PlatformLibraryRefused('not_platform_library', 'not a platform library');
   }

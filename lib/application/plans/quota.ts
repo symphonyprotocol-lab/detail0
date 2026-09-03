@@ -333,6 +333,29 @@ type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
  * provider-defined period; without one it is on the newest Free version and a
  * calendar month. requirement.md 4.1.
  */
+/**
+ * Whether the workspace is on a paid plan right now: an active subscription
+ * within its period, to a plan version that is not the free tier. What the
+ * playground reads to decide which models a caller may be answered by.
+ */
+export async function hasPaidSubscription(workspaceId: string): Promise<boolean> {
+  const [paid] = await db()
+    .select({ planId: schema.planVersion.planId })
+    .from(schema.subscription)
+    .innerJoin(schema.planVersion, eq(schema.planVersion.id, schema.subscription.planVersionId))
+    .where(
+      and(
+        eq(schema.subscription.workspaceId, workspaceId),
+        eq(schema.subscription.status, 'active'),
+        lte(schema.subscription.periodStart, sql`now()`),
+        gte(schema.subscription.periodEnd, sql`now()`),
+      ),
+    )
+    .orderBy(desc(schema.subscription.periodEnd))
+    .limit(1);
+  return paid !== undefined && paid.planId !== 'free';
+}
+
 async function planWindow(
   tx: Tx,
   workspaceId: string,

@@ -7,7 +7,7 @@
  * are the same for every source type and happen once, in the application layer,
  * which is why nothing here is format-aware.
  */
-import type { SourceConfig } from '@/lib/domain/ingestion';
+import type { FetchMethod, SourceConfig } from '@/lib/domain/ingestion';
 
 export interface FetchedFile {
   /** Stable path within the source. Part of the snapshot digest. */
@@ -15,6 +15,13 @@ export interface FetchedFile {
   /** Where a reader can see this document. Goes into every citation. */
   url: string;
   content: string;
+  /**
+   * How the bytes were obtained: our own fetch, or a rendering provider.
+   * Set by the web connector; absent for sources that have no such choice
+   * (a repository, a Notion space). Not part of the digest -- the same page
+   * rendered two ways is the same content.
+   */
+  fetchedVia?: FetchMethod;
 }
 
 export interface SourceSnapshot {

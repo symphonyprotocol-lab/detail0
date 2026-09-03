@@ -7,13 +7,7 @@
  */
 
 export type AdminCapability =
-  | 'users'
-  | 'libraries'
-  | 'platformLibraries'
-  | 'plans'
-  | 'billing'
-  | 'administrators'
-  | 'audit';
+  'users' | 'libraries' | 'platformLibraries' | 'plans' | 'billing' | 'administrators' | 'audit';
 
 export const ADMIN_CAPABILITIES: readonly AdminCapability[] = [
   'users',
@@ -67,15 +61,24 @@ export function isAdminRoleId(value: unknown): value is AdminRoleId {
 }
 
 /**
- * Admin sessions are far shorter-lived than product sessions.
+ * A console session lives 30 days past its last use, the same sliding window
+ * as a product session (lib/domain/auth.ts): each touch moves `expires_at`
+ * out again, and a month without use ends it.
  *
- * A product session trades some risk for convenience over 30 days; a console
- * session holds the power to suspend accounts and rewrite plan quotas, so it
- * expires within a working day and idles out over a coffee break.
+ * This is a product decision that trades the shorter working-day session
+ * the console once had for not signing in with a second factor every
+ * morning. What still bounds a console session: mandatory MFA at sign-in,
+ * revocation when the account is disabled or its second factor cleared
+ * (resolve-admin-session.ts), and the audit log.
  */
-export const ADMIN_SESSION_ABSOLUTE_MS = 8 * 60 * 60 * 1000;
-export const ADMIN_SESSION_IDLE_MS = 30 * 60 * 1000;
-/** `last_seen_at` is rewritten at most this often, to keep reads read-mostly. */
+export const ADMIN_SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
+/**
+ * The absolute cap: however regularly it is used, a console session ends 90
+ * days after sign-in and the administrator signs in again, second factor
+ * included. The sliding window never moves past it.
+ */
+export const ADMIN_SESSION_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+/** `last_seen_at` and `expires_at` are rewritten at most this often. */
 export const ADMIN_SESSION_TOUCH_INTERVAL_MS = 60 * 1000;
 
 /** Failed attempts before the account stops answering, and for how long. */
@@ -86,20 +89,35 @@ export interface AdminSessionRow {
   expiresAt: Date;
   lastSeenAt: Date;
   revokedAt: Date | null;
+  createdAt: Date;
 }
 
+/**
+ * Live means: not revoked, inside its sliding window, and under the cap.
+ *
+ * The cap is checked here as well as applied in `adminSessionExpiryFrom`, so
+ * a row whose `expires_at` was written before the cap existed still ends on
+ * time.
+ */
 export function isAdminSessionLive(session: AdminSessionRow, now: Date): boolean {
   if (session.revokedAt !== null) return false;
   if (session.expiresAt.getTime() <= now.getTime()) return false;
-  return now.getTime() - session.lastSeenAt.getTime() < ADMIN_SESSION_IDLE_MS;
+  return now.getTime() - session.createdAt.getTime() < ADMIN_SESSION_MAX_AGE_MS;
 }
 
+/** Whether this use should move the window (and rewrite `last_seen_at`). */
 export function shouldTouchAdminSession(session: AdminSessionRow, now: Date): boolean {
   return now.getTime() - session.lastSeenAt.getTime() >= ADMIN_SESSION_TOUCH_INTERVAL_MS;
 }
 
-export function adminSessionExpiryFrom(now: Date): Date {
-  return new Date(now.getTime() + ADMIN_SESSION_ABSOLUTE_MS);
+/**
+ * Where the window ends for a session used now: at sign-in (when `createdAt`
+ * is `now`) and on every touch -- 30 days out, but never past the cap.
+ */
+export function adminSessionExpiryFrom(now: Date, createdAt: Date = now): Date {
+  const sliding = now.getTime() + ADMIN_SESSION_LIFETIME_MS;
+  const cap = createdAt.getTime() + ADMIN_SESSION_MAX_AGE_MS;
+  return new Date(Math.min(sliding, cap));
 }
 
 export function isLockedOut(lockedUntil: Date | null, now: Date): boolean {

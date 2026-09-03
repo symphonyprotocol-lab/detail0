@@ -12,7 +12,7 @@
  * that follows an operator pressing the button, at minimum -- and a claim that
  * two of them can win is a library built twice.
  */
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import {
   IngestionFailure,
   isIngestionError,
@@ -21,13 +21,18 @@ import {
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { buildVersion } from './build-version';
 import { publishVersion } from './publish-version';
+import { purgeLibrary } from './purge-library';
 import type { IngestionDependencies } from './dependencies';
 
 export type OperationOutcome =
   | { status: 'succeeded'; versionId: string; documents: number; chunks: number }
+  | { status: 'purged'; documents: number; chunks: number; objects: number }
   | { status: 'skipped'; reason: 'unchanged' }
   | { status: 'failed'; error: IngestionErrorCode }
   | { status: 'lost' };
+
+/** The operation type `markLibraryDeleted` queues; everything else is a build. */
+const DELETE_OPERATION = 'delete';
 
 /** Attempts before an operation stops being retried. */
 export const MAX_ATTEMPTS = 3;
@@ -62,6 +67,7 @@ export async function runOperation(input: {
     .returning({
       id: schema.workflowOperation.id,
       libraryId: schema.workflowOperation.libraryId,
+      operationType: schema.workflowOperation.operationType,
       attempts: schema.workflowOperation.attempts,
     });
 
@@ -71,6 +77,10 @@ export async function runOperation(input: {
   if (!operation.libraryId) {
     await finish(operation.id, 'failed', 'internal_error');
     return { status: 'failed', error: 'internal_error' };
+  }
+
+  if (operation.operationType === DELETE_OPERATION) {
+    return purge(operation.id, operation.libraryId, input.dependencies);
   }
 
   try {
@@ -129,6 +139,8 @@ export async function runOperation(input: {
             eq(schema.library.id, operation.libraryId),
             // A library that is already serving a version is not "failed".
             sql`${schema.library.currentVersionId} is null`,
+            // A tombstone's pointer is null too, and it stays `deleting`.
+            isNull(schema.library.deletedAt),
           ),
         );
     }
@@ -147,6 +159,38 @@ export async function runOperation(input: {
         : `ingestion ${operation.id} failed: ${code}: ${
             error instanceof Error ? error.message : 'unknown error'
           }`,
+    );
+    return { status: 'failed', error: code };
+  }
+}
+
+/**
+ * The Delete Workflow's run. architecture.md 8.4.
+ *
+ * Retried without limit, unlike a build: the doc is explicit that cleanup
+ * failures keep retrying and alert, and never restore access. A build that
+ * fails three times has told the operator something about the source; a purge
+ * that fails is an outage on our side, and giving up on it would leave a
+ * deleted library's content in the store indefinitely. The row goes back to
+ * `pending` with the code on it, the next drain picks it up, and the error
+ * line below is the alert.
+ */
+async function purge(
+  operationId: string,
+  libraryId: string,
+  dependencies: IngestionDependencies | undefined,
+): Promise<OperationOutcome> {
+  try {
+    const purged = await purgeLibrary({ libraryId, dependencies });
+    await finish(operationId, 'succeeded', null);
+    return { status: 'purged', ...purged };
+  } catch (error) {
+    const code = errorCode(error);
+    await finish(operationId, 'pending', code);
+    console.error(
+      `purge ${operationId} failed: ${code}: ${
+        error instanceof Error ? error.message : 'unknown error'
+      }`,
     );
     return { status: 'failed', error: code };
   }

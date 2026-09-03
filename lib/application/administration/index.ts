@@ -37,6 +37,7 @@ export {
 } from './list-libraries';
 export {
   createPlatformLibrary,
+  deletePlatformLibrary,
   getPlatformLibrary,
   isPlatformStatusFilter,
   listPlatformLibraries,
@@ -46,20 +47,24 @@ export {
   updatePlatformLibrary,
   addPlatformLibrarySource,
   updatePlatformLibrarySource,
+  rebuildPlatformLibraryProfile,
   removePlatformLibrarySource,
   PLATFORM_STATUS_FILTERS,
   type CreatePlatformLibraryResult,
   type LifecycleChangeResult,
   type PlatformActor,
   type PlatformAuditView,
+  type PlatformDeleteResult,
   type PlatformLibraryDetail,
   type PlatformLibraryList,
   type PlatformLibraryRow,
   type PlatformLibrarySummary,
   type PlatformOperationView,
+  type PlatformProfileView,
   type PlatformSourceView,
   type PlatformStatusFilter,
   type PlatformVersionView,
+  type ProfileRebuildResult,
   type RefreshRequestResult,
 } from './manage-platform-libraries';
 export {
@@ -88,15 +93,24 @@ export {
 export {
   activeLlmConfig,
   llmConfigEntries,
+  readLlmAssignment,
   readLlmConfiguration,
   recordLlmCost,
   selectableLlmModels,
+  updateLlmAssignment,
   updateLlmConfig,
   LlmConfigRefused,
+  type LlmAssignment,
   type LlmConfigRow,
   type LlmConfiguration,
   type LlmUsageStats,
+  type UpdateLlmAssignmentInput,
 } from './manage-llm-config';
+export {
+  probeLlmConfig,
+  type LlmProbeInput,
+  type LlmProbeResult,
+} from './probe-llm-config';
 export {
   activeRetrievalSettings,
   readRetrievalConfiguration,

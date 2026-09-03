@@ -5,7 +5,7 @@ import {
   ADMIN_LOGIN_ERRORS,
   ADMIN_LOCKOUT_MS,
   ADMIN_MAX_FAILED_ATTEMPTS,
-  ADMIN_SESSION_IDLE_MS,
+  ADMIN_SESSION_LIFETIME_MS,
   adminSessionExpiryFrom,
   capabilitiesForRoles,
   isAdminLoginError,
@@ -73,12 +73,17 @@ describe('admin capabilities', () => {
 });
 
 /**
- * A console session holds the power to suspend accounts and rewrite quotas, so
- * it expires within a working day and idles out over a coffee break -- far
- * shorter than the 30-day product session.
+ * A console session slides 30 days past its last use, like a product session
+ * (lib/domain/admin.ts records the trade-off), under a 90-day cap from
+ * sign-in after which the administrator authenticates again.
  */
 describe('admin session lifetime', () => {
-  const live = { expiresAt: new Date(NOW.getTime() + 3_600_000), lastSeenAt: NOW, revokedAt: null };
+  const live = {
+    expiresAt: new Date(NOW.getTime() + 3_600_000),
+    lastSeenAt: NOW,
+    revokedAt: null,
+    createdAt: NOW,
+  };
 
   it('accepts a session that is fresh, unexpired and not revoked', () => {
     expect(isAdminSessionLive(live, NOW)).toBe(true);
@@ -92,18 +97,32 @@ describe('admin session lifetime', () => {
     expect(isAdminSessionLive({ ...live, expiresAt: NOW }, NOW)).toBe(false);
   });
 
-  it('idles out well before the absolute window closes', () => {
-    const idled = { ...live, lastSeenAt: new Date(NOW.getTime() - ADMIN_SESSION_IDLE_MS - 1) };
-    expect(isAdminSessionLive(idled, NOW)).toBe(false);
-    expect(ADMIN_SESSION_IDLE_MS).toBeLessThan(
-      adminSessionExpiryFrom(NOW).getTime() - NOW.getTime(),
-    );
+  it('stays live however long ago it was last seen, while its window is open', () => {
+    const old = {
+      ...live,
+      lastSeenAt: new Date(NOW.getTime() - 29 * 24 * 60 * 60 * 1000),
+    };
+    expect(isAdminSessionLive(old, NOW)).toBe(true);
   });
 
-  it('expires within a working day', () => {
-    expect(adminSessionExpiryFrom(NOW).getTime() - NOW.getTime()).toBeLessThanOrEqual(
-      8 * 60 * 60 * 1000,
-    );
+  it('slides 30 days out from any use', () => {
+    expect(ADMIN_SESSION_LIFETIME_MS).toBe(30 * 24 * 60 * 60 * 1000);
+    expect(adminSessionExpiryFrom(NOW).getTime() - NOW.getTime()).toBe(ADMIN_SESSION_LIFETIME_MS);
+  });
+
+  it('never slides past 90 days from sign-in, and dies there however fresh', () => {
+    const day = 24 * 60 * 60 * 1000;
+    const signedIn = new Date(NOW.getTime() - 75 * day);
+    /* A touch on day 75 reaches the cap at day 90, not day 105. */
+    expect(adminSessionExpiryFrom(NOW, signedIn).getTime()).toBe(signedIn.getTime() + 90 * day);
+    /* A row the cap was not applied to is still refused once it is 90 days old. */
+    const capped = {
+      ...live,
+      createdAt: new Date(NOW.getTime() - 90 * day),
+      expiresAt: new Date(NOW.getTime() + 10 * day),
+    };
+    expect(isAdminSessionLive(capped, NOW)).toBe(false);
+    expect(isAdminSessionLive({ ...capped, createdAt: new Date(NOW.getTime() - 89 * day) }, NOW)).toBe(true);
   });
 
   it('only rewrites last_seen_at once the touch interval has passed', () => {
@@ -203,9 +222,9 @@ describe('administrator change guards', () => {
   });
 
   it('refuses to demote or disable the last active super administrator', () => {
-    expect(() =>
-      refuseLastSuperAdmin({ targetIsSuper: true, otherActiveSuperAdmins: 0 }),
-    ).toThrow(AdminChangeRefused);
+    expect(() => refuseLastSuperAdmin({ targetIsSuper: true, otherActiveSuperAdmins: 0 })).toThrow(
+      AdminChangeRefused,
+    );
     try {
       refuseLastSuperAdmin({ targetIsSuper: true, otherActiveSuperAdmins: 0 });
     } catch (error) {

@@ -103,7 +103,7 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
   const libraryCount = sql<number>`(
     select count(*)::int from ${schema.library}
     join ${schema.workspaceMember} wm on wm.workspace_id = ${libraryWorkspace}
-    where wm.user_id = ${userId}
+    where wm.user_id = ${userId} and ${ref(schema.library.deletedAt)} is null
   )`;
   const callsThisMonth = sql<number>`(
     select coalesce(sum(${ref(schema.usageSummary.calls)}), 0)::int from ${schema.usageSummary}
@@ -126,6 +126,7 @@ export async function listConsoleUsers(input: UserListInput = {}): Promise<{
     select count(*)::int from ${schema.library}
     join ${schema.workspaceMember} wm on wm.workspace_id = ${libraryWorkspace}
     where wm.user_id = ${userId} and ${ref(schema.library.lifecycleStatus)} = 'published'
+      and ${ref(schema.library.deletedAt)} is null
   )`;
 
   const rows = await database

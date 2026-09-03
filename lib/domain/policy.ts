@@ -88,18 +88,18 @@ export function evaluatePolicy(policy: WorkspacePolicy, subject: PolicySubject):
     return { allowed: false, reason: 'source_type_disabled' };
   }
 
-  if (policy.blockedLibraries.includes(subject.publicId)) {
+  if (listedIn(policy.blockedLibraries, subject.publicId)) {
     return { allowed: false, reason: 'library_blocked' };
   }
 
   if (policy.mode === 'select') {
-    return policy.allowedLibraries.includes(subject.publicId)
+    return listedIn(policy.allowedLibraries, subject.publicId)
       ? { allowed: true, reason: 'allowed' }
       : { allowed: false, reason: 'not_in_allowlist' };
   }
 
   if (policy.mode === 'quality') {
-    if (policy.exceptedLibraries.includes(subject.publicId)) {
+    if (listedIn(policy.exceptedLibraries, subject.publicId)) {
       return { allowed: true, reason: 'allowed' };
     }
     if (policy.quality.requireVerified && !subject.verified) {
@@ -118,4 +118,25 @@ export function evaluatePolicy(policy: WorkspacePolicy, subject: PolicySubject):
   }
 
   return { allowed: true, reason: 'allowed' };
+}
+
+/* ---------------------------------------------------------- list entries */
+
+/**
+ * Whether one allow/block/except entry covers a library.
+ *
+ * An entry is a Library ID, or a prefix: `/websites/ethereum/*` covers
+ * `/websites/ethereum` and every library nested under it (requirement.md 6.1
+ * nests the slug namespaces). The star is only meaningful as a whole trailing
+ * segment; `/websites/eth*` is not a pattern and matches nothing, which the
+ * contract schema refuses before it gets here.
+ */
+export function libraryEntryMatches(entry: string, publicId: string): boolean {
+  if (!entry.endsWith('/*')) return entry === publicId;
+  const base = entry.slice(0, -2);
+  return publicId === base || publicId.startsWith(`${base}/`);
+}
+
+export function listedIn(entries: readonly string[], publicId: string): boolean {
+  return entries.some((entry) => libraryEntryMatches(entry, publicId));
 }

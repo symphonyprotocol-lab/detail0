@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ArrowUpRightIcon, BadgeCheckIcon, ShieldCheckIcon } from '@/components/ui/icons';
+import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
 
 /** One catalogue row, mapped by the page from the live rows. */
@@ -11,6 +12,8 @@ export interface LibraryTableEntry {
   chunks: string;
   updated: string;
   anchored: boolean;
+  /** The listed library this one is nested under, when its parent is on the page too. */
+  nestedUnder?: string | null;
 }
 
 /**
@@ -51,13 +54,25 @@ export async function LibraryTable({
                 i === entries.length - 1 ? '' : 'border-b-2 border-line'
               }`}
             >
-              <span className="flex min-w-0 items-center gap-2.5">
+              <span className={`flex min-w-0 items-center gap-2.5 ${entry.nestedUnder ? 'pl-7' : ''}`}>
+                {/* A nested library is drawn one step in under its parent,
+                    with the branch glyph carrying the relation for a reader
+                    and the label carrying it for a screen reader. */}
+                {entry.nestedUnder ? (
+                  <span aria-hidden className="-ml-5 w-3 shrink-0 text-[13px] text-faint">
+                    ↳
+                  </span>
+                ) : null}
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-[7px] border-2 border-brandline bg-brandsoft text-brand">
                   <ShieldCheckIcon size={17} />
                 </span>
                 <span className="flex min-w-0 flex-col gap-[3px]">
                   <span className="truncate font-[650] text-ink">{entry.title}</span>
-                  <span className="truncate text-[10px] text-muted">{entry.domain}</span>
+                  <span className="truncate text-[10px] text-muted">
+                    {entry.nestedUnder
+                      ? fill(table.nestedUnder, { parent: entry.nestedUnder })
+                      : entry.domain}
+                  </span>
                 </span>
               </span>
               <span className="truncate">{entry.libraryId}</span>

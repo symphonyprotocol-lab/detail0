@@ -4,9 +4,13 @@ import { startTransition, useActionState, useId, useState } from 'react';
 import { ConsoleDialog } from '@/components/admin/console-dialog';
 import { ConsoleButton, Pill } from '@/components/admin/ui';
 import { CircleCheckIcon, CircleXIcon, PlusIcon, SpinnerIcon } from '@/components/ui/icons';
-import { Field, FIELD, type PlatformAction as Action } from './platform-library-shared';
 import {
-  namespaceFor,
+  Field,
+  FIELD,
+  PublicIdField,
+  type PlatformAction as Action,
+} from './platform-library-shared';
+import {
   PLATFORM_SOURCE_TYPES,
   REFRESH_POLICIES,
   type PlatformSourceType,
@@ -66,8 +70,9 @@ function CreateDialog({ action, onClose }: { action: Action; onClose: () => void
   /*
    * The source type is the only field the rest of the form depends on: it
    * decides which Library ID namespace is legal and what a location may look
-   * like. Held in state so the hint under the id field tells the operator the
-   * rule *before* the server refuses them for breaking it.
+   * like. Held in state so the id field can print the namespace as a fixed
+   * prefix and take only the slug, rather than let the operator type a prefix
+   * the server will refuse.
    */
   const [sourceType, setSourceType] = useState<PlatformSourceType>('website');
 
@@ -116,9 +121,8 @@ function CreateDialog({ action, onClose }: { action: Action; onClose: () => void
          * so on a refusal this eight-field form would come back blank -- an
          * operator who mistyped one character would retype everything -- and
          * the reset would also put the source-type `<select>` back to its
-         * first option while the React state behind the namespace hint stayed
-         * where it was, leaving the control and its hint contradicting each
-         * other. The other console dialogs escape both because every field
+         * first option while the React state behind the id prefix stayed where
+         * it was, leaving the control and the prefix contradicting each other. The other console dialogs escape both because every field
          * they hold is prefilled, so a reset restores a value rather than
          * clearing one.
          */
@@ -164,15 +168,14 @@ function CreateDialog({ action, onClose }: { action: Action; onClose: () => void
                 className={FIELD}
               />
             </Field>
-            <Field label={f.fieldPublicId} hint={fill(f.hintPublicId, { namespace: namespaceFor(sourceType) })}>
-              <input
-                name="publicId"
-                required
-                maxLength={200}
-                placeholder={f.placeholderPublicId}
-                className={FIELD}
-              />
-            </Field>
+            <PublicIdField
+              label={f.fieldPublicId}
+              sourceType={sourceType}
+              hint={sourceType === 'github' ? f.hintPublicIdRepo : f.hintPublicId}
+              placeholder={
+                sourceType === 'github' ? f.placeholderPublicIdRepo : f.placeholderPublicId
+              }
+            />
 
             <Field label={f.fieldSource}>
               <select

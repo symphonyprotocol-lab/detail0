@@ -26,7 +26,7 @@ const { getConsoleUser, setUserAccountStatus } = await import(
 const { listConsoleUsers } = await import('@/lib/application/administration/list-users');
 const { seal } = await import('@/lib/infrastructure/crypto/sealed');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
-const { OAUTH_STATE_TTL_MS, SESSION_ABSOLUTE_MS } = await import('@/lib/domain/auth');
+const { OAUTH_STATE_TTL_MS, SESSION_LIFETIME_MS } = await import('@/lib/domain/auth');
 const { uuidv7 } = await import('@/lib/domain/id');
 
 const subject = `suspend-${Date.now()}`;
@@ -201,7 +201,7 @@ describeWithDb('suspending a registered account', () => {
       userId,
       tokenHash: `count-probe-${subject}-${index}`,
       lastSeenAt: now,
-      expiresAt: new Date(now.getTime() + SESSION_ABSOLUTE_MS),
+      expiresAt: new Date(now.getTime() + SESSION_LIFETIME_MS),
     }));
     await db().insert(schema.userSession).values(extra);
 

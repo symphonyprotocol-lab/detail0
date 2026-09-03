@@ -4,8 +4,7 @@ import {
   isAccountUsable,
   isSessionLive,
   personalWorkspaceName,
-  SESSION_ABSOLUTE_MS,
-  SESSION_IDLE_MS,
+  SESSION_LIFETIME_MS,
   sessionExpiryFrom,
   shouldTouchSession,
   workspaceInitial,
@@ -16,7 +15,7 @@ import { uuidv7 } from '@/lib/domain/id';
 
 const now = new Date('2026-08-25T10:00:00.000Z');
 const live = {
-  expiresAt: new Date(now.getTime() + SESSION_ABSOLUTE_MS),
+  expiresAt: new Date(now.getTime() + SESSION_LIFETIME_MS),
   lastSeenAt: now,
   revokedAt: null,
 };
@@ -34,19 +33,30 @@ describe('session lifetime', () => {
     expect(isSessionLive({ ...live, expiresAt: now }, now)).toBe(false);
   });
 
-  it('rejects a session that idled out', () => {
-    const idle = { ...live, lastSeenAt: new Date(now.getTime() - SESSION_IDLE_MS - 1) };
-    expect(isSessionLive(idle, now)).toBe(false);
+  it('has no idle rule of its own: the sliding window is the idle rule', () => {
+    /* Used a month ago, but the window was moved then and is still open. */
+    const old = {
+      ...live,
+      lastSeenAt: new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000),
+    };
+    expect(isSessionLive(old, now)).toBe(true);
+    /* And one whose window closed is dead however recently the row was read. */
+    expect(isSessionLive({ ...live, expiresAt: now }, now)).toBe(false);
   });
 
   it('rewrites last_seen_at at most once an hour', () => {
     expect(shouldTouchSession(live, now)).toBe(false);
-    const stale = { ...live, lastSeenAt: new Date(now.getTime() - 61 * 60 * 1000) };
+    const stale = {
+      ...live,
+      lastSeenAt: new Date(now.getTime() - 61 * 60 * 1000),
+    };
     expect(shouldTouchSession(stale, now)).toBe(true);
   });
 
-  it('expires 30 days out', () => {
+  it('slides 30 days out from any use, sign-in or touch', () => {
     expect(sessionExpiryFrom(now).toISOString()).toBe('2026-09-24T10:00:00.000Z');
+    const later = new Date(now.getTime() + 20 * 24 * 60 * 60 * 1000);
+    expect(sessionExpiryFrom(later).toISOString()).toBe('2026-10-14T10:00:00.000Z');
   });
 });
 
@@ -98,7 +108,10 @@ describe('first login', () => {
   });
 
   it('names the personal workspace after the profile, falling back to the mailbox', () => {
-    const naming = { personalWorkspace: '{owner} 的空间', fallbackOwner: '个人' };
+    const naming = {
+      personalWorkspace: '{owner} 的空间',
+      fallbackOwner: '个人',
+    };
     expect(personalWorkspaceName(profile, naming)).toBe('Ada Lovelace 的空间');
     expect(personalWorkspaceName({ ...profile, displayName: null }, naming)).toBe('dev 的空间');
   });

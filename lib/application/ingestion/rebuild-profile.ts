@@ -9,7 +9,7 @@
  * the build. The centroid vectors are left alone: they derive from the
  * embeddings, which the extractor does not touch.
  */
-import { eq, ne, or, isNull } from 'drizzle-orm';
+import { and, eq, ne, or, isNull } from 'drizzle-orm';
 import { uuidv7 } from '@/lib/domain/id';
 import {
   extractTerms,
@@ -84,12 +84,16 @@ export async function rebuildStaleProfiles(
       eq(schema.libraryProfile.versionId, schema.library.currentVersionId),
     )
     .where(
-      options.all
-        ? undefined
-        : or(
-            isNull(schema.libraryProfile.id),
-            ne(schema.libraryProfile.profileVersion, PROFILE_VERSION),
-          ),
+      and(
+        /* A deleted library's profile is gone for good, not stale. */
+        isNull(schema.library.deletedAt),
+        options.all
+          ? undefined
+          : or(
+              isNull(schema.libraryProfile.id),
+              ne(schema.libraryProfile.profileVersion, PROFILE_VERSION),
+            ),
+      ),
     );
 
   const rebuilt: { publicId: string; versionId: string; titles: number; terms: number }[] = [];

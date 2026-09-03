@@ -71,6 +71,34 @@ describe('term extraction', () => {
     expect(terms).not.toContain('怎么');
   });
 
+  it('drops site furniture before counting, and keeps the words it is made of', () => {
+    const terms = extractTerms([
+      'Namecoin (opens in a new tab) is a registry. Skip to main content. Edit page. On this page.',
+      'Open the tab of the browser: a new tab opens the registry. Namecoin namecoin.',
+      '在新标签页中打开 隐翅虫 隐翅虫 跳转到主要内容',
+    ]);
+    expect(terms).toContain('namecoin');
+    expect(terms).toContain('registry');
+    /* The phrase is gone; the words survive only where they were content. */
+    expect(terms).toContain('tab');
+    expect(terms).toContain('opens');
+    expect(terms).not.toContain('skip');
+    expect(terms).not.toContain('edit');
+    expect(terms).toContain('隐翅虫');
+    expect(terms).not.toContain('标签页');
+    expect(terms).not.toContain('主要内容');
+  });
+
+  it('leaves discourse and ordinal words out too', () => {
+    const terms = extractTerms([
+      'First, because the validator is important, however the number of validators provides another.',
+    ]);
+    expect(terms).toEqual(expect.arrayContaining(['validator', 'validators']));
+    for (const word of ['first', 'because', 'important', 'however', 'number', 'provides', 'another']) {
+      expect(terms).not.toContain(word);
+    }
+  });
+
   it('respects the limit and is deterministic', () => {
     const bodies = Array.from({ length: 50 }, (_, i) => `term${i} `.repeat(i + 1));
     const first = extractTerms(bodies, 10);
@@ -156,6 +184,6 @@ describe('centroid accumulator', () => {
 
 describe('versioning', () => {
   it('stamps a stable extractor version', () => {
-    expect(PROFILE_VERSION).toBe('re0-profile-2');
+    expect(PROFILE_VERSION).toBe('re0-profile-3');
   });
 });

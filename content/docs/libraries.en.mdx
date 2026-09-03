@@ -11,9 +11,12 @@ description: Stable Library IDs, immutable versions, and what a query reads duri
 | Website | `/websites/slug` |
 | Uploaded documents | `/docs/slug` |
 | Notion | `/notion/slug` |
+| Nested library | `/websites/slug/sub-slug` (likewise under `docs` and `notion`, up to four levels) |
 | Pinned version | `/owner/repository/version` |
 
 A changed slug keeps a redirect, and the API returns the new Library ID.
+
+Slugs under `websites`, `docs` and `notion` nest: `/websites/ethereum/whitepaper` is a library of its own, grouped under `/websites/ethereum` in the catalogue. An id resolves to the longest library that exists, and only what is left over is read as a version, so `/websites/ethereum/<version label>` still pins that version of `/websites/ethereum`. In access rules, `/websites/ethereum/*` covers that library and everything nested under it.
 
 ## Versions are immutable
 

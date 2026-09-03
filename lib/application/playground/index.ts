@@ -1,18 +1,22 @@
-import type { ChunkResult } from '@/contracts/schemas';
 import type { CallerContext } from '@/lib/application/retrieval';
 import {
+  gatherAcrossLibraries,
+  type GatheredChunk,
+  type GatheredLibrary,
+  type GatherLibrary,
+} from '@/lib/application/retrieval/gather';
+import {
   defaultRetrievalDependencies,
-  queryDocsDetailed,
   type RetrievalDependencies,
 } from '@/lib/application/retrieval/query-docs';
-import { containsCjk } from '@/lib/domain/cjk';
-import { confirmsRetrieval } from '@/lib/domain/routing';
 import {
   activeLlmConfig,
   activeRetrievalSettings,
   recordLlmCost,
   type LlmConfigRow,
 } from '@/lib/application/administration';
+import { hasPaidSubscription } from '@/lib/application/plans';
+import type { LlmAudience } from '@/lib/domain/generation';
 import {
   buildContextBlock,
   llmCostMicroUsd,
@@ -41,8 +45,11 @@ import { isLlmKeyPresent, llmAdapter, type LlmAdapter } from '@/lib/infrastructu
  * non-streaming path would have returned at the end.
  *
  * The provider is configuration: the console's `llm_config` decides endpoint,
- * model, budgets, unit prices, declared abilities and reasoning effort, and a
- * request may name which entry to use. The entry is resolved before retrieval,
+ * model, budgets, unit prices, declared abilities and reasoning effort, and its
+ * assignment decides which entry answers trial callers and which a paid plan
+ * buys; a request may still name an entry. The caller's audience -- what its
+ * plan buys -- decides which entries it may be answered by. The entry is
+ * resolved before retrieval,
  * because its context window is what sizes the retrieval budget -- a constant
  * there would either waste a large model's window or overflow a small one.
  * The environment holds only the credential. Every successful completion
@@ -54,7 +61,8 @@ import { isLlmKeyPresent, llmAdapter, type LlmAdapter } from '@/lib/infrastructu
 export interface PlaygroundAnswer {
   kind: 'answer' | 'no_context' | 'degraded';
   text: string | null;
-  chunks: ChunkResult[];
+  chunks: GatheredChunk[];
+  libraries: GatheredLibrary[];
   citations: { claim: string; chunkId: string }[];
   requestId: string;
 }
@@ -67,28 +75,63 @@ export interface PlaygroundAnswer {
  * Every `claim` after it is already bound. `done` names the outcome.
  */
 export type PlaygroundEvent =
-  | { type: 'context'; chunks: ChunkResult[]; requestId: string }
+  | {
+      type: 'model';
+      label: string;
+      audience: LlmAudience;
+      /** For a trial caller, the subscriber default a paid plan would answer with. */
+      upgrade: string | null;
+    }
+  /** What the scatter-gather read, library by library, before `context`. */
+  | { type: 'gather'; libraries: GatheredLibrary[] }
+  | { type: 'context'; chunks: GatheredChunk[]; requestId: string }
   | { type: 'claim'; claim: string; chunkIds: string[] }
-  | { type: 'done'; kind: 'answer' | 'no_context' | 'degraded'; requestId: string };
+  | {
+      type: 'done';
+      kind: 'answer' | 'no_context' | 'degraded';
+      requestId: string;
+    };
 
 export interface PlaygroundDependencies {
-  /** Resolves the entry to call; a slug that is unknown or off resolves null. */
-  config(slug?: string | null): Promise<LlmConfigRow | null>;
-  llm(config: { baseUrl: string; model: string }): LlmAdapter;
-  keyPresent(): boolean;
+  /**
+   * Resolves the entry to call for an audience; a slug that is unknown, off,
+   * or closed to the audience resolves null.
+   */
+  config(slug: string | null | undefined, audience: LlmAudience): Promise<LlmConfigRow | null>;
+  /** Who the caller is to the model registry: what its plan buys. */
+  audience(caller: CallerContext): Promise<LlmAudience>;
+  llm(config: { baseUrl: string; model: string; apiKeyEnv: string }): LlmAdapter;
+  /** Whether the named environment variable holds a key. */
+  keyPresent(apiKeyEnv: string): boolean;
   recordCost: typeof recordLlmCost;
   retrieval?: RetrievalDependencies;
 }
 
+/**
+ * A workspace on a paid plan is a subscriber; a free one, or no workspace at
+ * all, is a trial caller. Read per request so an upgrade applies to the
+ * next question, and a lapse does too.
+ */
+async function audienceOf(caller: CallerContext): Promise<LlmAudience> {
+  if (!caller.workspaceId) return 'trial';
+  return (await hasPaidSubscription(caller.workspaceId)) ? 'subscriber' : 'trial';
+}
+
 const defaultDependencies: PlaygroundDependencies = {
   config: activeLlmConfig,
+  audience: audienceOf,
   llm: llmAdapter,
   keyPresent: isLlmKeyPresent,
   recordCost: recordLlmCost,
 };
 
 export interface PlaygroundInput {
-  libraryId: string;
+  /**
+   * The routed candidates, in routing order (architecture.md 9.6). The
+   * first is the one the exchange is metered on; all are read, and the
+   * confirmed ones answer together (retrieval/gather.ts).
+   */
+  libraries: readonly GatherLibrary[];
   question: string;
   /** Which configured model to use. Absent means the console's default. */
   modelSlug?: string | null;
@@ -107,8 +150,34 @@ export async function* streamPlayground(
    * is untouched. With nothing configured, retrieval still runs at the default
    * budget: the degraded outcome shows chunks, and they have to be fetched.
    */
-  const config = await dependencies.config(input.modelSlug).catch(() => null);
-  const usable = config && config.enabled && dependencies.keyPresent() ? config : null;
+  const audience = await dependencies.audience(caller).catch((): LlmAudience => 'trial');
+  const config = await dependencies.config(input.modelSlug, audience).catch(() => null);
+  const usable =
+    config && config.enabled && dependencies.keyPresent(config.apiKeyEnv) ? config : null;
+
+  if (usable) {
+    /*
+     * Which model answers is part of what the reader is shown: a subscriber
+     * sees that the model its plan buys is the one answering, and a trial
+     * caller learns what a paid plan would answer with -- when the console
+     * has assigned one, and it is not the model already answering.
+     */
+    const subscriber =
+      audience === 'trial' ? await dependencies.config(null, 'subscriber').catch(() => null) : null;
+    const upgrade =
+      subscriber && subscriber.slug !== usable.slug && subscriber.assignedTo.includes('subscriber')
+        ? subscriber.label
+        : null;
+    yield {
+      type: 'model',
+      label: usable.label,
+      audience:
+        audience === 'subscriber' && usable.assignedTo.includes('subscriber')
+          ? 'subscriber'
+          : 'trial',
+      upgrade,
+    };
+  }
 
   /*
    * The retrieval settings are read once and handed to retrieval, so the
@@ -118,39 +187,40 @@ export async function* streamPlayground(
   const retrieval = dependencies.retrieval ?? defaultRetrievalDependencies;
   const settings = await (retrieval.settings ?? activeRetrievalSettings)();
 
-  const retrieved = await queryDocsDetailed(
+  /*
+   * Scatter-gather (retrieval/gather.ts): every routed candidate is read,
+   * and only the ones whose own retrieval is confirmed contribute. The
+   * confirmation is the stage rule 2 needs -- recall always returns
+   * *something* from a library, its nearest chunks however far, and a model
+   * handed thirty unrelated passages does not reliably say so; it adapts
+   * them. When no library is confirmed there is no context: no model call,
+   * and the reader is told nothing relevant was found.
+   */
+  const retrieved = await gatherAcrossLibraries(
     caller,
     {
-      libraryId: input.libraryId,
+      libraries: input.libraries,
       query: input.question,
       maxTokens: retrievalBudgetFor(usable?.maxInputTokens, settings),
-      format: 'json',
     },
     { ...retrieval, settings: async () => settings },
   );
+  yield { type: 'gather', libraries: retrieved.libraries };
 
-  /*
-   * The confirmation stage (lib/domain/routing.ts). Recall always returns
-   * *something* from a library -- its nearest chunks, however far -- and a
-   * model handed thirty unrelated passages does not reliably say so; it
-   * adapts them. Passages that do not fit the question are not context, so
-   * rule 2 applies to them as to an empty result: no model call, and the
-   * reader is told nothing relevant was found. A cache entry from before
-   * the confidence existed carries none, and is trusted as it was.
-   */
-  const confirmed =
-    retrieved.confidence === null ||
-    confirmsRetrieval(retrieved.confidence, { crossScript: containsCjk(input.question) });
-  if (!confirmed) {
+  if (!retrieved.libraries.some((library) => library.confirmed)) {
     console.info(
-      `playground no_context (retrieval unconfirmed: best distance ${retrieved.confidence?.bestDistance ?? 'none'}, keyword hits ${retrieved.confidence?.keywordHits ?? 0})`,
+      `playground no_context (no confirmed retrieval among ${retrieved.libraries.length} candidates)`,
     );
     yield { type: 'context', chunks: [], requestId: retrieved.requestId };
     yield { type: 'done', kind: 'no_context', requestId: retrieved.requestId };
     return;
   }
 
-  yield { type: 'context', chunks: retrieved.chunks, requestId: retrieved.requestId };
+  yield {
+    type: 'context',
+    chunks: retrieved.chunks,
+    requestId: retrieved.requestId,
+  };
 
   // Rule 2: never call the model without context.
   if (retrieved.chunks.length === 0) {
@@ -177,15 +247,21 @@ export async function* streamPlayground(
 
   let stream;
   try {
-    stream = dependencies.llm({ baseUrl: usable.baseUrl, model: usable.model }).stream({
-      systemPrompt: PLAYGROUND_SYSTEM_PROMPT,
-      userMessage: `${buildContextBlock(excerpts)}\n\nQuestion: ${input.question}`,
-      maxOutputTokens: usable.maxOutputTokens,
-      timeoutMs: usable.timeoutMs,
-      /* Null for a model that does not reason -- the console cannot store an
+    stream = dependencies
+      .llm({
+        baseUrl: usable.baseUrl,
+        model: usable.model,
+        apiKeyEnv: usable.apiKeyEnv,
+      })
+      .stream({
+        systemPrompt: PLAYGROUND_SYSTEM_PROMPT,
+        userMessage: `${buildContextBlock(excerpts)}\n\nQuestion: ${input.question}`,
+        maxOutputTokens: usable.maxOutputTokens,
+        timeoutMs: usable.timeoutMs,
+        /* Null for a model that does not reason -- the console cannot store an
          effort for one, so there is nothing to leak through here. */
-      reasoningEffort: usable.reasoningEffort,
-    });
+        reasoningEffort: usable.reasoningEffort,
+      });
   } catch (error) {
     // Rule 5. A provider that is down or slow is a degraded answer, not an error.
     logDegraded('llm adapter unavailable', error);
@@ -247,7 +323,8 @@ export async function* streamPlayground(
     await dependencies
       .recordCost({
         configId: usable.id,
-        libraryPublicId: retrieved.libraryId,
+        /* The metered library: the routed top candidate (gather.ts). */
+        libraryPublicId: input.libraries[0]!.libraryId,
         workspaceId: caller.workspaceId,
         model: usable.model,
         promptTokens: usage.promptTokens,
@@ -303,14 +380,19 @@ export async function askPlayground(
   input: PlaygroundInput,
   dependencies: PlaygroundDependencies = defaultDependencies,
 ): Promise<PlaygroundAnswer> {
-  let chunks: ChunkResult[] = [];
+  let chunks: GatheredChunk[] = [];
+  let libraries: GatheredLibrary[] = [];
   let requestId = '';
   const citations: { claim: string; chunkId: string }[] = [];
   const claims: string[] = [];
   let kind: PlaygroundAnswer['kind'] = 'degraded';
 
   for await (const event of streamPlayground(caller, input, dependencies)) {
-    if (event.type === 'context') {
+    if (event.type === 'model') {
+      continue;
+    } else if (event.type === 'gather') {
+      libraries = event.libraries;
+    } else if (event.type === 'context') {
       chunks = event.chunks;
       requestId = event.requestId;
     } else if (event.type === 'claim') {
@@ -327,11 +409,19 @@ export async function askPlayground(
       kind,
       text: null,
       chunks: kind === 'no_context' ? [] : chunks,
+      libraries,
       citations: [],
       requestId,
     };
   }
-  return { kind, text: claims.join(' '), chunks, citations, requestId };
+  return {
+    kind,
+    text: claims.join(' '),
+    chunks,
+    libraries,
+    citations,
+    requestId,
+  };
 }
 
 /**
@@ -351,14 +441,19 @@ export interface PlaygroundTranscript {
   text: string | null;
   citations: { claim: string; chunkId: string }[];
   /** Citation targets, in retrieval order. */
-  sources: { chunkId: string; sourceUrl: string; documentTitle: string; section: string | null }[];
+  sources: {
+    chunkId: string;
+    sourceUrl: string;
+    documentTitle: string;
+    section: string | null;
+  }[];
   requestId: string;
 }
 
 /** Rule 4. Keeps only claims that resolve to a chunk returned by this request. */
 export function bindCitations(
   citations: { claim: string; chunkId: string }[],
-  chunks: ChunkResult[],
+  chunks: readonly { chunkId: string }[],
 ): { claim: string; chunkId: string }[] {
   const ids = new Set(chunks.map((c) => c.chunkId));
   return citations.filter((c) => ids.has(c.chunkId));

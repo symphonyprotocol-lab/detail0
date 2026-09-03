@@ -151,3 +151,45 @@ describe('credentials across a redirect', () => {
     expect(seen[1]?.method).toBe('GET');
   });
 });
+
+/**
+ * An operator's own endpoint -- a self-hosted renderer on the private network
+ * -- is exempt from the source-address rules, because the environment is not
+ * a source. The exemption must not become a way around them: such a call may
+ * not be redirected anywhere, so a private http endpoint cannot be used as a
+ * hop to an address the rules would have refused.
+ */
+describe('a trusted endpoint', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it('may be a private http address, but is never followed through a redirect', async () => {
+    const seen: string[] = [];
+    globalThis.fetch = (async (input: URL | RequestInfo) => {
+      seen.push(String(input));
+      if (seen.length === 1) {
+        return new Response(null, { status: 302, headers: { location: 'https://evil.example.com/x' } });
+      }
+      return new Response('done', { status: 200, headers: { 'content-type': 'text/plain' } });
+    }) as typeof fetch;
+
+    await expect(
+      fetchDocument('http://10.0.0.7:3002/v2/scrape', { trustedEndpoint: true }),
+    ).rejects.toMatchObject({ code: 'source_unreachable' });
+    expect(seen).toEqual(['http://10.0.0.7:3002/v2/scrape']);
+  });
+
+  it('is an opt-in: the same address as a source is still refused before any request', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('x');
+    }) as typeof fetch;
+    await expect(fetchDocument('http://10.0.0.7:3002/v2/scrape')).rejects.toMatchObject({
+      code: 'source_forbidden',
+    });
+    expect(called).toBe(false);
+  });
+});

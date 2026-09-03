@@ -129,6 +129,39 @@ describeWithDb('console sign-in', () => {
     expect(session?.capabilities).toEqual(['libraries']);
   });
 
+  it('slides a console session forward when it is used inside its window', async () => {
+    await resetAccount();
+    const { token } = await signInAdmin({ email, password: PASSWORD, mfaCode: await currentCode() });
+    const before = await resolveAdminSession(token);
+    const stale = new Date(Date.now() - 5 * 60 * 1000);
+    const closing = new Date(Date.now() + 60 * 1000);
+    await db()
+      .update(schema.adminSession)
+      .set({ lastSeenAt: stale, expiresAt: closing })
+      .where(eq(schema.adminSession.id, before!.id));
+
+    const after = await resolveAdminSession(token);
+    expect(after).not.toBeNull();
+    expect(after!.expiresAt.getTime()).toBeGreaterThan(closing.getTime() + 29 * 24 * 60 * 60 * 1000);
+
+    /* Signed in 89 days ago: the next touch slides to the cap, not 30 days out. */
+    const day = 24 * 60 * 60 * 1000;
+    const signedIn = new Date(Date.now() - 89 * day);
+    await db()
+      .update(schema.adminSession)
+      .set({ createdAt: signedIn, lastSeenAt: stale })
+      .where(eq(schema.adminSession.id, before!.id));
+    const capped = await resolveAdminSession(token);
+    expect(capped!.expiresAt.getTime()).toBe(signedIn.getTime() + 90 * day);
+
+    /* And past the cap it is gone, whatever expires_at says. */
+    await db()
+      .update(schema.adminSession)
+      .set({ createdAt: new Date(Date.now() - 91 * day) })
+      .where(eq(schema.adminSession.id, before!.id));
+    expect(await resolveAdminSession(token)).toBeNull();
+  });
+
   it('refuses a correct password with a wrong code -- MFA is not optional', async () => {
     await resetAccount();
     await expect(

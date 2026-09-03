@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Button, SectionHeading } from '@/components/ui/primitives';
 import { LibraryTable, type LibraryTableEntry } from '@/components/site/library-table';
 import { countPublicLibraries, listPublicLibraries } from '@/lib/application/libraries';
+import { groupNestedIds, parentPublicId } from '@/lib/domain/library';
 import { resolveLibrary } from '@/lib/application/retrieval/resolve-library';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
@@ -47,15 +48,26 @@ export default async function CatalogPage({ searchParams }: Search) {
     }));
   } else {
     const rows = await listPublicLibraries({ sort: recent ? 'recent' : 'popular' });
-    entries = rows.map((row) => ({
-      libraryId: row.publicId,
-      title: row.title,
-      domain: row.domainTag ?? row.publicId,
-      trustScore: row.trustScore,
-      chunks: number.format(row.totalChunks),
-      updated: row.updatedAt ? date.format(new Date(row.updatedAt)) : '—',
-      anchored: false,
-    }));
+    /*
+     * Nested libraries follow the library they sit under (requirement.md 6.1:
+     * `/websites/ethereum/whitepaper` groups under `/websites/ethereum`), in
+     * the sort's own order otherwise. A search result is ranked by relevance
+     * and is left alone.
+     */
+    const present = new Set(rows.map((row) => row.publicId));
+    entries = groupNestedIds(rows, (row) => row.publicId).map((row) => {
+      const parent = parentPublicId(row.publicId);
+      return {
+        libraryId: row.publicId,
+        title: row.title,
+        domain: row.domainTag ?? row.publicId,
+        trustScore: row.trustScore,
+        chunks: number.format(row.totalChunks),
+        updated: row.updatedAt ? date.format(new Date(row.updatedAt)) : '—',
+        anchored: false,
+        nestedUnder: parent !== null && present.has(parent) ? parent : null,
+      };
+    });
   }
 
   const total = number.format(await countPublicLibraries());

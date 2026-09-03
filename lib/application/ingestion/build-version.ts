@@ -31,6 +31,7 @@ import {
   scoreLibrary,
   sha256Hex,
   snapshotDigest,
+  summarizeFetch,
   textSearchConfig,
   versionLabel,
   type Citation,
@@ -111,6 +112,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       lifecycleStatus: schema.library.lifecycleStatus,
       currentVersionId: schema.library.currentVersionId,
       language: schema.library.language,
+      deletedAt: schema.library.deletedAt,
     })
     .from(schema.library)
     .where(eq(schema.library.id, input.libraryId))
@@ -118,6 +120,10 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
   if (!library) {
     throw new IngestionFailure('source_unsupported', 'validate-source', 'no such library');
+  }
+  /* A tombstone is archived too; named first so the failure says why. */
+  if (library.deletedAt) {
+    throw new IngestionFailure('source_unsupported', 'validate-source', 'the library is deleted');
   }
   if (library.lifecycleStatus === 'archived') {
     throw new IngestionFailure('source_unsupported', 'validate-source', 'the library is archived');
@@ -170,6 +176,17 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   if (files.length === 0) {
     throw new IngestionFailure('source_empty', 'fetch-snapshot', 'the source served no documents');
   }
+
+  /*
+   * Recorded as soon as the fetch is known, before the digest decides whether
+   * anything else happens: an unchanged source still tells the operator how
+   * it was read, and a build that fails later still says which pages needed a
+   * renderer.
+   */
+  await database
+    .update(schema.workflowOperation)
+    .set({ fetchSummary: summarizeFetch(files) })
+    .where(eq(schema.workflowOperation.id, input.operationId));
 
   const digest = await snapshotDigest(files);
 

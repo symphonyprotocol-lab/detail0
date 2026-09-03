@@ -4,7 +4,7 @@
  * same predicate retrieval admits, so the directory never advertises what a
  * query would then refuse (architecture.md 5.2).
  */
-import { and, desc, eq, isNotNull, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { ref } from '@/lib/application/administration/column-ref';
 
@@ -22,6 +22,9 @@ const ROUTABLE: SQL = and(
   eq(schema.library.lifecycleStatus, 'published'),
   eq(schema.library.indexStatus, 'ready'),
   isNotNull(schema.library.currentVersionId),
+  /* Implied by the three above for a tombstone, and stated anyway: a lookup
+     by public id must never land on a deleted row that shares the id. */
+  isNull(schema.library.deletedAt),
 )!;
 
 export async function countPublicLibraries(): Promise<number> {

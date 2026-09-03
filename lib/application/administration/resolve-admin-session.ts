@@ -12,6 +12,7 @@
  */
 import { eq } from 'drizzle-orm';
 import {
+  adminSessionExpiryFrom,
   capabilitiesForRoles,
   isAdminRoleId,
   isAdminSessionLive,
@@ -45,6 +46,7 @@ export async function resolveAdminSession(
       expiresAt: schema.adminSession.expiresAt,
       lastSeenAt: schema.adminSession.lastSeenAt,
       revokedAt: schema.adminSession.revokedAt,
+      createdAt: schema.adminSession.createdAt,
       administratorId: schema.administrator.id,
       username: schema.administrator.username,
       email: schema.administrator.email,
@@ -76,10 +78,15 @@ export async function resolveAdminSession(
   // error, and it must not silently widen into full access.
   const capabilities = capabilitiesForRoles(roles);
 
-  if (shouldTouchAdminSession(row, now)) {
+  /* Sliding expiry (lib/domain/admin.ts): a use inside the window moves it,
+     never past the 90-day cap counted from sign-in. */
+  const expiresAt = shouldTouchAdminSession(row, now)
+    ? adminSessionExpiryFrom(now, row.createdAt)
+    : row.expiresAt;
+  if (expiresAt !== row.expiresAt) {
     await database
       .update(schema.adminSession)
-      .set({ lastSeenAt: now })
+      .set({ lastSeenAt: now, expiresAt })
       .where(eq(schema.adminSession.id, row.sessionId));
     await database
       .update(schema.administrator)
@@ -94,6 +101,6 @@ export async function resolveAdminSession(
     email: row.email,
     roles,
     capabilities,
-    expiresAt: row.expiresAt,
+    expiresAt,
   };
 }
