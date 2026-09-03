@@ -63,6 +63,13 @@ export function isRefreshPolicy(value: unknown): value is RefreshPolicy {
  * - a Notion space is `/notion/slug`;
  * - anything else the platform assembles -- an OpenAPI document included -- is
  *   `/docs/slug`, the namespace requirement.md reserves for uploaded material.
+ *
+ * The three slug namespaces nest: `/websites/ethereum/whitepaper` is a library
+ * of its own, grouped under `/websites/ethereum` in the catalogue. A repository
+ * id is always exactly `/owner/repository`, because its third segment has
+ * meant "version" since requirement.md 6.1 -- and for the nested namespaces a
+ * trailing segment still can: `libraryIdCandidates` below says how the two
+ * readings are told apart.
  */
 const ID_NAMESPACE: Record<PlatformSourceType, 'repository' | 'websites' | 'notion' | 'docs'> = {
   github: 'repository',
@@ -88,6 +95,26 @@ export function namespaceFor(type: PlatformSourceType): string {
  * and `/websites/nextjs` differing as two libraries is a trap, not a feature.
  */
 const SLUG = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+/**
+ * How deep a nested id may go, in slug segments after the namespace.
+ * `/websites/a/b/c/d` is the deepest allowed. Grouping wants two or three
+ * levels; anything deeper is a path, not a name.
+ */
+export const MAX_NESTED_SLUGS = 4;
+
+/**
+ * The shape `versionLabel` in lib/domain/ingestion.ts produces: a UTC date, a
+ * digest prefix, an optional build number. A nested slug may not look like
+ * one, because `/websites/ethereum/<label>` must keep meaning "that version of
+ * `/websites/ethereum`" (requirement.md 6.1), and a library created at that id
+ * would shadow it.
+ */
+const VERSION_LABEL_SHAPE = /^\d{8}-[0-9a-f]{8}(\.\d+)?$/;
+
+export function isVersionLabelShaped(segment: string): boolean {
+  return VERSION_LABEL_SHAPE.test(segment);
+}
 
 /** A GitHub owner or repository name, as GitHub itself allows them. */
 const REPO_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
@@ -130,11 +157,93 @@ export function normalizePublicId(type: PlatformSourceType, input: string): stri
     return `/${owner}/${repository}`;
   }
 
-  if (segments.length !== 2) return null;
-  const [prefix, slug] = segments;
+  if (segments.length < 2 || segments.length > 1 + MAX_NESTED_SLUGS) return null;
+  const [prefix, ...slugs] = segments;
   if (prefix !== namespace) return null;
-  const folded = (slug ?? '').toLowerCase();
-  return SLUG.test(folded) ? `/${namespace}/${folded}` : null;
+  const folded = slugs.map((slug) => slug.toLowerCase());
+  if (!folded.every((slug) => SLUG.test(slug))) return null;
+  /* Only the last segment can be mistaken for a version; the ones before it
+     are always a library's, and are refused too so the rule reads simply. */
+  if (folded.some(isVersionLabelShaped)) return null;
+  return `/${namespace}/${folded.join('/')}`;
+}
+
+/* ------------------------------------------------------------- nesting */
+
+/**
+ * The id a nested library is grouped under, or null at the top of its
+ * namespace. `/websites/ethereum/whitepaper` is under `/websites/ethereum`;
+ * `/websites/ethereum` and `/vercel/next.js` are under nothing.
+ */
+export function parentPublicId(publicId: string): string | null {
+  const segments = publicId.split('/').filter(Boolean);
+  if (segments.length <= 2) return null;
+  return `/${segments.slice(0, -1).join('/')}`;
+}
+
+export interface LibraryIdCandidate {
+  publicId: string;
+  /** The segments left over if `publicId` is the library, as a version label. */
+  versionLabel: string | null;
+}
+
+/**
+ * The ways a typed id can be read, longest library first.
+ *
+ * `/websites/ethereum/whitepaper` is either the library of that name, or the
+ * `whitepaper` version of `/websites/ethereum`. A nested id and a pinned
+ * version share one grammar, so the reading is decided by what exists: the
+ * caller looks the candidates up and takes the first that is a library. Two
+ * segments is the floor -- every library has at least a namespace and a slug,
+ * or an owner and a repository.
+ */
+export function libraryIdCandidates(input: string): LibraryIdCandidate[] {
+  const segments = input.split('/').filter(Boolean);
+  const candidates: LibraryIdCandidate[] = [];
+  for (let length = segments.length; length >= 2; length -= 1) {
+    candidates.push({
+      publicId: `/${segments.slice(0, length).join('/')}`,
+      versionLabel: length === segments.length ? null : segments.slice(length).join('/'),
+    });
+  }
+  return candidates;
+}
+
+/**
+ * Orders a list so each library is followed by the libraries nested under it,
+ * keeping the list's own order among siblings and among top-level entries.
+ * A nested library whose parent is not in the list stays where it was: the
+ * catalogue only groups what it is showing.
+ */
+export function groupNestedIds<T>(items: readonly T[], idOf: (item: T) => string): T[] {
+  const present = new Set(items.map(idOf));
+  const children = new Map<string, T[]>();
+  const roots: T[] = [];
+
+  for (const item of items) {
+    const parent = nearestPresentAncestor(idOf(item), present);
+    if (parent === null) {
+      roots.push(item);
+    } else {
+      children.set(parent, [...(children.get(parent) ?? []), item]);
+    }
+  }
+
+  const ordered: T[] = [];
+  const emit = (item: T) => {
+    ordered.push(item);
+    for (const child of children.get(idOf(item)) ?? []) emit(child);
+  };
+  for (const root of roots) emit(root);
+  return ordered;
+}
+
+/** The closest ancestor id that is in `present`, walking up one segment at a time. */
+function nearestPresentAncestor(publicId: string, present: ReadonlySet<string>): string | null {
+  for (let parent = parentPublicId(publicId); parent !== null; parent = parentPublicId(parent)) {
+    if (present.has(parent)) return parent;
+  }
+  return null;
 }
 
 /* ---------------------------------------------------------------- locations */
@@ -249,6 +358,7 @@ export const PLATFORM_LIBRARY_ERRORS = [
   'invalid_metadata',
   'invalid_transition',
   'no_ready_version',
+  'no_version',
   'source_not_found',
   'last_source',
   'archived',

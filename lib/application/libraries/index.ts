@@ -22,3 +22,12 @@ export {
   type CreateWorkspaceLibraryInput,
   type CreateWorkspaceLibraryResult,
 } from './create';
+export {
+  canDeleteLibraries,
+  deleteWorkspaceLibrary,
+  markLibraryDeleted,
+  DELETE_OPERATION,
+  type DeleteLibraryResult,
+  type DeleteWorkspaceLibraryInput,
+  type WorkspaceRole,
+} from './delete';

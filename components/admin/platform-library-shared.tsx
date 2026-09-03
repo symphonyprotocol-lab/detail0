@@ -1,8 +1,9 @@
 'use client';
 
-import { startTransition, type ReactNode } from 'react';
+import { startTransition, useState, type ReactNode } from 'react';
 import { Monogram } from '@/components/admin/ui';
 import { CircleXIcon } from '@/components/ui/icons';
+import { idNamespace, type PlatformSourceType } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
 import type { PlatformLibraryActionResult } from '@/app/admin/(console)/platform-libraries/actions';
 
@@ -125,4 +126,81 @@ export function Field({
       ) : null}
     </label>
   );
+}
+
+/**
+ * The Library ID, split into the part the source type decides and the part the
+ * operator does.
+ *
+ * The namespace is not a choice -- `normalizePublicId` refuses anything
+ * outside it, and the refusal an operator actually hits is a typo in a prefix
+ * they were never free to pick (`/website/…` for `/websites/…`). Showing the
+ * prefix as a fixed affix and taking only the slug makes that typo
+ * unspellable. A pasted id that repeats the prefix is folded back to its slug
+ * rather than doubled, because pasting the full id is the obvious thing to do
+ * with a field labelled "Library ID".
+ *
+ * The visible input carries `required`; the hidden one carries the composed
+ * value, since constraint validation skips hidden fields.
+ */
+export function PublicIdField({
+  label,
+  hint,
+  placeholder,
+  sourceType,
+  defaultValue,
+}: {
+  label: string;
+  hint: string;
+  placeholder: string;
+  sourceType: PlatformSourceType;
+  /** The full id being edited; absent when the library is being created. */
+  defaultValue?: string;
+}) {
+  const namespace = idNamespace(sourceType);
+  /* A repository id has no prefix of its own -- it is `/owner/repository`. */
+  const prefix = namespace === 'repository' ? '/' : `/${namespace}/`;
+  const [slug, setSlug] = useState(() => withoutPrefix(defaultValue ?? '', prefix));
+  const value = slug.trim() === '' ? '' : `${prefix}${slug.trim()}`;
+
+  return (
+    <Field label={label} hint={hint}>
+      <span className="flex h-9 w-full items-center rounded-[7px] border-2 border-line bg-card pl-2.5 focus-within:border-brand">
+        <span className="shrink-0 select-none text-[12px] tracking-[-0.023em] text-muted">
+          {prefix}
+        </span>
+        <input
+          required
+          maxLength={200 - prefix.length}
+          value={slug}
+          onChange={(event) => setSlug(withoutPrefix(event.target.value, prefix))}
+          placeholder={placeholder}
+          className="h-full min-w-0 flex-1 bg-transparent pr-2.5 text-[12px] tracking-[-0.023em] text-ink placeholder:text-faint focus:outline-none"
+        />
+        <input type="hidden" name="publicId" value={value} />
+      </span>
+    </Field>
+  );
+}
+
+/**
+ * Whatever was typed or pasted, as the part that follows `prefix`.
+ *
+ * Only the namespace itself is stripped (`websites/` from a pasted
+ * `/websites/ethereum/whitepaper`), never the segments after it: slugs nest
+ * (requirement.md 6.1), so `ethereum/whitepaper` is a slug the operator meant
+ * and the slash in it is theirs to type. A pasted id that repeats the prefix
+ * is still folded back rather than doubled. The near miss the field exists to
+ * absorb -- `website/` for `websites/` -- is now refused by `normalizePublicId`
+ * with the namespace sentence rather than silently corrected, because
+ * correcting it would mean guessing which of the typed segments was the typo.
+ */
+function withoutPrefix(value: string, prefix: string): string {
+  let rest = value.replace(/^\/+/, '');
+  if (prefix !== '/') {
+    const namespace = prefix.slice(1, -1).toLowerCase();
+    if (rest.toLowerCase().startsWith(`${namespace}/`)) rest = rest.slice(namespace.length + 1);
+    rest = rest.replace(/^\/+/, '');
+  }
+  return rest;
 }

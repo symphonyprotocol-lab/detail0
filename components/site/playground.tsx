@@ -8,6 +8,8 @@ import { Re0Mark } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import type {
+  PlaygroundGather,
+  PlaygroundModel,
   PlaygroundOutcome,
   PlaygroundRouting,
   PlaygroundSource,
@@ -140,15 +142,26 @@ function WarnCard({ title, body }: { title: string; body: string }) {
 /** What one assistant turn accumulated, gathered out of its stream parts. */
 interface Turn {
   routing: PlaygroundRouting | null;
+  gather: PlaygroundGather | null;
+  model: PlaygroundModel | null;
   sources: PlaygroundSource[];
   claims: { claim: string; chunkIds: string[] }[];
   outcome: PlaygroundOutcome | null;
 }
 
 function readTurn(message: PlaygroundUIMessage): Turn {
-  const turn: Turn = { routing: null, sources: [], claims: [], outcome: null };
+  const turn: Turn = {
+    routing: null,
+    gather: null,
+    model: null,
+    sources: [],
+    claims: [],
+    outcome: null,
+  };
   for (const part of message.parts) {
     if (part.type === 'data-routing') turn.routing = part.data;
+    else if (part.type === 'data-gather') turn.gather = part.data;
+    else if (part.type === 'data-model') turn.model = part.data;
     else if (part.type === 'data-sources') turn.sources = part.data.sources;
     else if (part.type === 'data-claim') turn.claims.push(part.data);
     else if (part.type === 'data-outcome') turn.outcome = part.data.kind;
@@ -187,6 +200,8 @@ function SourceList({
   citedCount: number;
   t: Dictionary['playground'];
 }) {
+  /* The library is named on each line only when the answer drew on several. */
+  const multiLibrary = new Set(sources.map((source) => source.libraryId)).size > 1;
   const ordered = [...sources].sort(
     (a, b) => (numbers.get(a.chunkId) ?? 99) - (numbers.get(b.chunkId) ?? 99),
   );
@@ -204,7 +219,12 @@ function SourceList({
         {t.sourcesLabel}
       </p>
       {shown.map((source) => (
-        <SourceLine key={source.chunkId} source={source} number={numbers.get(source.chunkId)} />
+        <SourceLine
+          key={source.chunkId}
+          source={source}
+          number={numbers.get(source.chunkId)}
+          showLibrary={multiLibrary}
+        />
       ))}
       {folded.length > 0 ? (
         <details className="group mt-1">
@@ -220,6 +240,7 @@ function SourceList({
                 key={source.chunkId}
                 source={source}
                 number={numbers.get(source.chunkId)}
+                showLibrary={multiLibrary}
               />
             ))}
           </div>
@@ -229,10 +250,26 @@ function SourceList({
   );
 }
 
-function SourceLine({ source, number }: { source: PlaygroundSource; number: number | undefined }) {
+function SourceLine({
+  source,
+  number,
+  showLibrary,
+}: {
+  source: PlaygroundSource;
+  number: number | undefined;
+  showLibrary: boolean;
+}) {
   return (
-    <p className="flex items-baseline gap-1.5 text-[10.5px] text-muted">
+    <p className="flex flex-wrap items-baseline gap-1.5 text-[10.5px] text-muted">
       <span className="rounded bg-cite/12 px-1 font-semibold text-cite">{number}</span>
+      {showLibrary ? (
+        <span
+          className="rounded bg-tray px-1 font-mono text-[10px] text-faint"
+          title={source.libraryId}
+        >
+          {source.libraryTitle}
+        </span>
+      ) : null}
       <a
         href={source.sourceUrl}
         target="_blank"
@@ -323,28 +360,68 @@ function AssistantTurn({
     );
   }
 
+  /*
+   * The transcript shows the real calls: one resolve-library-id with what it
+   * returned, then one query-docs per candidate -- every candidate is read
+   * (scatter-gather, architecture.md 9.6), and the note under them says
+   * which ones fit the question well enough to answer.
+   */
+  const candidates = turn.routing.candidates;
+  const routingParams: (readonly [string, string])[] = [
+    ['query', JSON.stringify(turn.routing.question)],
+  ];
+  if (candidates.length > 0) {
+    routingParams.push(['results', JSON.stringify(candidates.map((c) => c.libraryId))]);
+  }
+  const gathered = turn.gather?.libraries ?? [];
+  const answering = gathered.filter((library) => library.confirmed);
+  const skipped = gathered.filter((library) => !library.confirmed);
+  const named = (library: { title: string; version: string | null }) =>
+    library.version ? `${library.title} (${library.version})` : library.title;
+
   return (
     <AssistantRow>
-      <ToolCall
-        name="resolve-library-id"
-        params={[['query', JSON.stringify(turn.routing.question)]]}
-      />
-      {turn.routing.libraryId ? (
+      <ToolCall name="resolve-library-id" params={routingParams} />
+      {candidates.map((candidate) => (
         <ToolCall
+          key={candidate.libraryId}
           name="query-docs"
           params={[
-            ['libraryId', JSON.stringify(turn.routing.libraryId)],
-            ['query', JSON.stringify(turn.routing.question)],
+            ['libraryId', JSON.stringify(candidate.libraryId)],
+            ['query', JSON.stringify(turn.routing!.question)],
           ]}
         />
-      ) : null}
+      ))}
 
-      {turn.routing.libraryTitle ? (
+      {answering.length > 0 ? (
         <p className="text-[11.5px] leading-[1.7] text-faint">
-          {fill(t.routedNote, {
-            title: turn.routing.libraryTitle,
-            version: turn.routing.version ?? '',
-          })}
+          {answering.length === 1
+            ? fill(t.routedNote, {
+                title: answering[0]!.title,
+                version: answering[0]!.version ?? '',
+              })
+            : fill(t.routedNoteMany, { list: answering.map(named).join(', ') })}
+          {skipped.length > 0 ? (
+            <>
+              {' '}
+              {fill(t.routedSkipped, {
+                list: skipped.map((l) => l.title).join(', '),
+              })}
+            </>
+          ) : null}
+          {turn.model ? (
+            <>
+              {' '}
+              {turn.model.audience === 'subscriber'
+                ? fill(t.modelNoteSubscriber, { label: turn.model.label })
+                : turn.model.upgrade
+                  ? fill(t.modelNoteUpgrade, {
+                      label: turn.model.label,
+                      upgrade: turn.model.upgrade,
+                    })
+                  : fill(t.modelNoteTrial, { label: turn.model.label })}
+            </>
+          ) : null}
         </p>
       ) : null}
 
@@ -397,7 +474,9 @@ function AssistantTurn({
         </article>
       ) : null}
 
-      {turn.outcome === null && turn.claims.length === 0 ? <Pending label={t.thinkingLive} /> : null}
+      {turn.outcome === null && turn.claims.length === 0 ? (
+        <Pending label={t.thinkingLive} />
+      ) : null}
     </AssistantRow>
   );
 }
@@ -422,7 +501,13 @@ export function Playground() {
   const scroller = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
 
-  const { messages: turns, sendMessage, status, stop, error } = useChat<PlaygroundUIMessage>({
+  const {
+    messages: turns,
+    sendMessage,
+    status,
+    stop,
+    error,
+  } = useChat<PlaygroundUIMessage>({
     transport,
   });
 

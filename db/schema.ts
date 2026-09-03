@@ -411,9 +411,27 @@ export const library = pgTable(
     lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
     lastSuccessfulRefreshAt: timestamp('last_successful_refresh_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * The tombstone. architecture.md 8.4: a delete first makes the library
+     * unreachable in Postgres -- this column, `archived`, `deleting`, and the
+     * publication pointer withdrawn -- and the Delete Workflow then removes
+     * the content. The row itself stays: `usage_event`, `earning_event` and
+     * `settlement` are append-only facts that reference it, and a deleted
+     * library's billing history is still history. Every list and lookup of
+     * live libraries filters on this being null.
+     */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => [
-    uniqueIndex('library_public_id_uq').on(t.publicId),
+    /**
+     * Partial: a deleted library releases its Library ID. A workspace that
+     * deletes `/owner/repo` and adds it again must not be told the id is
+     * taken by a tombstone, and every lookup by `public_id` already excludes
+     * deleted rows -- so the constraint only has to hold among live ones.
+     */
+    uniqueIndex('library_public_id_uq')
+      .on(t.publicId)
+      .where(sql`${t.deletedAt} is null`),
     index('library_owner_idx').on(t.ownerWorkspaceId),
     index('library_visibility_lifecycle_idx').on(t.visibility, t.lifecycleStatus),
     /**
@@ -780,6 +798,8 @@ export const llmConfig = pgTable(
     label: text('label').notNull(),
     baseUrl: text('base_url').notNull(),
     model: text('model').notNull(),
+    /** Name of the environment variable holding this entry's key; never the key. */
+    apiKeyEnv: text('api_key_env').notNull().default('LLM_PROVIDER_API_KEY'),
     /** The model's context window; the playground sizes retrieval from it. */
     maxInputTokens: integer('max_input_tokens').notNull().default(8_000),
     maxOutputTokens: integer('max_output_tokens').notNull(),
@@ -800,11 +820,27 @@ export const llmConfig = pgTable(
     /** Null unless `supportsReasoning`; the application enforces that pairing. */
     reasoningEffort: text('reasoning_effort').$type<'minimal' | 'low' | 'medium' | 'high'>(),
     enabled: boolean('enabled').notNull().default(true),
-    /** The entry the playground falls back to when the caller names no model. */
-    isDefault: boolean('is_default').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('llm_config_slug_time_idx').on(t.slug, t.createdAt.desc())],
+);
+
+/**
+ * Which registry entry answers which callers: the model the platform spends
+ * on a visitor who has paid nothing (`trial`: anonymous, or a workspace on
+ * the free plan) and the one a paid subscription buys (`subscriber`).
+ * Append-only; the newest row is in force. Null trial means the newest
+ * enabled entry; null subscriber means the trial model.
+ */
+export const llmAudienceAssignment = pgTable(
+  'llm_audience_assignment',
+  {
+    id: uuid('id').primaryKey(),
+    trialSlug: text('trial_slug'),
+    subscriberSlug: text('subscriber_slug'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('llm_audience_assignment_time_idx').on(t.createdAt.desc())],
 );
 
 /**
@@ -1040,6 +1076,17 @@ export const workflowOperation = pgTable(
     status: text('status').notNull(),
     attempts: integer('attempts').notNull().default(0),
     error: text('error'),
+    /**
+     * How the pages of a build were fetched -- our own fetch vs a rendering
+     * provider, per page. Written by the build after `fetch-snapshot`; null
+     * for operations that fetch nothing or from sources with no such choice.
+     * `lib/domain/ingestion.ts` `FetchSummary`.
+     */
+    fetchSummary: jsonb('fetch_summary').$type<{
+      direct: number;
+      rendered: number;
+      renderer: 'firecrawl' | 'jina' | null;
+    }>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

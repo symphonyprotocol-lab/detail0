@@ -117,6 +117,27 @@ describeWithDb('login against a real database', () => {
     expect(memberships).toHaveLength(1);
   });
 
+  it('slides the expiry forward when a session is used inside its window', async () => {
+    const result = await login();
+    const before = await resolveSession(result.sessionToken);
+    /* Age the row past the touch interval, with a window about to close. */
+    const stale = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const closing = new Date(Date.now() + 60 * 1000);
+    await db()
+      .update(schema.userSession)
+      .set({ lastSeenAt: stale, expiresAt: closing })
+      .where(eq(schema.userSession.id, before!.id));
+
+    const after = await resolveSession(result.sessionToken);
+    expect(after).not.toBeNull();
+    expect(after!.expiresAt.getTime()).toBeGreaterThan(closing.getTime() + 29 * 24 * 60 * 60 * 1000);
+    const [row] = await db()
+      .select({ expiresAt: schema.userSession.expiresAt })
+      .from(schema.userSession)
+      .where(eq(schema.userSession.id, before!.id));
+    expect(row!.expiresAt.getTime()).toBe(after!.expiresAt.getTime());
+  });
+
   it('drops the session as soon as it is signed out', async () => {
     const result = await login();
     expect(await resolveSession(result.sessionToken)).not.toBeNull();

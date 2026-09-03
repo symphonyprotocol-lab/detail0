@@ -1,0 +1,217 @@
+'use client';
+
+import { useActionState, useId, useState } from 'react';
+import { ConsoleDialog } from '@/components/admin/console-dialog';
+import { submitOn } from '@/components/admin/platform-library-shared';
+import { CircleCheckIcon, CircleXIcon, SpinnerIcon, TrashIcon } from '@/components/ui/icons';
+import type { DeleteLibraryActionResult } from '@/app/dashboard/libraries/actions';
+import { useI18n } from '@/lib/i18n/client';
+import { fill } from '@/lib/i18n/format';
+
+export type DeleteLibraryAction = (
+  previous: DeleteLibraryActionResult | null,
+  form: FormData,
+) => Promise<DeleteLibraryActionResult>;
+
+export interface DeleteLibraryTarget {
+  id: string;
+  publicId: string;
+  title: string;
+  initial: string;
+  color: string;
+}
+
+/**
+ * Delete one of the workspace's libraries. requirement.md 5.2: deletion is an
+ * owner-side operation that must report a definite result.
+ *
+ * Irreversible, so the confirmation asks for the library id to be typed rather
+ * than clicked through: the dialog holds one library's name, and a name is
+ * what a tired reader skims. The dialog also says what happens in the order it
+ * happens -- unreachable now, cleaned up afterwards -- and reports the outcome
+ * inside itself instead of closing, so the user reads "deleted" rather than
+ * inferring it from a row that vanished.
+ *
+ * Rendered outside the row's link on purpose: the native `<dialog>` is still a
+ * DOM descendant of whatever contains it, and a click inside a dialog that
+ * sits inside a link is a navigation.
+ */
+export function DeleteLibraryControl({
+  action,
+  target,
+}: {
+  action: DeleteLibraryAction;
+  target: DeleteLibraryTarget;
+}) {
+  const { t } = useI18n();
+  const label = t.dashboard.libraries.delete;
+  const [open, setOpen] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={label}
+        title={label}
+        onClick={() => setOpen(true)}
+        className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-[6px] border-2 border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-rose"
+      >
+        <TrashIcon size={14} />
+      </button>
+
+      {open ? (
+        <DeleteDialog
+          key={attempt}
+          action={action}
+          target={target}
+          onClose={() => {
+            setOpen(false);
+            setAttempt((value) => value + 1);
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+const BUTTON =
+  'inline-flex h-9 items-center gap-1.5 rounded-[7px] px-3.5 text-[12px] font-medium tracking-[-0.023em] transition-colors disabled:opacity-60';
+
+function DeleteDialog({
+  action,
+  target,
+  onClose,
+}: {
+  action: DeleteLibraryAction;
+  target: DeleteLibraryTarget;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const r = t.dashboard.libraries.deleteDialog;
+  const [state, submit, pending] = useActionState(action, null);
+  const [typed, setTyped] = useState('');
+  const formId = useId();
+  const done = state?.ok === true;
+  const confirmed = typed.trim() === target.publicId;
+
+  return (
+    <ConsoleDialog
+      onClose={onClose}
+      busy={pending}
+      closeLabel={r.close}
+      title={r.title}
+      description={done ? undefined : r.description}
+      footer={(dismissBlocked) =>
+        done ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className={`${BUTTON} border-2 border-line bg-card text-ink hover:bg-subtle`}
+          >
+            {r.close}
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={dismissBlocked}
+              className={`${BUTTON} border-2 border-line bg-card text-ink hover:bg-subtle`}
+            >
+              {r.cancel}
+            </button>
+            <button
+              type="submit"
+              form={formId}
+              disabled={pending || !confirmed}
+              className={`${BUTTON} bg-rose text-white hover:bg-rose/90`}
+            >
+              {pending ? (
+                <>
+                  <SpinnerIcon size={14} className="motion-safe:animate-spin" />
+                  {r.pending}
+                </>
+              ) : (
+                r.submit
+              )}
+            </button>
+          </>
+        )
+      }
+    >
+      {done ? (
+        <p className="flex items-start gap-2 text-[12px] leading-[1.6] tracking-[-0.023em] text-pubink">
+          <CircleCheckIcon size={15} className="mt-px shrink-0" />
+          {fill(r.done, { publicId: state?.publicId ?? target.publicId })}
+        </p>
+      ) : (
+        <form id={formId} onSubmit={submitOn(submit)} className="flex flex-col gap-3">
+          <input type="hidden" name="libraryId" value={target.id} />
+
+          {state?.error ? (
+            <p
+              role="alert"
+              className="flex items-start gap-2 rounded-[8px] bg-errsoft p-2.5 text-[11px] leading-[1.5] text-err"
+            >
+              <CircleXIcon size={15} className="mt-px shrink-0" />
+              {r.errors[state.error]}
+            </p>
+          ) : null}
+
+          <div className="flex items-center gap-2.5 rounded-[8px] border-2 border-line bg-subtle px-2.5 py-2.5">
+            <span
+              aria-hidden
+              className="flex size-[30px] shrink-0 items-center justify-center rounded-lg text-[12px] font-medium text-white"
+              style={{ backgroundColor: target.color }}
+            >
+              {target.initial}
+            </span>
+            <span className="flex min-w-0 flex-col gap-[3px]">
+              <span className="truncate text-[12px] font-medium tracking-[-0.023em] text-ink">
+                {target.title}
+              </span>
+              <span className="truncate text-[11px] tracking-[-0.023em] text-muted">
+                {target.publicId}
+              </span>
+            </span>
+          </div>
+
+          <ul className="flex flex-col gap-1.5">
+            {r.consequences.map((line) => (
+              <li
+                key={line}
+                className="flex items-start gap-1.5 text-[11px] leading-[1.55] tracking-[-0.023em] text-steel"
+              >
+                <span aria-hidden className="mt-px text-rose">
+                  •
+                </span>
+                {line}
+              </li>
+            ))}
+          </ul>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">
+              {r.confirmLabel}
+            </span>
+            <input
+              name="confirm"
+              value={typed}
+              onChange={(event) => setTyped(event.target.value)}
+              data-dialog-autofocus
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={target.publicId}
+              aria-label={r.confirmLabel}
+              className="h-9 w-full rounded-[7px] border-2 border-line bg-card px-2.5 font-mono text-[12px] tracking-[-0.023em] text-ink placeholder:text-faint focus:border-rose focus:outline-none"
+            />
+            <span className="text-[11px] leading-[1.45] tracking-[-0.023em] text-faint">
+              {fill(r.confirmHint, { publicId: target.publicId })}
+            </span>
+          </label>
+        </form>
+      )}
+    </ConsoleDialog>
+  );
+}

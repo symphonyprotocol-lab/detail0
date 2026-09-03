@@ -8,7 +8,7 @@
  * transaction. Queries pin the newest version at the start of a request
  * (9.2) and read nothing that can change under them.
  */
-import { desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import { desc, eq, inArray, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import type { PolicyPatch, PolicyResponse, WorkspacePolicyView } from '@/contracts/schemas';
 import { OPEN_POLICY, type WorkspacePolicy } from '@/lib/domain/policy';
@@ -209,13 +209,14 @@ async function accessibleLibraryCount(policy: WorkspacePolicy): Promise<number> 
 
   if (policy.mode === 'select') {
     if (policy.allowedLibraries.length === 0) return 0;
-    const blocked = new Set(policy.blockedLibraries);
-    const allowed = policy.allowedLibraries.filter((id) => !blocked.has(id));
-    if (allowed.length === 0) return 0;
     const [row] = await database
       .select({ n: sql<number>`count(*)::int` })
       .from(schema.library)
-      .where(sql`${routable} and ${inArray(schema.library.publicId, allowed)}`);
+      .where(
+        sql`${routable}
+          and ${listedInSql(policy.allowedLibraries)}
+          ${policy.blockedLibraries.length > 0 ? sql`and not ${listedInSql(policy.blockedLibraries)}` : sql``}`,
+      );
     return row?.n ?? 0;
   }
 
@@ -225,7 +226,7 @@ async function accessibleLibraryCount(policy: WorkspacePolicy): Promise<number> 
     .from(schema.library)
     .where(
       sql`${routable}
-        ${policy.blockedLibraries.length > 0 ? sql`and ${notInArray(schema.library.publicId, policy.blockedLibraries)}` : sql``}
+        ${policy.blockedLibraries.length > 0 ? sql`and not ${listedInSql(policy.blockedLibraries)}` : sql``}
         ${
           threshold !== null
             ? sql`and coalesce((
@@ -237,4 +238,23 @@ async function accessibleLibraryCount(policy: WorkspacePolicy): Promise<number> 
         }`,
     );
   return row?.n ?? 0;
+}
+
+/**
+ * `libraryEntryMatches` (lib/domain/policy.ts) as a predicate over
+ * `library.public_id`, for the preview count: exact entries by equality, and
+ * `/prefix/*` entries as the prefix itself or anything nested under it.
+ * `like` is given an escaped prefix, so a `_` in a slug matches itself.
+ */
+function listedInSql(entries: readonly string[]) {
+  const exact = entries.filter((entry) => !entry.endsWith('/*'));
+  const prefixes = entries.filter((entry) => entry.endsWith('/*')).map((entry) => entry.slice(0, -2));
+  const clauses = [
+    ...(exact.length > 0 ? [inArray(schema.library.publicId, exact)] : []),
+    ...prefixes.flatMap((prefix) => [
+      sql`${schema.library.publicId} = ${prefix}`,
+      sql`${schema.library.publicId} like ${`${prefix.replace(/[\\%_]/g, (m) => `\\${m}`)}/%`}`,
+    ]),
+  ];
+  return sql`(${sql.join(clauses, sql` or `)})`;
 }

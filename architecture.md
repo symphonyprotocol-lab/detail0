@@ -309,7 +309,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 
 管理员单独使用 `administrator`、`admin_session`、`admin_role` 和 `admin_permission`：
 
-- 强制 MFA、较短 Session、闲置超时和重新认证；
+- 强制 MFA、30 天滑动 Session（每次使用顺延，一个月未使用即失效）且自登录起最长 90 天必须重新认证、停用账户或清除二次验证即刻吊销；
 - 不接受普通用户 API Key；
 - 角色最小化：Reviewer、Support、Operations、Super Admin；
 - 高风险动作要求 `reason`，由统一 Audit Decorator 写入日志；
@@ -351,7 +351,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 
 | 表 | 核心职责 |
 | --- | --- |
-| `library` | 稳定 ID、Workspace、可见性、生命周期、当前版本 |
+| `library` | 稳定 ID、Workspace、可见性、生命周期、当前版本、删除墓碑（`deleted_at`，见 §8.4） |
 | `library_alias` | 旧 ID 到新 ID 的 Redirect |
 | `source` | 类型、位置、配置、Credential Reference、刷新策略 |
 | `library_version` | Source Digest、解析版本、质量、不可变状态 |
@@ -451,7 +451,7 @@ stateDiagram-v2
 每一步由 Vercel Workflows 的持久化 Step 包装，并在 Postgres 写入状态：
 
 1. `validate-source`：套餐、容量、URL、授权和配置 Schema；
-2. `fetch-snapshot`：抓取后计算 Source Digest 并写对象存储；
+2. `fetch-snapshot`：抓取后计算 Source Digest 并写对象存储。网站来源先直接抓取（浏览器样 UA、`Accept: text/markdown` 协商、sitemap 发现），只有被拒（403）或页面是 JS 空壳时才调用远程渲染服务（`RENDER_PROVIDER`，Firecrawl 或 Jina Reader，可替换）取 Markdown；渲染目标同样经过 §15.1 的地址校验，渲染结果同样受单文档大小上限约束。未配置渲染服务时入口页为空壳以 `source_unrendered` 失败，这个独立错误码让后台能统计需要渲染的来源比例；
 3. `scan`：恶意文件、Secrets、PII、Prompt Injection 和链接安全；
 4. `discover-parse`：只解析允许的文件和页面；
 5. `normalize-cite`：产生统一文档格式和 Citation；
@@ -483,9 +483,11 @@ Step 输出只保存可序列化摘要；大对象保存在对象存储。外部
 - 公开查询只负责尝试创建 Refresh Operation，不等待执行；
 - Source Digest 未变化时更新 `last_checked_at` 并结束；
 - 私有库默认手动刷新，Webhook 必须验签和去重；
-- 删除首先在 Postgres 把 Library 设为不可访问并撤销发布指针；
-- Delete Workflow 再删除 Chunk 行（连带全文与向量列）、对象存储对象和缓存；
-- 清理失败持续重试并报警，不得恢复查询权限。
+- 删除首先在 Postgres 把 Library 设为不可访问并撤销发布指针：一个事务写入 `deleted_at` 墓碑、`lifecycle_status = archived`、`index_status = deleting`、`current_version_id = null`，删除 Alias 与 Source，把排队中的 Operation 置为 `cancelled`，并排队一条 Delete Operation（`lib/application/libraries/delete.ts`）；
+- `library` 行本身不删：`usage_event`、`earning_event`、`settlement` 引用它，计费事实是只追加的。所有面向用户、后台、目录与路由的读取都过滤 `deleted_at is null`；`library_public_id_uq` 是仅覆盖存活行的部分唯一索引，因此 Library ID 在删除时即释放；
+- Delete Workflow 再删除 Chunk 行（连带全文与向量列）、Document、Profile、对象存储对象和缓存（`lib/application/ingestion/purge-library.ts`，与构建共用 `runOperation` 队列）；Version 行作为元数据保留；
+- 清理失败持续重试并报警，不得恢复查询权限：Delete Operation 失败时回到 `pending` 且不受构建的重试上限约束；`buildVersion` 与 `publishVersion` 都拒绝墓碑，删除时仍在运行的构建无法把指针放回去；
+- 平台库由管理后台删除并记入审计（`platform_library.delete`），用户库由工作空间 Owner/Admin 在 Dashboard 删除；两者走同一机制。
 
 ### 8.5 存证旁路
 
@@ -978,6 +980,9 @@ CREDENTIAL_ENCRYPTION_KEY
 EMBEDDING_PROVIDER_API_KEY
 RERANK_PROVIDER_API_KEY
 LLM_PROVIDER_API_KEY           # 仅在线试用的答案生成，见 §9.5
+RENDER_PROVIDER                # 可选，firecrawl | jina：网站来源被拒或返回 JS 空壳时的渲染兜底，见 §8.2
+RENDER_PROVIDER_API_KEY
+RENDER_PROVIDER_BASE_URL       # 可选，自托管实例的地址（如 http://firecrawl:3002）；设了它 key 可省略，内网 http 允许但不允许重定向
 PAYMENT_PROVIDER_SECRET
 PAYMENT_WEBHOOK_SECRET
 APP_BASE_URL

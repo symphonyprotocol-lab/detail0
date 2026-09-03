@@ -2,9 +2,10 @@
  * POST /api/playground -- the web playground's one exchange. architecture.md
  * 9.5 and 9.6: this is the server-side auto-routed entry -- the question goes
  * through the same resolve-library-id the MCP agent would call, the server
- * commits to the top candidate, and the generation path does the rest through
- * the shared retrieval function. A BFF for the site, not part of /v1: the
- * stream it writes serves the transcript component and nothing else.
+ * reads the top candidates and lets the confirmed ones answer together
+ * (scatter-gather, retrieval/gather.ts), and the generation path does the
+ * rest through the shared retrieval function. A BFF for the site, not part of
+ * /v1: the stream it writes serves the transcript component and nothing else.
  *
  * The response is an AI SDK UI message stream, but it carries no model text
  * part: every claim arrives as a `data-claim` the server has already bound to
@@ -18,10 +19,12 @@
  *
  * Which model runs is the console's decision, never the caller's: the body has
  * no model field, so a visitor cannot spend the platform's budget on the most
- * expensive entry configured.
+ * expensive entry configured. What the caller's plan buys decides which
+ * entries it is answered by (the console's `audience`).
  *
  * Anonymous is the normal case here and rides the fail-closed anonymous rate
- * limit; a Bearer key works too and is then metered like any workspace call.
+ * limit; a signed-in visitor runs as their workspace, metered by its quota
+ * and answered by its plan's models; a Bearer key works the same way.
  */
 import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import type { NextRequest } from 'next/server';
@@ -29,18 +32,19 @@ import { NextResponse } from 'next/server';
 import { AppError } from '@/contracts/errors';
 import { resolveLibraryId } from '@/lib/application/retrieval';
 import { streamPlayground } from '@/lib/application/playground';
-import { retrievalCaller } from '@/lib/http/retrieval-caller';
+import { playgroundCaller } from '@/lib/http/retrieval-caller';
 import { errorResponse, newRequestId } from '@/lib/http/respond';
 import type { PlaygroundUIMessage } from '@/lib/http/playground-stream';
 
 export const runtime = 'nodejs';
 
-const CANDIDATES_SHOWN = 3;
+/** How many routed candidates one exchange reads. */
+const CANDIDATES_READ = 3;
 
 export async function POST(request: NextRequest): Promise<Response> {
   const requestId = newRequestId();
   try {
-    const caller = await retrievalCaller(request, requestId);
+    const caller = await playgroundCaller(request, requestId);
 
     let body: { question?: unknown };
     try {
@@ -60,9 +64,10 @@ export async function POST(request: NextRequest): Promise<Response> {
      * only to say nothing happened.
      */
     const resolved = await resolveLibraryId(caller, { query: question });
-    const candidates = resolved.results
-      .slice(0, CANDIDATES_SHOWN)
-      .map((candidate) => ({ libraryId: candidate.libraryId, title: candidate.title }));
+    const candidates = resolved.results.slice(0, CANDIDATES_READ).map((candidate) => ({
+      libraryId: candidate.libraryId,
+      title: candidate.title,
+    }));
     const top = resolved.results[0] ?? null;
 
     const stream = createUIMessageStream<PlaygroundUIMessage>({
@@ -87,10 +92,24 @@ export async function POST(request: NextRequest): Promise<Response> {
 
         try {
           for await (const event of streamPlayground(caller, {
-            libraryId: top.libraryId,
+            libraries: candidates,
             question,
           })) {
-            if (event.type === 'context') {
+            if (event.type === 'gather') {
+              writer.write({
+                type: 'data-gather',
+                data: { libraries: event.libraries },
+              });
+            } else if (event.type === 'model') {
+              writer.write({
+                type: 'data-model',
+                data: {
+                  label: event.label,
+                  audience: event.audience,
+                  upgrade: event.upgrade,
+                },
+              });
+            } else if (event.type === 'context') {
               writer.write({
                 type: 'data-sources',
                 data: {
@@ -99,6 +118,8 @@ export async function POST(request: NextRequest): Promise<Response> {
                     sourceUrl: chunk.citation.sourceUrl,
                     documentTitle: chunk.citation.documentTitle,
                     section: chunk.citation.section,
+                    libraryId: chunk.libraryId,
+                    libraryTitle: chunk.libraryTitle,
                   })),
                 },
               });
@@ -108,7 +129,10 @@ export async function POST(request: NextRequest): Promise<Response> {
                 data: { claim: event.claim, chunkIds: event.chunkIds },
               });
             } else {
-              writer.write({ type: 'data-outcome', data: { kind: event.kind } });
+              writer.write({
+                type: 'data-outcome',
+                data: { kind: event.kind },
+              });
             }
           }
         } catch (error) {

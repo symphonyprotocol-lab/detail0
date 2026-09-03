@@ -2,10 +2,12 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import {
+  PlatformDeleteControl,
   PlatformLifecycleControl,
   PlatformRefreshControl,
   type PlatformLibraryTarget,
 } from '@/components/admin/platform-library-controls';
+import { PlatformProfilePanel } from '@/components/admin/platform-profile-panel';
 import {
   AddPlatformSourceControl,
   EditPlatformLibraryControl,
@@ -28,6 +30,7 @@ import {
 import { ChevronLeftIcon, GlobeIcon } from '@/components/ui/icons';
 import { getPlatformLibrary } from '@/lib/application/administration';
 import { isIngestionConfigured } from '@/lib/application/ingestion';
+import type { FetchSummary } from '@/lib/domain/ingestion';
 import { isPlatformSourceType, type PlatformSourceType } from '@/lib/domain/library';
 import { requireAdminCapability, currentAdminSession } from '@/lib/http/admin';
 import type { Dictionary } from '@/lib/i18n/dictionary';
@@ -36,6 +39,8 @@ import { getMessages } from '@/lib/i18n/server';
 import { bytes, initialsOf, utcInstant, utcStamp } from '../../list-params';
 import {
   addPlatformSourceAction,
+  deletePlatformLibraryAction,
+  rebuildPlatformLibraryProfileAction,
   refreshPlatformLibraryAction,
   removePlatformSourceAction,
   setPlatformLifecycleAction,
@@ -82,10 +87,10 @@ export async function generateMetadata({
  *
  * The panels are ordered by what a decision about this library needs answering
  * in: what it is, where it comes from, what has been built from it, what is
- * queued, and what has already been done to it. The three controls in the
- * header are the whole of requirement.md 5.3's verbs over a platform library
- * apart from creating it, and each one opens a confirmation that records a
- * reason.
+ * queued, and what has already been done to it. The controls in the header
+ * are the whole of requirement.md 5.3's verbs over a platform library apart
+ * from creating it -- plus delete, from architecture.md 8.4 -- and each one
+ * opens a confirmation that records a reason.
  *
  * Two panels here describe subsystems that are not running yet -- versions and
  * the refresh queue. They are shown anyway, with a note saying why they are
@@ -175,6 +180,11 @@ export default async function AdminPlatformLibraryPage({
               target={target}
               current={record.lifecycleStatus}
               canPublish={record.hasReadyVersion}
+            />
+            <PlatformDeleteControl
+              action={deletePlatformLibraryAction}
+              target={target}
+              variant="button"
             />
           </div>
         }
@@ -304,6 +314,14 @@ export default async function AdminPlatformLibraryPage({
         </TableScroller>
       </Panel>
 
+      <PlatformProfilePanel
+        profile={record.profile}
+        target={target}
+        action={rebuildPlatformLibraryProfileAction}
+        stamp={utcStamp}
+        t={d}
+      />
+
       <Panel>
         <PanelHead title={d.versions.title} description={d.versions.description} />
         <TableScroller>
@@ -384,6 +402,9 @@ export default async function AdminPlatformLibraryPage({
                       ) : null}
                     </span>
                   </td>
+                  <td className={`${TD} whitespace-nowrap`}>
+                    {fetchMethodLabel(t, operation.fetchSummary)}
+                  </td>
                   <td className={TD}>{operation.attempts}</td>
                   <td className={`${TD} whitespace-nowrap`}>{utcInstant(operation.createdAt)}</td>
                 </tr>
@@ -447,6 +468,25 @@ function Empty({
       </td>
     </tr>
   );
+}
+
+/**
+ * How a build read its pages, as one phrase: our own fetch, a renderer, or
+ * both with the split. A page rendered by a provider is content we did not
+ * fetch ourselves, which is why a single rendered page is enough to name the
+ * provider rather than round it away.
+ */
+function fetchMethodLabel(t: Dictionary, summary: FetchSummary | null): string {
+  const f = t.admin.platformLibraryDetail.queue.fetch;
+  if (!summary) return f.none;
+  const provider = summary.renderer ? f.providers[summary.renderer] : '';
+  if (summary.rendered === 0) return f.direct;
+  if (summary.direct === 0) return fill(f.rendered, { provider });
+  return fill(f.mixed, {
+    provider,
+    rendered: String(summary.rendered),
+    total: String(summary.direct + summary.rendered),
+  });
 }
 
 function actionLabel(t: Dictionary, action: string): string {

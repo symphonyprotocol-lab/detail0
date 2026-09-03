@@ -11,9 +11,11 @@ import {
   IngestionFailure,
   INGESTION_LIMITS,
   documentFormat,
+  isRenderedShell,
   parseSourceConfig,
 } from '@/lib/domain/ingestion';
 import { fetchDocument, type FetchedResource } from './http';
+import { pageRenderer } from './render';
 import type { FetchedFile, SourceSnapshot } from './types';
 
 export type WebSourceType = 'website' | 'llms_txt' | 'openapi';
@@ -53,10 +55,59 @@ export async function fetchWebSnapshot(input: {
 }
 
 async function fetchOne(target: string, entry: URL): Promise<FetchedFile> {
-  const resource = await fetchDocument(target, {
-    maxBytes: INGESTION_LIMITS.maxDocumentBytes,
-  });
-  return toFile(resource, entry);
+  return toFile(await fetchPage(target), entry);
+}
+
+/**
+ * One page, as the site serves it -- or, failing that, as a browser would.
+ *
+ * The plain fetch comes first, always: it is free, and most documentation
+ * sites answer it (many with Markdown). The rendering fallback is reached in
+ * exactly two cases. A refusal (403) at the edge, where a browser-shaped
+ * request is the difference; and an application shell -- markup with
+ * scripts and no text -- where the content only exists once JavaScript has
+ * run. Anything else that fails is a failure of the source, not of how it
+ * was asked.
+ *
+ * Without a configured renderer a shell is `source_unrendered`, its own
+ * code rather than `parse_failed`, so the console can count how many
+ * sources need a browser before deciding whether to pay for one.
+ */
+async function fetchPage(target: string): Promise<FetchedResource> {
+  let resource: FetchedResource;
+  try {
+    resource = await fetchDocument(target, { maxBytes: INGESTION_LIMITS.maxDocumentBytes });
+  } catch (error) {
+    if (error instanceof IngestionFailure && error.code === 'source_forbidden') {
+      /*
+       * A refusal of the address itself (private range, plain http) throws
+       * the same code and must not be laundered through a renderer; the
+       * renderer re-checks the address and throws again, and the original
+       * refusal is what the operator sees.
+       */
+      const rendered = await renderIfConfigured(target).catch(() => null);
+      if (rendered) return rendered;
+    }
+    throw error;
+  }
+
+  if (resource.contentType.includes('html') && isRenderedShell(resource.body)) {
+    const rendered = await renderIfConfigured(target);
+    if (rendered) return rendered;
+    throw new IngestionFailure(
+      'source_unrendered',
+      'fetch-snapshot',
+      `${new URL(target).host} serves a script shell with no content`,
+    );
+  }
+  return resource;
+}
+
+/** Null when no renderer is configured; the renderer's own failure otherwise. */
+async function renderIfConfigured(target: string): Promise<FetchedResource | null> {
+  const renderer = pageRenderer();
+  if (!renderer) return null;
+  return renderer.render(new URL(target));
 }
 
 function toFile(resource: FetchedResource, entry: URL): FetchedFile {
@@ -64,6 +115,7 @@ function toFile(resource: FetchedResource, entry: URL): FetchedFile {
     path: withFormat(pathOf(resource.url, entry), resource.contentType),
     url: resource.url,
     content: resource.body,
+    fetchedVia: resource.renderedBy ?? 'direct',
   };
 }
 
@@ -77,9 +129,7 @@ function toFile(resource: FetchedResource, entry: URL): FetchedFile {
  * property rather than a convenience.
  */
 async function fetchIndex(entry: URL): Promise<FetchedFile[]> {
-  const index = await fetchDocument(entry.toString(), {
-    maxBytes: INGESTION_LIMITS.maxDocumentBytes,
-  });
+  const index = await fetchPage(entry.toString());
 
   const files: FetchedFile[] = [toFile(index, entry)];
 
@@ -137,9 +187,7 @@ async function crawl(entry: URL): Promise<FetchedFile[]> {
 
       let resource;
       try {
-        resource = await fetchDocument(target.toString(), {
-          maxBytes: INGESTION_LIMITS.maxDocumentBytes,
-        });
+        resource = await fetchPage(target.toString());
       } catch (error) {
         // The entry point failing is fatal; a page discovered from it is not.
         if (files.length === 0) throw error;
@@ -178,23 +226,34 @@ function linksIn(resource: FetchedResource): URL[] {
   return [];
 }
 
-/** Same host, and under the directory the entry point sits in. */
+/** Same host, and under the section the entry point names. */
 function inScope(link: URL, entry: URL): boolean {
-  return link.hostname === entry.hostname && link.pathname.startsWith(basePath(entry));
+  if (link.hostname !== entry.hostname) return false;
+  const path = `${link.pathname.replace(/\/+$/, '')}/`;
+  return path.startsWith(basePath(entry));
 }
 
 /**
- * The directory the entry point sits in.
+ * The section the entry point names, as a path with a trailing slash.
  *
  * A crawl starting at `https://example.com/docs/` stays under `/docs/`. Without
  * this, one documentation section's Library ID would quietly acquire the whole
  * marketing site.
+ *
+ * The entry is a section whether or not it was typed with a trailing slash.
+ * `/docs` and `/docs/` are one page on any site built this decade, and
+ * reading `/whitepaper` as a *file* in `/` scoped one whitepaper's Library ID
+ * to the whole of ethereum.org -- two hundred pages, one of them the
+ * whitepaper. Only a last segment with an extension (`/docs/index.html`,
+ * `/llms.txt`) is a file, and scopes to its directory; a segment such as
+ * `/v2.0` reads the same way, and errs wider, which is the harmless side.
  */
 function basePath(entry: URL): string {
-  const path = entry.pathname;
-  if (path.endsWith('/')) return path;
+  const path = entry.pathname.replace(/\/+$/, '');
+  if (path === '') return '/';
   const cut = path.lastIndexOf('/');
-  return cut <= 0 ? '/' : path.slice(0, cut + 1);
+  const last = path.slice(cut + 1);
+  return /\.[a-z0-9]+$/i.test(last) ? path.slice(0, cut + 1) : `${path}/`;
 }
 
 /* ---------------------------------------------------------------- sitemaps */

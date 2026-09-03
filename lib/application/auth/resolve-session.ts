@@ -9,6 +9,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import {
   isAccountUsable,
   isSessionLive,
+  sessionExpiryFrom,
   shouldTouchSession,
   workspaceInitial,
 } from '@/lib/domain/auth';
@@ -97,16 +98,18 @@ export async function resolveSession(
 
   if (!workspace) return null;
 
-  if (shouldTouchSession(row, now)) {
+  /* Sliding expiry (lib/domain/auth.ts): a use inside the window moves it. */
+  const expiresAt = shouldTouchSession(row, now) ? sessionExpiryFrom(now) : row.expiresAt;
+  if (expiresAt !== row.expiresAt) {
     await database
       .update(schema.userSession)
-      .set({ lastSeenAt: now })
+      .set({ lastSeenAt: now, expiresAt })
       .where(eq(schema.userSession.id, row.sessionId));
   }
 
   return {
     id: row.sessionId,
-    expiresAt: row.expiresAt,
+    expiresAt,
     user: {
       id: row.userId,
       email: row.email,

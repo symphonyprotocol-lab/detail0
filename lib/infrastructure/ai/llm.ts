@@ -3,8 +3,8 @@
  *
  * Its own module, not part of `providers.ts`, because that file is on the
  * REST and MCP request path and 9.5 requires those to keep working with the
- * generation layer removed. Nothing outside the playground imports this, so
- * nothing outside the playground pulls in the AI SDK.
+ * generation layer removed. Only the playground and the console's endpoint
+ * probe import this, so nothing on the retrieval path pulls in the AI SDK.
  *
  * Nothing here returns an AI SDK type either -- §20 forbids a provider type
  * reaching the domain or the SDK, so deltas come back as strings and token
@@ -12,7 +12,7 @@
  */
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { streamText } from 'ai';
-import { openThinkFilter, TIMEOUT_MS } from '@/lib/domain/generation';
+import { DEFAULT_LLM_API_KEY_ENV, openThinkFilter, TIMEOUT_MS } from '@/lib/domain/generation';
 import { ProviderUnavailable } from './providers';
 
 /** What one streamed completion hands back. No provider types, by design. */
@@ -54,15 +54,17 @@ export interface LlmAdapter {
   }): LlmStream;
 }
 
-export function isLlmKeyPresent(): boolean {
-  return Boolean(process.env.LLM_PROVIDER_API_KEY);
+/** Whether the named variable (the entry's, or the default) holds a key. */
+export function isLlmKeyPresent(apiKeyEnv: string = DEFAULT_LLM_API_KEY_ENV): boolean {
+  return Boolean(process.env[apiKeyEnv]);
 }
 
 /**
  * OpenAI-compatible chat completions, through the AI SDK.
  *
  * Endpoint and model are configuration the console owns (`llm_config`); only
- * the credential lives in the environment (architecture.md 15.3, 19.1). One
+ * the credential lives in the environment (architecture.md 15.3, 19.1), under
+ * the variable name the entry gives, so two providers can sit side by side. One
  * attempt, no retries: 9.5 degrades to the chunk list rather than spending
  * the budget on a provider that is not answering, so the SDK's own retrying
  * is switched off.
@@ -85,9 +87,14 @@ const PROVIDER_NAME = 'llm';
 /** The hard end of any one call, however busy the model still is. */
 const STREAM_CEILING_MS = TIMEOUT_MS.max;
 
-export function llmAdapter(config: { baseUrl: string; model: string }): LlmAdapter {
-  const apiKey = process.env.LLM_PROVIDER_API_KEY;
-  if (!apiKey) throw new ProviderUnavailable('llm', 'LLM_PROVIDER_API_KEY is not set');
+export function llmAdapter(config: {
+  baseUrl: string;
+  model: string;
+  apiKeyEnv?: string;
+}): LlmAdapter {
+  const apiKeyEnv = config.apiKeyEnv ?? DEFAULT_LLM_API_KEY_ENV;
+  const apiKey = process.env[apiKeyEnv];
+  if (!apiKey) throw new ProviderUnavailable('llm', `${apiKeyEnv} is not set`);
 
   const provider = createOpenAICompatible({
     name: PROVIDER_NAME,

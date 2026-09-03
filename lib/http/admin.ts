@@ -11,7 +11,7 @@ import { redirect } from 'next/navigation';
 import type { NextResponse } from 'next/server';
 import { cache } from 'react';
 import { resolveAdminSession, type AdminSession } from '@/lib/application/administration';
-import { ADMIN_SESSION_ABSOLUTE_MS, type AdminCapability } from '@/lib/domain/admin';
+import { ADMIN_SESSION_LIFETIME_MS, type AdminCapability } from '@/lib/domain/admin';
 import { isSecureDeployment } from '@/lib/http/session';
 
 /**
@@ -41,7 +41,12 @@ interface AdminCookieOptions {
  * and the narrower path is worth more here than the prefix.
  */
 function baseCookieOptions(): AdminCookieOptions {
-  return { httpOnly: true, secure: isSecureDeployment(), sameSite: 'lax', path: '/admin' };
+  return {
+    httpOnly: true,
+    secure: isSecureDeployment(),
+    sameSite: 'lax',
+    path: '/admin',
+  };
 }
 
 export function setAdminSessionCookie(
@@ -53,12 +58,15 @@ export function setAdminSessionCookie(
     ...baseCookieOptions(),
     expires: expiresAt,
     // Belt and braces: the session dies with the row regardless of the cookie.
-    maxAge: Math.floor(ADMIN_SESSION_ABSOLUTE_MS / 1000),
+    maxAge: Math.floor(ADMIN_SESSION_LIFETIME_MS / 1000),
   });
 }
 
 export function clearAdminSessionCookie(response: NextResponse): void {
-  response.cookies.set(ADMIN_SESSION_COOKIE, '', { ...baseCookieOptions(), maxAge: 0 });
+  response.cookies.set(ADMIN_SESSION_COOKIE, '', {
+    ...baseCookieOptions(),
+    maxAge: 0,
+  });
 }
 
 /**

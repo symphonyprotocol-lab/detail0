@@ -18,16 +18,41 @@ export interface PlaygroundSource {
   sourceUrl: string;
   documentTitle: string;
   section: string | null;
+  /** Which library the passage came from: the answer may draw on several. */
+  libraryId: string;
+  libraryTitle: string;
+}
+
+/** What the scatter-gather read, per routed candidate (retrieval/gather.ts). */
+export interface PlaygroundGather {
+  libraries: {
+    libraryId: string;
+    title: string;
+    version: string | null;
+    /** Its passages fit the question; it contributes to the answer. */
+    confirmed: boolean;
+    chunks: number;
+    failed: boolean;
+  }[];
 }
 
 export interface PlaygroundRouting {
   question: string;
-  /** What resolve-library-id saw, so the transcript can show a real tool call. */
+  /** What resolve-library-id returned; every one of them is read. */
   candidates: { libraryId: string; title: string }[];
+  /** The top candidate: the one the exchange is metered on. */
   libraryId: string | null;
   libraryTitle: string | null;
   version: string | null;
   requestId: string;
+}
+
+/** Which configured model is answering, and whether a paid plan would offer another. */
+export interface PlaygroundModel {
+  label: string;
+  audience: 'trial' | 'subscriber';
+  /** For a trial caller: the subscriber model a paid plan would answer with, if one is configured. */
+  upgrade: string | null;
 }
 
 export type PlaygroundOutcome = 'answer' | 'degraded' | 'no_context' | 'no_library';
@@ -36,6 +61,8 @@ export type PlaygroundUIMessage = UIMessage<
   never,
   {
     routing: PlaygroundRouting;
+    gather: PlaygroundGather;
+    model: PlaygroundModel;
     sources: { sources: PlaygroundSource[] };
     /** One bound sentence. `chunkIds` are its footnotes, in citation order. */
     claim: { claim: string; chunkIds: string[] };

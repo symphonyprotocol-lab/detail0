@@ -10,7 +10,7 @@
  * website, llms_txt) do not earn until a claim verifies -- enforced where the
  * earning event is written, not here.
  */
-import { and, count, desc, eq, sql } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { uuidv7 } from '@/lib/domain/id';
 import {
@@ -66,10 +66,13 @@ export async function createWorkspaceLibrary(
 
   const database = db();
 
+  /* Deleted libraries are tombstones; they gave their slot back. */
   const [owned] = await database
     .select({ n: count() })
     .from(schema.library)
-    .where(eq(schema.library.ownerWorkspaceId, input.workspaceId));
+    .where(
+      and(eq(schema.library.ownerWorkspaceId, input.workspaceId), isNull(schema.library.deletedAt)),
+    );
   if ((owned?.n ?? 0) >= (await libraryLimit(input.workspaceId))) {
     throw new AppError('library_limit_exceeded', 'the plan’s library limit is reached');
   }

@@ -21,8 +21,10 @@ const { buildVersion, memoryObjectStore, publishVersion } = await import(
   '@/lib/application/ingestion'
 );
 const { askPlayground } = await import('@/lib/application/playground');
+const { hasPaidSubscription } = await import('@/lib/application/plans');
 const {
   recordLlmCost,
+  updateLlmAssignment,
   updateLlmConfig,
   readLlmConfiguration,
   activeLlmConfig,
@@ -67,9 +69,9 @@ const CONFIG = {
   id: '',
   slug: 'fixture',
   label: 'Fixture model',
-  isDefault: true,
   baseUrl: 'https://llm.example.test/v1',
   model: 'fixture-llm-1',
+  apiKeyEnv: 'LLM_PROVIDER_API_KEY',
   maxInputTokens: 8_000,
   maxOutputTokens: 800,
   timeoutMs: 15_000,
@@ -82,7 +84,14 @@ const CONFIG = {
   reasoningEffort: null as 'minimal' | 'low' | 'medium' | 'high' | null,
   enabled: true,
   createdAt: new Date(),
+  assignedTo: [] as ('trial' | 'subscriber')[],
 };
+
+/** A registry row from the fixture: `assignedTo` is derived, never stored. */
+function rowOf<T extends { assignedTo: unknown }>(config: T): Omit<T, 'assignedTo'> {
+  const { assignedTo: _derived, ...row } = config;
+  return row;
+}
 
 function playgroundDeps(options: {
   completion?: string;
@@ -93,6 +102,7 @@ function playgroundDeps(options: {
 }) {
   return {
     config: async () => (options.config === undefined ? CONFIG : options.config),
+    audience: async () => 'trial' as const,
     keyPresent: () => true,
     recordCost: recordLlmCost,
     retrieval,
@@ -124,7 +134,10 @@ function playgroundDeps(options: {
   };
 }
 
-function dependencies() {
+const BEETLES =
+  '# Rove beetles\n\nDo not crush the insect against skin. Rinse exposed skin with water.';
+
+function dependencies(content: string = BEETLES) {
   return {
     async fetchSnapshot() {
       return {
@@ -132,8 +145,7 @@ function dependencies() {
           {
             path: 'docs/beetles.md',
             url: 'https://example.test/beetles',
-            content:
-              '# Rove beetles\n\nDo not crush the insect against skin. Rinse exposed skin with water.',
+            content,
           },
         ],
         config: {
@@ -165,7 +177,7 @@ function dependencies() {
   };
 }
 
-async function publishedLibrary(slug: string): Promise<string> {
+async function publishedLibrary(slug: string, content?: string): Promise<string> {
   const { libraryId } = await createPlatformLibrary({
     actor,
     title: `Playground fixture ${slug}`,
@@ -177,7 +189,11 @@ async function publishedLibrary(slug: string): Promise<string> {
     reason: 'integration test fixture',
   });
   created.push(libraryId);
-  const built = await buildVersion({ libraryId, operationId: uuidv7(), dependencies: dependencies() });
+  const built = await buildVersion({
+    libraryId,
+    operationId: uuidv7(),
+    dependencies: dependencies(content),
+  });
   if (!built.changed) throw new Error('fixture build produced no version');
   await publishVersion({ libraryId, versionId: built.versionId });
   await db()
@@ -232,13 +248,13 @@ describeWithDb('playground', () => {
 
     const [config] = await db()
       .insert(schema.llmConfig)
-      .values({ ...CONFIG, id: uuidv7() })
+      .values({ ...rowOf(CONFIG), id: uuidv7() })
       .returning();
     createdConfigIds.push(config!.id);
 
     const output = await askPlayground(
       asAnonymous(),
-      { libraryId: `/websites/pg-answer-${stamp}`, question: 'how to treat rove beetle exposure' },
+      { libraries: [{ libraryId: `/websites/pg-answer-${stamp}`, title: 'fixture' }], question: 'how to treat rove beetle exposure' },
       playgroundDeps({
         config: { ...CONFIG, id: config!.id },
         completion:
@@ -263,6 +279,55 @@ describeWithDb('playground', () => {
     expect(events[0]!.libraryPublicId).toBe(`/websites/pg-answer-${stamp}`);
   });
 
+  it('gathers from every confirmed candidate, names the library on each passage, and skips the rest', async () => {
+    const stamp = Date.now();
+    await publishedLibrary(`pg-gather-a-${stamp}`);
+    await publishedLibrary(
+      `pg-gather-b-${stamp}`,
+      '# Field notes\n\nRove beetle exposure: wash with soap, the paederin toxin blisters skin.',
+    );
+    await publishedLibrary(
+      `pg-gather-c-${stamp}`,
+      '# Orchard notes\n\nThe quorl-apple harvest is pressed every equinox.',
+    );
+
+    const calls: { userMessage?: string }[] = [];
+    const output = await askPlayground(
+      asAnonymous(),
+      {
+        libraries: [
+          { libraryId: `/websites/pg-gather-a-${stamp}`, title: 'A' },
+          { libraryId: `/websites/pg-gather-b-${stamp}`, title: 'B' },
+          { libraryId: `/websites/pg-gather-c-${stamp}`, title: 'C' },
+          /* Not a library at all: one bad candidate must not sink the exchange. */
+          { libraryId: `/websites/pg-gather-missing-${stamp}`, title: 'missing' },
+        ],
+        question: 'rove beetle exposure',
+      },
+      playgroundDeps({ completion: 'Rinse with water. [ref:1] Wash with soap. [ref:2]', calls }),
+    );
+
+    expect(output.kind).toBe('answer');
+    const from = new Set(output.chunks.map((chunk) => chunk.libraryId));
+    expect(from).toEqual(
+      new Set([`/websites/pg-gather-a-${stamp}`, `/websites/pg-gather-b-${stamp}`]),
+    );
+    for (const chunk of output.chunks) {
+      expect(chunk.libraryTitle).toBe(chunk.libraryId.includes('-a-') ? 'A' : 'B');
+      expect(chunk.version).toMatch(/\S/);
+    }
+    /* The model saw both libraries' passages in one context block. */
+    expect(calls[0]!.userMessage).toContain('Rinse exposed skin');
+    expect(calls[0]!.userMessage).toContain('paederin');
+
+    const byId = new Map(output.libraries.map((library) => [library.libraryId, library]));
+    expect(byId.get(`/websites/pg-gather-a-${stamp}`)).toMatchObject({ confirmed: true, failed: false });
+    expect(byId.get(`/websites/pg-gather-b-${stamp}`)).toMatchObject({ confirmed: true, failed: false });
+    /* Read, but nothing in it matched: not context. */
+    expect(byId.get(`/websites/pg-gather-c-${stamp}`)).toMatchObject({ confirmed: false, chunks: 0 });
+    expect(byId.get(`/websites/pg-gather-missing-${stamp}`)).toMatchObject({ failed: true, confirmed: false });
+  });
+
   it('never calls the model without context, and degrades on provider failure', async () => {
     const stamp = Date.now();
     await publishedLibrary(`pg-degrade-${stamp}`);
@@ -270,7 +335,7 @@ describeWithDb('playground', () => {
     const calls: { userMessage?: string }[] = [];
     const noContext = await askPlayground(
       asAnonymous(),
-      { libraryId: `/websites/pg-degrade-${stamp}`, question: 'zzz-nothing-matches-zzz' },
+      { libraries: [{ libraryId: `/websites/pg-degrade-${stamp}`, title: 'fixture' }], question: 'zzz-nothing-matches-zzz' },
       playgroundDeps({ calls }),
     );
     expect(noContext.kind).toBe('no_context');
@@ -278,7 +343,7 @@ describeWithDb('playground', () => {
 
     const failed = await askPlayground(
       asAnonymous(),
-      { libraryId: `/websites/pg-degrade-${stamp}`, question: 'rove beetle exposure' },
+      { libraries: [{ libraryId: `/websites/pg-degrade-${stamp}`, title: 'fixture' }], question: 'rove beetle exposure' },
       playgroundDeps({ fail: true }),
     );
     expect(failed.kind).toBe('degraded');
@@ -286,7 +351,7 @@ describeWithDb('playground', () => {
 
     const unconfigured = await askPlayground(
       asAnonymous(),
-      { libraryId: `/websites/pg-degrade-${stamp}`, question: 'rove beetle exposure' },
+      { libraries: [{ libraryId: `/websites/pg-degrade-${stamp}`, title: 'fixture' }], question: 'rove beetle exposure' },
       playgroundDeps({ config: null }),
     );
     expect(unconfigured.kind).toBe('degraded');
@@ -294,7 +359,7 @@ describeWithDb('playground', () => {
     /* A completion whose every citation points nowhere binds no fact at all. */
     const unbound = await askPlayground(
       asAnonymous(),
-      { libraryId: `/websites/pg-degrade-${stamp}`, question: 'rove beetle exposure' },
+      { libraries: [{ libraryId: `/websites/pg-degrade-${stamp}`, title: 'fixture' }], question: 'rove beetle exposure' },
       playgroundDeps({
         config: { ...CONFIG, id: (await ensureConfig()).id },
         completion: 'Confident nonsense. [ref:42] More of it. [ref:77]',
@@ -311,7 +376,7 @@ describeWithDb('playground', () => {
     const calls: { userMessage?: string }[] = [];
     await askPlayground(
       asAnonymous(),
-      { libraryId: `/websites/pg-prompt-${stamp}`, question: 'rove beetle exposure' },
+      { libraries: [{ libraryId: `/websites/pg-prompt-${stamp}`, title: 'fixture' }], question: 'rove beetle exposure' },
       playgroundDeps({ completion: 'Rinse with water. [ref:1]', calls, config: { ...CONFIG, id: (await ensureConfig()).id } }),
     );
     expect(calls).toHaveLength(1);
@@ -326,7 +391,7 @@ describeWithDb('playground', () => {
 
     const [row] = await db()
       .insert(schema.llmConfig)
-      .values({ ...CONFIG, id: uuidv7() })
+      .values({ ...rowOf(CONFIG), id: uuidv7() })
       .returning();
     createdConfigIds.push(row!.id);
     const base = { ...CONFIG, id: row!.id };
@@ -336,7 +401,7 @@ describeWithDb('playground', () => {
     const plain: { userMessage?: string; reasoningEffort?: string | null }[] = [];
     await askPlayground(
       asAnonymous(),
-      { libraryId, question: 'rove beetle exposure' },
+      { libraries: [{ libraryId, title: 'fixture' }], question: 'rove beetle exposure' },
       playgroundDeps({ config: base, completion: 'Rinse. [ref:1]', calls: plain }),
     );
     expect(plain[0]!.reasoningEffort).toBeNull();
@@ -344,7 +409,7 @@ describeWithDb('playground', () => {
     const thinking: { userMessage?: string; reasoningEffort?: string | null }[] = [];
     const output = await askPlayground(
       asAnonymous(),
-      { libraryId, question: 'rove beetle exposure' },
+      { libraries: [{ libraryId, title: 'fixture' }], question: 'rove beetle exposure' },
       playgroundDeps({
         config: { ...base, supportsReasoning: true, reasoningEffort: 'high' },
         completion: 'Rinse the skin. [ref:1]',
@@ -400,7 +465,6 @@ describeWithDb('playground', () => {
       supportsVision: false,
       reasoningEffort: null,
       enabled: true,
-      isDefault: false,
       reason: 'bounds fixture',
     };
 
@@ -430,7 +494,7 @@ describeWithDb('playground', () => {
         timeoutMs: 120_000,
       });
       createdConfigIds.push(saved.configId);
-      const stored = await activeLlmConfig(entry.slug);
+      const stored = await activeLlmConfig(entry.slug, 'trial');
       expect(stored?.maxOutputTokens).toBe(1_000_000);
       expect(stored?.timeoutMs).toBe(120_000);
     } finally {
@@ -465,7 +529,6 @@ describeWithDb('playground', () => {
       supportsTools: false,
       supportsVision: false,
       enabled: true,
-      isDefault: false,
       reason: 'effort fixture',
     };
 
@@ -485,7 +548,7 @@ describeWithDb('playground', () => {
         reasoningEffort: null,
       });
       createdConfigIds.push(saved.configId);
-      expect((await activeLlmConfig(entry.slug))?.reasoningEffort).toBeNull();
+      expect((await activeLlmConfig(entry.slug, 'trial'))?.reasoningEffort).toBeNull();
     } finally {
       await db()
         .delete(schema.auditLog)
@@ -494,7 +557,7 @@ describeWithDb('playground', () => {
     }
   });
 
-  it('keeps several models side by side and resolves the one marked default', async () => {
+  it('keeps several models side by side and answers with the assigned one', async () => {
     const administratorId = crypto.randomUUID();
     await db().insert(schema.administrator).values({
       id: administratorId,
@@ -527,7 +590,6 @@ describeWithDb('playground', () => {
         label: 'Cheap',
         model: 'fixture-cheap',
         enabled: true,
-        isDefault: true,
       });
       const strong = await updateLlmConfig({
         ...shared,
@@ -535,7 +597,6 @@ describeWithDb('playground', () => {
         label: 'Strong',
         model: 'fixture-strong',
         enabled: true,
-        isDefault: false,
       });
       const retired = await updateLlmConfig({
         ...shared,
@@ -543,45 +604,221 @@ describeWithDb('playground', () => {
         label: 'Retired',
         model: 'fixture-retired',
         enabled: false,
-        isDefault: false,
       });
       createdConfigIds.push(cheap.configId, strong.configId, retired.configId);
 
       /* Two live entries and one switched off; the off one is not offered. */
-      const selectable = await selectableLlmModels();
+      const selectable = await selectableLlmModels('trial');
       const slugs = selectable.map((entry) => entry.slug);
       expect(slugs).toContain(`cheap-${stamp}`);
       expect(slugs).toContain(`strong-${stamp}`);
       expect(slugs).not.toContain(`retired-${stamp}`);
 
-      /* `strong` was written later, but `cheap` is the one claiming default. */
-      expect((await activeLlmConfig())?.model).toBe('fixture-cheap');
-      expect(selectable[0]!.slug).toBe(`cheap-${stamp}`);
+      /* Assigning names the entry; assigning one that is off is refused. */
+      await expect(
+        updateLlmAssignment({
+          actor: shared.actor,
+          trialSlug: `retired-${stamp}`,
+          subscriberSlug: null,
+          reason: 'x',
+        }),
+      ).rejects.toMatchObject({ code: 'unknown_model' });
+      await updateLlmAssignment({
+        actor: shared.actor,
+        trialSlug: `cheap-${stamp}`,
+        subscriberSlug: null,
+        reason: 'cheap for everyone',
+      });
+
+      /* `strong` was written later, but `cheap` is the one assigned. */
+      expect((await activeLlmConfig(null, 'trial'))?.model).toBe('fixture-cheap');
+      expect((await selectableLlmModels('trial'))[0]!.slug).toBe(`cheap-${stamp}`);
 
       /* Naming an entry picks it; naming one that is off picks nothing at all,
          rather than quietly falling back to a model the caller did not ask
          for. */
-      expect((await activeLlmConfig(`strong-${stamp}`))?.model).toBe('fixture-strong');
-      expect(await activeLlmConfig(`retired-${stamp}`)).toBeNull();
-      expect(await activeLlmConfig('no-such-entry')).toBeNull();
+      expect((await activeLlmConfig(`strong-${stamp}`, 'trial'))?.model).toBe('fixture-strong');
+      expect(await activeLlmConfig(`retired-${stamp}`, 'trial')).toBeNull();
+      expect(await activeLlmConfig('no-such-entry', 'trial')).toBeNull();
 
-      /* Choosing a new default is an append, and the newest claim wins. */
-      const promoted = await updateLlmConfig({
-        ...shared,
-        slug: `strong-${stamp}`,
-        label: 'Strong',
-        model: 'fixture-strong',
-        enabled: true,
-        isDefault: true,
+      /* A new assignment is an append, and the newest wins. */
+      await updateLlmAssignment({
+        actor: shared.actor,
+        trialSlug: `strong-${stamp}`,
+        subscriberSlug: null,
         reason: 'promote strong',
       });
-      createdConfigIds.push(promoted.configId);
-      expect((await activeLlmConfig())?.model).toBe('fixture-strong');
+      expect((await activeLlmConfig(null, 'trial'))?.model).toBe('fixture-strong');
     } finally {
       await db()
         .delete(schema.auditLog)
         .where(eq(schema.auditLog.administratorId, administratorId));
       await db().delete(schema.administrator).where(eq(schema.administrator.id, administratorId));
+    }
+  });
+
+  it('answers each audience with its assigned model, and never a visitor with the subscriber one', async () => {
+    const administratorId = crypto.randomUUID();
+    await db().insert(schema.administrator).values({
+      id: administratorId,
+      email: `llm-audience-${Date.now()}@example.test`,
+      username: `llm-audience-${Date.now()}`,
+      passwordHash: 'unused',
+      status: 'active',
+    });
+    const stamp = Date.now();
+    const shared = {
+      actor: { administratorId, email: 'ops@example.test' },
+      baseUrl: 'https://llm.example.test/v1',
+      maxInputTokens: 8_000,
+      maxOutputTokens: 800,
+      timeoutMs: 15_000,
+      promptPriceMicro: 3_000_000,
+      completionPriceMicro: 15_000_000,
+      cachePriceMicro: 300_000,
+      supportsTools: false,
+      supportsReasoning: false,
+      supportsVision: false,
+      reasoningEffort: null,
+      enabled: true,
+      reason: 'audience fixture',
+    };
+
+    try {
+      const trial = await updateLlmConfig({
+        ...shared,
+        slug: `trial-${stamp}`,
+        label: 'Trial',
+        model: 'fixture-trial',
+      });
+      const premium = await updateLlmConfig({
+        ...shared,
+        slug: `premium-${stamp}`,
+        label: 'Premium',
+        model: 'fixture-premium',
+      });
+      createdConfigIds.push(trial.configId, premium.configId);
+
+      await updateLlmAssignment({
+        actor: shared.actor,
+        trialSlug: `trial-${stamp}`,
+        subscriberSlug: null,
+        reason: 'trial only',
+      });
+      /* No subscriber model assigned: a paid plan is answered by the trial
+         model rather than by nothing, and told so. */
+      const same = await activeLlmConfig(null, 'subscriber');
+      expect(same?.model).toBe('fixture-trial');
+      expect(same?.assignedTo).toEqual(['trial']);
+
+      await updateLlmAssignment({
+        actor: shared.actor,
+        trialSlug: `trial-${stamp}`,
+        subscriberSlug: `premium-${stamp}`,
+        reason: 'premium for subscribers',
+      });
+
+      expect((await activeLlmConfig(null, 'trial'))?.model).toBe('fixture-trial');
+      const paid = await activeLlmConfig(null, 'subscriber');
+      expect(paid?.model).toBe('fixture-premium');
+      expect(paid?.assignedTo).toEqual(['subscriber']);
+
+      /* A subscriber may still name the trial model; a visitor naming the
+         subscriber model gets nothing, not a substitute. */
+      expect((await activeLlmConfig(`trial-${stamp}`, 'subscriber'))?.model).toBe('fixture-trial');
+      expect(await activeLlmConfig(`premium-${stamp}`, 'trial')).toBeNull();
+
+      const forVisitors = (await selectableLlmModels('trial')).map((entry) => entry.slug);
+      expect(forVisitors).toContain(`trial-${stamp}`);
+      expect(forVisitors).not.toContain(`premium-${stamp}`);
+      const forSubscribers = (await selectableLlmModels('subscriber')).map((entry) => entry.slug);
+      expect(forSubscribers[0]).toBe(`premium-${stamp}`);
+      expect(forSubscribers).toContain(`trial-${stamp}`);
+
+      const configuration = await readLlmConfiguration();
+      expect(configuration.assignment.subscriberSlug).toBe(`premium-${stamp}`);
+      expect(configuration.resolved.trial?.slug).toBe(`trial-${stamp}`);
+      expect(configuration.resolved.subscriber?.slug).toBe(`premium-${stamp}`);
+
+      /* The transcript is told which model answered, and what a plan buys. */
+      const events: { type: string; label?: string; audience?: string; upgrade?: string | null }[] = [];
+      const libraryStamp = Date.now();
+      await publishedLibrary(`pg-audience-${libraryStamp}`);
+      const { streamPlayground } = await import('@/lib/application/playground');
+      for await (const event of streamPlayground(
+        asAnonymous(),
+        { libraries: [{ libraryId: `/websites/pg-audience-${libraryStamp}`, title: 'fixture' }], question: 'how to treat rove beetle exposure' },
+        {
+          ...playgroundDeps({ completion: 'Rinse with water. [ref:1]', config: null }),
+          config: activeLlmConfig,
+          audience: async () => 'trial' as const,
+        },
+      )) {
+        if (event.type === 'model') events.push(event);
+      }
+      expect(events).toEqual([
+        { type: 'model', label: 'Trial', audience: 'trial', upgrade: 'Premium' },
+      ]);
+    } finally {
+      await db()
+        .delete(schema.auditLog)
+        .where(eq(schema.auditLog.administratorId, administratorId));
+      await db().delete(schema.administrator).where(eq(schema.administrator.id, administratorId));
+    }
+  });
+
+  it('counts an active paid subscription as a subscriber, and nothing else', async () => {
+    const database = db();
+    const workspaceId = crypto.randomUUID();
+    await database.insert(schema.workspace).values({ id: workspaceId, name: 'audience-test' });
+    const versions: string[] = [];
+    const plan = async (planId: 'free' | 'pro') => {
+      const id = uuidv7();
+      versions.push(id);
+      await database.insert(schema.planVersion).values({
+        id,
+        planId,
+        priceMinor: planId === 'free' ? 0 : 2000,
+        currency: 'USD',
+        monthlyCalls: 100,
+        libraryLimit: 10,
+        librarySizeBytesLimit: 1_000_000,
+        apiKeyLimit: 5,
+        shareRateBps: 2000,
+        capabilities: {},
+        createdAt: new Date('2000-01-01T00:00:00Z'),
+      });
+      return id;
+    };
+    const subscribe = (planVersionId: string, status: 'active' | 'canceled', ended = false) =>
+      database.insert(schema.subscription).values({
+        id: uuidv7(),
+        workspaceId,
+        planVersionId,
+        status,
+        periodStart: new Date(Date.now() - 2 * 86_400_000),
+        periodEnd: new Date(Date.now() + (ended ? -86_400_000 : 86_400_000)),
+      });
+
+    try {
+      expect(await hasPaidSubscription(workspaceId)).toBe(false);
+
+      const free = await plan('free');
+      await subscribe(free, 'active');
+      expect(await hasPaidSubscription(workspaceId)).toBe(false);
+
+      const pro = await plan('pro');
+      await subscribe(pro, 'canceled');
+      expect(await hasPaidSubscription(workspaceId)).toBe(false);
+      await subscribe(pro, 'active', true);
+      expect(await hasPaidSubscription(workspaceId)).toBe(false);
+
+      await subscribe(pro, 'active');
+      expect(await hasPaidSubscription(workspaceId)).toBe(true);
+    } finally {
+      await database.delete(schema.subscription).where(eq(schema.subscription.workspaceId, workspaceId));
+      await database.delete(schema.workspace).where(eq(schema.workspace.id, workspaceId));
+      await database.delete(schema.planVersion).where(inArray(schema.planVersion.id, versions));
     }
   });
 
@@ -612,7 +849,6 @@ describeWithDb('playground', () => {
         supportsVision: false,
         reasoningEffort: null,
         enabled: true,
-        isDefault: true,
       };
       const first = await updateLlmConfig({
         ...entry,
@@ -630,7 +866,7 @@ describeWithDb('playground', () => {
       /* Same slug, so the second row succeeds the first rather than adding an
          entry beside it -- one model with a history, which is what freezes
          the prices the earlier cost events were written against. */
-      const active = await activeLlmConfig();
+      const active = await activeLlmConfig(entry.slug, 'trial');
       expect(active?.id).toBe(second.configId);
       expect(active?.model).toBe('fixture-llm-2');
       expect((await llmConfigEntries()).filter((e) => e.slug === entry.slug)).toHaveLength(1);
@@ -671,11 +907,11 @@ describeWithDb('playground', () => {
 async function ensureConfig() {
   /* Reuse only a config this suite created itself: cost events must never be
      recorded against (and later deleted with) a live configuration. */
-  const existing = await activeLlmConfig();
+  const existing = await activeLlmConfig(null, 'trial');
   if (existing && createdConfigIds.includes(existing.id)) return existing;
   const [row] = await db()
     .insert(schema.llmConfig)
-    .values({ ...CONFIG, id: uuidv7() })
+    .values({ ...rowOf(CONFIG), id: uuidv7() })
     .returning();
   createdConfigIds.push(row!.id);
   return row!;

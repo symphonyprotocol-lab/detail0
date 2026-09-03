@@ -59,6 +59,8 @@ export interface FetchedResource {
   contentType: string;
   body: string;
   bytes: number;
+  /** Set when a rendering provider produced the body rather than a plain fetch. */
+  renderedBy?: 'firecrawl' | 'jina';
 }
 
 /**
@@ -72,6 +74,17 @@ export interface FetchOptions {
   accept?: string;
   headers?: Record<string, string>;
   maxBytes?: number;
+  /**
+   * The URL is an operator's own service, named in the environment -- a
+   * self-hosted renderer on the private network, say -- not an address that
+   * came from a source. It is exempt from the source-address rules (https
+   * only, no private ranges), which exist to stop a *source* steering a
+   * request; the environment is not a source. In exchange the request may
+   * not be redirected at all: an endpoint that answers with a `Location` is
+   * treated as unreachable, so the exemption cannot be turned into a hop to
+   * somewhere the rules would have refused.
+   */
+  trustedEndpoint?: boolean;
   /** Only a query endpoint needs anything but GET. */
   method?: 'GET' | 'POST';
   /** Sent as JSON. Ignored unless `method` is POST. */
@@ -88,7 +101,7 @@ export async function fetchDocument(
   const limit = options.maxBytes ?? MAX_BYTES;
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    assertFetchable(url);
+    if (!options.trustedEndpoint) assertFetchable(url);
 
     const sendBody = method === 'POST' && options.body !== undefined;
     let response: Response;
@@ -120,6 +133,9 @@ export async function fetchDocument(
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location');
       await response.body?.cancel();
+      if (options.trustedEndpoint) {
+        throw new IngestionFailure('source_unreachable', STAGE, `${url.host} redirected an endpoint call`);
+      }
       if (!location) {
         throw new IngestionFailure('source_unreachable', STAGE, 'redirect without a location');
       }

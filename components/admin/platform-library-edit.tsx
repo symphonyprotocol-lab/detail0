@@ -5,7 +5,6 @@ import { ConsoleDialog } from '@/components/admin/console-dialog';
 import { ConsoleButton, IconButton } from '@/components/admin/ui';
 import { CircleXIcon, PencilIcon, PlusIcon, SpinnerIcon, TrashIcon } from '@/components/ui/icons';
 import {
-  namespaceFor,
   PLATFORM_SOURCE_TYPES,
   REFRESH_POLICIES,
   type PlatformSourceType,
@@ -16,6 +15,7 @@ import { fill } from '@/lib/i18n/format';
 import {
   Field,
   FIELD,
+  PublicIdField,
   ReasonField,
   Refusal,
   submitOn,
@@ -156,18 +156,15 @@ function EditDialog({
               className={FIELD}
             />
           </Field>
-          <Field
+          <PublicIdField
             label={e.fieldPublicId}
-            hint={fill(e.hintPublicId, { namespace: namespaceFor(library.sourceType) })}
-          >
-            <input
-              name="publicId"
-              required
-              maxLength={200}
-              defaultValue={library.publicId}
-              className={FIELD}
-            />
-          </Field>
+            sourceType={library.sourceType}
+            defaultValue={library.publicId}
+            hint={library.sourceType === 'github' ? e.hintPublicIdRepo : e.hintPublicId}
+            placeholder={
+              library.sourceType === 'github' ? e.placeholderPublicIdRepo : e.placeholderPublicId
+            }
+          />
           <Field label={e.fieldTag}>
             <input
               name="domainTag"

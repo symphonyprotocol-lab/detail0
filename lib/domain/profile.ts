@@ -19,7 +19,7 @@
  */
 
 /** Frozen into `library_profile.profile_version`; bump on any change here. */
-export const PROFILE_VERSION = 're0-profile-2';
+export const PROFILE_VERSION = 're0-profile-3';
 
 export const PROFILE_LIMITS = {
   /** Titles kept on the profile row. Routing only needs the vocabulary. */
@@ -64,7 +64,12 @@ const STOPWORDS = new Set([
   per etc use using used uses make makes making made get gets getting got set sets need needs
   needed want wants wanted show shows showing tell tells give gives take takes see seen let
   know like way ways thing things something anything nothing please help work works working
-  write read example examples latest`.split(/\s+/),
+  write read example examples latest
+  first second third last previous new old one two three four five six seven eight nine ten
+  hundred thousand because however therefore thus although though whereas since until unless
+  whether another again number numbers provide provides provided providing allow allows allowed
+  allowing include includes included including based simply different various certain
+  particular specific important possible able following follows note notes`.split(/\s+/),
   ...['什么', '怎么', '怎样', '如何', '为什么', '是什么', '怎么做', '怎么办', '怎么样', '什么是',
     '哪些', '哪个', '哪里', '可以', '能否', '是否', '如果', '我们', '你们', '他们', '这个', '那个',
     '这些', '那些', '一个', '一下', '一些', '请问', '有没有', '没有', '或者', '以及', '但是', '因为',
@@ -73,6 +78,43 @@ const STOPWORDS = new Set([
 
 export function isStopword(token: string): boolean {
   return STOPWORDS.has(token);
+}
+
+/* ------------------------------------------------------------ boilerplate */
+
+/**
+ * Phrases a documentation site prints on every page and a crawl keeps as
+ * text: link decorations, skip links, page furniture. Measured on
+ * ethereum.org: "(opens in a new tab)" sat in 42% of all chunks and put
+ * `new`, `opens`, `tab` at the head of the profile ahead of every real term;
+ * "skip to main content" and "edit page" once per page. They are removed
+ * before tokenizing rather than stopworded word by word, because "open" and
+ * "tab" are ordinary words a library can genuinely be about.
+ *
+ * Phrases only, and only ones that are furniture on any site. A library's
+ * own recurring heading is content, and stays.
+ */
+const BOILERPLATE: readonly RegExp[] = [
+  /\(?\s*opens? in a new (?:tab|window)\s*\)?/giu,
+  /\bskip to (?:main )?content\b/giu,
+  /\bedit (?:this )?page\b/giu,
+  /\bon this page\b/giu,
+  /\btable of contents\b/giu,
+  /\bback to top\b/giu,
+  /\b(?:read|learn) more\b/giu,
+  /\bcopy (?:link|to clipboard)\b/giu,
+  /\blast (?:edit|updated?)(?: on)?\b/giu,
+  /在新(?:标签页|窗口)中?打开/gu,
+  /跳(?:转到|转|到)(?:主要|正文)内容/gu,
+  /编辑(?:此|本)页/gu,
+  /本页(?:目录|内容)/gu,
+];
+
+/** The text with site furniture removed; what the extractor counts. */
+export function stripBoilerplate(text: string): string {
+  let out = text;
+  for (const pattern of BOILERPLATE) out = out.replace(pattern, ' ');
+  return out;
 }
 
 /* ------------------------------------------------------------------ terms */
@@ -110,7 +152,8 @@ export function extractTerms(
   const counts = new Map<string, number>();
   const bump = (term: string, by: number) => counts.set(term, (counts.get(term) ?? 0) + by);
 
-  for (const text of texts) {
+  for (const raw of texts) {
+    const text = stripBoilerplate(raw);
     for (const match of text.matchAll(WORD_RUN)) {
       const run = match[0];
       if (HAS_HAN.test(run)) continue; // counted below, as grams

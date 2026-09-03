@@ -14,10 +14,11 @@
  * the text-search configuration frozen on the version, so query stemming
  * always matches how the chunks were indexed.
  */
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import type { ChunkResult, QueryDocsInput, QueryDocsOutput } from '@/contracts/schemas';
 import { isQueryable } from '@/lib/domain';
+import { libraryIdCandidates } from '@/lib/domain/library';
 import {
   commitCall,
   recordRequestLog,
@@ -42,7 +43,11 @@ import { searchTokens } from '@/lib/domain/profile';
 import { cjkSearchTokens, containsCjk } from '@/lib/domain/cjk';
 import type { RetrievalConfidence } from '@/lib/domain/routing';
 import { sha256Hex } from '@/lib/domain/ingestion';
-import { cacheSetTagged, retrievalCache, type RetrievalCache } from '@/lib/infrastructure/cache/redis';
+import {
+  cacheSetTagged,
+  retrievalCache,
+  type RetrievalCache,
+} from '@/lib/infrastructure/cache/redis';
 import { ref } from '@/lib/application/administration/column-ref';
 import {
   activeRetrievalSettings,
@@ -67,7 +72,10 @@ export const defaultRetrievalDependencies: RetrievalDependencies = {
   embeddings: embeddingAdapter,
   rerank: rerankAdapter,
   cache: retrievalCache,
-  configured: () => ({ embeddings: isEmbeddingConfigured(), rerank: isRerankConfigured() }),
+  configured: () => ({
+    embeddings: isEmbeddingConfigured(),
+    rerank: isRerankConfigured(),
+  }),
   settings: activeRetrievalSettings,
 };
 
@@ -86,7 +94,9 @@ export const RETRIEVAL_CONFIG_VERSION = 're0-retrieval-2';
  * whether to call a model on these passages -- reads the confidence. Null
  * on a cache entry written before the confidence existed.
  */
-export type QueryDocsResult = QueryDocsOutput & { confidence: RetrievalConfidence | null };
+export type QueryDocsResult = QueryDocsOutput & {
+  confidence: RetrievalConfidence | null;
+};
 /** The key's policy slot for callers with no workspace and hence no policy. */
 const NO_POLICY = 'p0';
 /** The key's configuration slot when the defaults are in force. */
@@ -105,13 +115,29 @@ export async function queryDocs(
   return output;
 }
 
+/**
+ * How one retrieval is accounted for.
+ *
+ * `meter: false` is for the playground's scatter-gather (retrieval/gather.ts):
+ * one exchange is one Call, charged to and earned by the routed library, and
+ * the other candidates it also reads are not served calls -- no reservation,
+ * no earning event, no request-log row. Every gate before the reservation
+ * (visibility, state, policy) still applies, and the cache is still used.
+ * Never reachable from /v1 or MCP, where each call is a served call.
+ */
+export interface QueryDocsOptions {
+  meter?: boolean;
+}
+
 export async function queryDocsDetailed(
   caller: CallerContext,
   input: QueryDocsInput,
   dependencies: RetrievalDependencies = defaultRetrievalDependencies,
+  options: QueryDocsOptions = {},
 ): Promise<QueryDocsResult> {
   const startedAt = Date.now();
   const database = db();
+  const meter = options.meter !== false;
   /*
    * The request log (architecture.md 6.3): outcome, library, latency --
    * never the query text (17.1). Awaited but best-effort: the catch keeps a
@@ -131,11 +157,11 @@ export async function queryDocsDetailed(
     }).catch(() => {});
 
   try {
-    const output = await queryDocsInner(caller, input, dependencies, startedAt, database);
-    await logExit(output.libraryId, 200);
+    const output = await queryDocsInner(caller, input, dependencies, startedAt, database, meter);
+    if (meter) await logExit(output.libraryId, 200);
     return output;
   } catch (error) {
-    await logExit(null, error instanceof AppError ? httpStatusFor(error.code) : 500);
+    if (meter) await logExit(null, error instanceof AppError ? httpStatusFor(error.code) : 500);
     throw error;
   }
 }
@@ -146,30 +172,57 @@ async function queryDocsInner(
   dependencies: RetrievalDependencies,
   startedAt: number,
   database: ReturnType<typeof db>,
+  meter: boolean,
 ): Promise<QueryDocsResult> {
   const settings = await (dependencies.settings ?? activeRetrievalSettings)();
 
   /* -------------------------------------------- resolve, authorize, pin */
 
-  const { basePublicId, versionLabel } = splitLibraryId(input.libraryId);
+  /*
+   * Which library the id names, and whether it pins a version. Nested ids and
+   * pinned versions share one grammar (requirement.md 6.1:
+   * `/websites/ethereum/whitepaper` is a library if one exists at that id,
+   * otherwise the `whitepaper` version of `/websites/ethereum`), so every
+   * reading is looked up at once and the longest library wins.
+   *
+   * Live rows only. A deleted library is a tombstone that keeps its public id
+   * (architecture.md 8.4), and the id may since have been taken by a new
+   * library; the tombstone must neither answer nor shadow it.
+   */
+  const candidates = libraryIdCandidates(input.libraryId);
+  const candidateIds = candidates.map((candidate) => candidate.publicId);
 
-  let [library] = await database
+  const found = await database
     .select(librarySelection)
     .from(schema.library)
-    .where(eq(schema.library.publicId, basePublicId));
+    .where(and(inArray(schema.library.publicId, candidateIds), isNull(schema.library.deletedAt)));
+
+  let match = candidates.find((candidate) =>
+    found.some((row) => row.publicId === candidate.publicId),
+  );
+  let library = match ? found.find((row) => row.publicId === match!.publicId) : undefined;
 
   if (!library) {
-    const [alias] = await database
-      .select({ libraryId: schema.libraryAlias.libraryId })
+    /* Redirects, read the same way: the longest old id that redirects wins. */
+    const aliases = await database
+      .select({
+        fromPublicId: schema.libraryAlias.fromPublicId,
+        libraryId: schema.libraryAlias.libraryId,
+      })
       .from(schema.libraryAlias)
-      .where(eq(schema.libraryAlias.fromPublicId, basePublicId));
+      .where(inArray(schema.libraryAlias.fromPublicId, candidateIds));
+    match = candidates.find((candidate) =>
+      aliases.some((alias) => alias.fromPublicId === candidate.publicId),
+    );
+    const alias = match ? aliases.find((row) => row.fromPublicId === match!.publicId) : undefined;
     if (alias) {
       [library] = await database
         .select(librarySelection)
         .from(schema.library)
-        .where(eq(schema.library.id, alias.libraryId));
+        .where(and(eq(schema.library.id, alias.libraryId), isNull(schema.library.deletedAt)));
     }
   }
+  const versionLabel = library ? (match?.versionLabel ?? null) : null;
 
   /*
    * architecture.md 5.2: an invisible private library and a nonexistent one
@@ -186,7 +239,10 @@ async function queryDocsInner(
     throw new AppError('library_suspended', 'the library is suspended');
   }
   if (
-    !isQueryable({ lifecycleStatus: library.lifecycleStatus, indexStatus: library.indexStatus }) ||
+    !isQueryable({
+      lifecycleStatus: library.lifecycleStatus,
+      indexStatus: library.indexStatus,
+    }) ||
     !library.currentVersionId
   ) {
     throw new AppError('library_not_ready', 'the library has no queryable version');
@@ -219,9 +275,13 @@ async function queryDocsInner(
    * (architecture.md 11.2) and never touches subscription quota; only an
    * authenticated workspace reserves and is metered.
    */
-  const reservation = caller.workspaceId
-    ? await reserveCall({ workspaceId: caller.workspaceId, requestId: caller.requestId })
-    : null;
+  const reservation =
+    meter && caller.workspaceId
+      ? await reserveCall({
+          workspaceId: caller.workspaceId,
+          requestId: caller.requestId,
+        })
+      : null;
 
   try {
     /* ----------------------------------------------------------- cache */
@@ -394,12 +454,10 @@ async function queryDocsInner(
     if (dependencies.configured().rerank && ordered.length > 1) {
       const head = ordered.slice(0, settings.rerankWindow);
       try {
-        const scores = await dependencies
-          .rerank()
-          .rerank(
-            input.query,
-            head.map((entry) => entry.row.body.slice(0, settings.rerankDocumentChars)),
-          );
+        const scores = await dependencies.rerank().rerank(
+          input.query,
+          head.map((entry) => entry.row.body.slice(0, settings.rerankDocumentChars)),
+        );
         if (scores.length === head.length) {
           const reranked = head
             .map((entry, at) => ({ ...entry, score: scores[at]! }))
@@ -576,15 +634,6 @@ async function pinLabeledVersion(
   return version;
 }
 
-function splitLibraryId(libraryId: string): { basePublicId: string; versionLabel: string | null } {
-  const segments = libraryId.split('/').filter(Boolean);
-  if (segments.length <= 2) return { basePublicId: libraryId, versionLabel: null };
-  return {
-    basePublicId: `/${segments[0]}/${segments[1]}`,
-    versionLabel: segments.slice(2).join('/'),
-  };
-}
-
 function toCitation(raw: Record<string, unknown>): ChunkResult['citation'] | null {
   const url = typeof raw.url === 'string' ? raw.url : null;
   const title = typeof raw.title === 'string' ? raw.title : null;
@@ -599,7 +648,11 @@ function toCitation(raw: Record<string, unknown>): ChunkResult['citation'] | nul
 
 function usageOf(reservation: ReservedCall | null): QueryDocsOutput['usage'] {
   if (!reservation) {
-    return { callsUsed: 1, planAllowanceRemaining: 0, addonBalanceRemaining: 0 };
+    return {
+      callsUsed: 1,
+      planAllowanceRemaining: 0,
+      addonBalanceRemaining: 0,
+    };
   }
   return {
     callsUsed: 1,

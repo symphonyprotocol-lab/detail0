@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { LlmAssignmentForm } from '@/components/admin/llm-assignment-form';
 import { LlmConfigForm } from '@/components/admin/llm-config-form';
 import {
   ConsolePageHeader,
@@ -11,12 +12,12 @@ import {
   TD,
   TH,
 } from '@/components/admin/ui';
-import { readLlmConfiguration, type LlmConfigRow } from '@/lib/application/administration';
-import { priceUsdFromMicro } from '@/lib/domain/generation';
+import { readLlmConfiguration } from '@/lib/application/administration';
+import { LLM_AUDIENCES, priceUsdFromMicro } from '@/lib/domain/generation';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { fill } from '@/lib/i18n/format';
 import { translations } from '@/lib/i18n/server';
-import { updateLlmConfigAction } from './actions';
+import { testLlmConfigAction, updateLlmAssignmentAction, updateLlmConfigAction } from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await translations()).t.admin.llm.title };
@@ -36,13 +37,14 @@ function usdFromMicro(micro: number): string {
  * environment), and its tokens flow only into the cost metric this page
  * reports.
  *
- * Several models can be configured and one of them is the default; switching
- * is a console decision, never the visitor's, so nothing here is exposed to
- * the site.
+ * Three panels: spend, the assignment (which registry entry answers trial
+ * callers and which a paid plan buys), and the registry itself. Assigning is
+ * a console decision, never the visitor's, so nothing here is exposed to the
+ * site beyond which kind of model answered.
  */
 export default async function AdminLlmPage() {
   await requireAdminCapability('plans');
-  const [{ locale, t }, { entries, fallback, history, stats }] = await Promise.all([
+  const [{ locale, t }, { entries, assignment, resolved, history, stats }] = await Promise.all([
     translations(),
     readLlmConfiguration(),
   ]);
@@ -91,17 +93,63 @@ export default async function AdminLlmPage() {
 
       <Panel>
         <PanelHead
-          title={p.configTitle}
+          title={p.assignmentTitle}
           description={
-            fallback
-              ? fill(p.fallbackNote, { label: fallback.label, model: fallback.model })
-              : p.configDescription
+            assignment.createdAt
+              ? fill(p.assignmentSince, { date: date.format(assignment.createdAt) })
+              : p.assignmentUnset
           }
         />
+        {/* What each audience is answered by right now, nulls resolved. */}
+        <div className="grid gap-px bg-line sm:grid-cols-2">
+          {LLM_AUDIENCES.map((audience) => {
+            const entry = resolved[audience];
+            return (
+              <div key={audience} className="flex flex-col gap-1 bg-card px-[19px] py-4">
+                <span className="flex items-center gap-2">
+                  <Pill tone={audience === 'subscriber' ? 'brand' : 'ok'}>{p.audiences[audience]}</Pill>
+                  <span className="text-[11px] text-faint">{p.audienceWho[audience]}</span>
+                </span>
+                {entry ? (
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-[13px] font-semibold tracking-[-0.023em] text-ink">
+                      {entry.label}
+                    </span>
+                    <span className="font-mono text-[10.5px] text-faint">{entry.model}</span>
+                    {!entry.assignedTo.includes(audience) ? (
+                      <span className="text-[11px] text-muted">{p.resolvedBy[audience]}</span>
+                    ) : null}
+                  </span>
+                ) : (
+                  <span className="text-[12px] text-muted">{p.none}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <LlmAssignmentForm
+          models={entries.map((entry) => ({
+            slug: entry.slug,
+            label: entry.label,
+            model: entry.model,
+            enabled: entry.enabled,
+          }))}
+          trialSlug={assignment.trialSlug}
+          subscriberSlug={assignment.subscriberSlug}
+          action={updateLlmAssignmentAction}
+        />
+      </Panel>
+
+      <Panel>
+        <PanelHead title={p.configTitle} description={p.configDescription} />
         {entries.length === 0 ? (
           <p className="px-[19px] pt-4 text-[12px] tracking-[-0.023em] text-muted">{p.none}</p>
         ) : null}
-        <LlmConfigForm entries={entries} action={updateLlmConfigAction} />
+        <LlmConfigForm
+          entries={entries}
+          action={updateLlmConfigAction}
+          probe={testLlmConfigAction}
+        />
       </Panel>
 
       <Panel>
@@ -121,7 +169,7 @@ export default async function AdminLlmPage() {
               {history.length === 0 ? (
                 <EmptyRow columns={p.historyColumns.length} message={p.none} />
               ) : (
-                history.map((row: LlmConfigRow) => (
+                history.map((row) => (
                   <tr key={row.id} className="border-b border-line last:border-b-0">
                     <td className={TD}>{date.format(row.createdAt)}</td>
                     <td className={TD}>
@@ -130,7 +178,12 @@ export default async function AdminLlmPage() {
                         <span className="font-mono text-[10.5px] text-faint">{row.model}</span>
                       </span>
                     </td>
-                    <td className={TD}>{row.baseUrl}</td>
+                    <td className={TD}>
+                      <span className="flex flex-col gap-0.5">
+                        <span>{row.baseUrl}</span>
+                        <span className="font-mono text-[10.5px] text-faint">{row.apiKeyEnv}</span>
+                      </span>
+                    </td>
                     <td className={TD}>
                       {number.format(row.maxInputTokens)} in / {number.format(row.maxOutputTokens)}{' '}
                       out · {number.format(row.timeoutMs)} ms
@@ -145,7 +198,6 @@ export default async function AdminLlmPage() {
                         <Pill tone={row.enabled ? 'ok' : 'neutral'}>
                           {row.enabled ? p.stateEnabled : p.stateDisabled}
                         </Pill>
-                        {row.isDefault ? <Pill tone="ok">{p.defaultBadge}</Pill> : null}
                         {row.supportsTools ? <Pill tone="neutral">{p.capTools}</Pill> : null}
                         {row.supportsVision ? <Pill tone="neutral">{p.capVision}</Pill> : null}
                         {row.supportsReasoning ? (

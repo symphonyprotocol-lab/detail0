@@ -6,6 +6,8 @@ import { revalidatePath } from 'next/cache';
 import {
   addPlatformLibrarySource,
   createPlatformLibrary,
+  deletePlatformLibrary,
+  rebuildPlatformLibraryProfile,
   removePlatformLibrarySource,
   requestPlatformLibraryRefresh,
   setPlatformLibraryLifecycle,
@@ -37,6 +39,8 @@ export interface PlatformLibraryActionResult {
   publicId?: string;
   /** Set on a refresh: false means one was already queued. */
   queued?: boolean;
+  /** Set on a profile rebuild: what the extractor wrote. */
+  rebuilt?: { titles: number; terms: number };
 }
 
 async function clientAddress(): Promise<string | null> {
@@ -190,6 +194,25 @@ export async function refreshPlatformLibraryAction(
   }
 }
 
+export async function rebuildPlatformLibraryProfileAction(
+  _previous: PlatformLibraryActionResult | null,
+  form: FormData,
+): Promise<PlatformLibraryActionResult> {
+  const session = await requireAdminCapability('platformLibraries');
+  const libraryId = text(form, 'libraryId');
+  try {
+    const rebuilt = await rebuildPlatformLibraryProfile({
+      actor: await actor(session),
+      libraryId,
+      reason: text(form, 'reason'),
+    });
+    revalidatePath(`/admin/platform-libraries/${libraryId}`);
+    return { ok: true, libraryId, rebuilt };
+  } catch (error) {
+    return refused(error, 'platform library profile rebuild');
+  }
+}
+
 export async function updatePlatformLibraryAction(
   _previous: PlatformLibraryActionResult | null,
   form: FormData,
@@ -278,5 +301,48 @@ export async function removePlatformSourceAction(
     return { ok: true, libraryId };
   } catch (error) {
     return refused(error, 'platform library source remove');
+  }
+}
+
+export async function deletePlatformLibraryAction(
+  _previous: PlatformLibraryActionResult | null,
+  form: FormData,
+): Promise<PlatformLibraryActionResult> {
+  const session = await requireAdminCapability('platformLibraries');
+  const libraryId = text(form, 'libraryId');
+  try {
+    const { publicId, operationId } = await deletePlatformLibrary({
+      actor: await actor(session),
+      libraryId,
+      reason: text(form, 'reason'),
+    });
+    revalidatePath('/admin/platform-libraries');
+    revalidatePath(`/admin/platform-libraries/${libraryId}`);
+
+    /*
+     * The tombstone is written; the content is not yet gone. architecture.md
+     * 8.4 makes the purge a workflow, and like a refresh it is started here,
+     * after the response, so it has usually finished by the time the operator
+     * looks at anything -- and the scheduled drain retries it if it has not.
+     * A purge that fails keeps retrying and never restores access, so there
+     * is nothing for the operator to do about it from this dialog.
+     */
+    if (operationId) {
+      after(async () => {
+        try {
+          await runOperation({ operationId });
+        } catch (error) {
+          console.error(
+            `platform library purge run failed: ${
+              error instanceof Error ? error.message : 'unknown'
+            }`,
+          );
+        }
+      });
+    }
+
+    return { ok: true, libraryId, publicId };
+  } catch (error) {
+    return refused(error, 'platform library delete');
   }
 }

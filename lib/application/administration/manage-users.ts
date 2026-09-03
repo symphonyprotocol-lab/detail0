@@ -205,7 +205,12 @@ export async function getConsoleUser(
             createdAt: schema.library.createdAt,
           })
           .from(schema.library)
-          .where(inArray(schema.library.ownerWorkspaceId, workspaceIds))
+          .where(
+            and(
+              inArray(schema.library.ownerWorkspaceId, workspaceIds),
+              isNull(schema.library.deletedAt),
+            ),
+          )
           .orderBy(desc(schema.library.createdAt))
           .limit(DETAIL_LIMIT),
     workspaceIds.length === 0
@@ -289,7 +294,12 @@ export async function getConsoleUser(
             visible: sql<number>`(count(*) filter (where ${schema.library.visibility} = 'public'))::int`,
           })
           .from(schema.library)
-          .where(inArray(schema.library.ownerWorkspaceId, workspaceIds)),
+          .where(
+            and(
+              inArray(schema.library.ownerWorkspaceId, workspaceIds),
+              isNull(schema.library.deletedAt),
+            ),
+          ),
     workspaceIds.length === 0
       ? []
       : database

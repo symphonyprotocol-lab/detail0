@@ -34,10 +34,11 @@
  * answered every question, and the workspace policy filters candidates
  * before ranking (architecture.md 10.2: Library Search applies policy at the
  * metadata stage -- recall is content, admission is policy, and a blocked
- * library must not appear at all). What is NOT here yet, by design: the
- * scatter-gather confirmation stage, which belongs to query-docs.
+ * library must not appear at all). The scatter-gather confirmation stage is
+ * not here either, by design: it reads chunks, and lives in gather.ts on top
+ * of query-docs.
  */
-import { and, desc, eq, inArray, isNotNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { CallerContext } from './index';
 import type { LibraryCandidate, ResolveLibraryInput, ResolveLibraryOutput } from '@/contracts/schemas';
 import { routingTokens, searchTokens } from '@/lib/domain/profile';
@@ -409,6 +410,8 @@ function visibleTo(caller: CallerContext): SQL {
     eq(schema.library.lifecycleStatus, 'published'),
     eq(schema.library.indexStatus, 'ready'),
     isNotNull(schema.library.currentVersionId),
+    /* Implied by the three above for a tombstone; stated so it stays true. */
+    isNull(schema.library.deletedAt),
   )!;
   if (!caller.workspaceId) return and(routable, eq(schema.library.visibility, 'public'))!;
   return and(

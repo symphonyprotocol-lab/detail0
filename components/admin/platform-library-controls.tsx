@@ -8,10 +8,13 @@ import {
   CircleCheckIcon,
   CircleXIcon,
   RefreshIcon,
+  SparklesIcon,
   SpinnerIcon,
+  TrashIcon,
 } from '@/components/ui/icons';
 import type { PlatformLifecycleAction } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
+import { fill } from '@/lib/i18n/format';
 import {
   Refusal,
   ReasonField,
@@ -137,6 +140,121 @@ function RefreshDialog({
             * teach them to expect two runs.
             */}
           {state?.queued ? r.doneBody : r.doneAlready}
+        </p>
+      ) : (
+        <form id={formId} onSubmit={submitOn(submit)} className="flex flex-col gap-3">
+          <input type="hidden" name="libraryId" value={target.id} />
+          <Refusal state={state} />
+          <TargetCard target={target} />
+          <ReasonField
+            label={r.reason}
+            placeholder={r.reasonPlaceholder}
+            ariaLabel={r.reason}
+          />
+          <p className="text-[11px] leading-[1.55] tracking-[-0.023em] text-muted">{d.auditNote}</p>
+        </form>
+      )}
+    </ConsoleDialog>
+  );
+}
+
+/**
+ * Rebuild the routing profile of the current version.
+ *
+ * The same shape as the refresh control, for the same reason: derived data is
+ * still a mutation of the library record, and requirement.md 5.3 wants the
+ * reason. Unlike a refresh it runs inline -- reading the stored chunks is
+ * seconds, not a crawl -- so the outcome the dialog reports is the real one.
+ */
+export function PlatformProfileRebuildControl({
+  action,
+  target,
+  disabled = false,
+}: {
+  action: Action;
+  target: PlatformLibraryTarget;
+  /** Nothing built yet: the control says so rather than failing. */
+  disabled?: boolean;
+}) {
+  const { t } = useI18n();
+  const label = t.admin.platformLibraryDetail.actions.rebuildProfile;
+  const [open, setOpen] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+
+  return (
+    <>
+      <ConsoleButton disabled={disabled} onClick={() => setOpen(true)}>
+        <SparklesIcon size={14} />
+        {label}
+      </ConsoleButton>
+
+      {open ? (
+        <ProfileRebuildDialog
+          key={attempt}
+          action={action}
+          target={target}
+          onClose={() => {
+            setOpen(false);
+            setAttempt((value) => value + 1);
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function ProfileRebuildDialog({
+  action,
+  target,
+  onClose,
+}: {
+  action: Action;
+  target: PlatformLibraryTarget;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const d = t.admin.platformLibraryDetail;
+  const r = d.profileDialog;
+  const [state, submit, pending] = useActionState(action, null);
+  const formId = useId();
+  const done = state?.ok === true;
+
+  return (
+    <ConsoleDialog
+      onClose={onClose}
+      busy={pending}
+      closeLabel={d.close}
+      title={done ? r.doneTitle : r.title}
+      description={done ? undefined : r.description}
+      footer={(dismissBlocked) =>
+        done ? (
+          <ConsoleButton onClick={onClose}>{d.close}</ConsoleButton>
+        ) : (
+          <>
+            <ConsoleButton onClick={onClose} disabled={dismissBlocked}>
+              {d.cancel}
+            </ConsoleButton>
+            <ConsoleButton variant="primary" type="submit" form={formId} disabled={pending}>
+              {pending ? (
+                <>
+                  <SpinnerIcon size={14} className="motion-safe:animate-spin" />
+                  {r.pending}
+                </>
+              ) : (
+                r.submit
+              )}
+            </ConsoleButton>
+          </>
+        )
+      }
+    >
+      {done ? (
+        <p className="flex items-start gap-2 text-[12px] leading-[1.6] tracking-[-0.023em] text-pubink">
+          <CircleCheckIcon size={15} className="mt-px shrink-0" />
+          {fill(r.doneBody, {
+            titles: String(state?.rebuilt?.titles ?? 0),
+            terms: String(state?.rebuilt?.terms ?? 0),
+          })}
         </p>
       ) : (
         <form id={formId} onSubmit={submitOn(submit)} className="flex flex-col gap-3">
@@ -334,6 +452,147 @@ function LifecycleDialog({
           </>
         )}
       </form>
+    </ConsoleDialog>
+  );
+}
+
+/**
+ * Delete -- the one verb over a platform library that requirement.md 5.3 does
+ * not list and architecture.md 8.4 specifies anyway.
+ *
+ * Offered from every state, archived included. The dialog says what deleting
+ * does in the order it happens: out of retrieval and the catalogue now, the
+ * Library ID released now, the content removed by a cleanup task afterwards.
+ * It does not say "deleted" of the content, because when the dialog closes
+ * that is not yet true.
+ */
+export function PlatformDeleteControl({
+  action,
+  target,
+  variant = 'icon',
+}: {
+  action: Action;
+  target: PlatformLibraryTarget;
+  variant?: 'icon' | 'button';
+}) {
+  const { t } = useI18n();
+  const label = t.admin.platformLibraryDetail.actions.delete;
+  const [open, setOpen] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+
+  return (
+    <>
+      {variant === 'icon' ? (
+        <IconButton label={label} onClick={() => setOpen(true)}>
+          <TrashIcon size={14} />
+        </IconButton>
+      ) : (
+        <ConsoleButton className="text-err hover:bg-errsoft" onClick={() => setOpen(true)}>
+          <TrashIcon size={14} />
+          {label}
+        </ConsoleButton>
+      )}
+
+      {open ? (
+        <DeleteDialog
+          key={attempt}
+          action={action}
+          target={target}
+          onClose={() => {
+            setOpen(false);
+            setAttempt((value) => value + 1);
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function DeleteDialog({
+  action,
+  target,
+  onClose,
+}: {
+  action: Action;
+  target: PlatformLibraryTarget;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const d = t.admin.platformLibraryDetail;
+  const r = d.deleteDialog;
+  const [state, submit, pending] = useActionState(action, null);
+  const formId = useId();
+  const done = state?.ok === true;
+
+  return (
+    <ConsoleDialog
+      onClose={onClose}
+      busy={pending}
+      closeLabel={d.close}
+      title={done ? r.doneTitle : r.title}
+      description={done ? undefined : r.description}
+      footer={(dismissBlocked) =>
+        done ? (
+          /*
+           * The page behind the dialog is a library that no longer exists:
+           * the list is where the operator goes next, and a plain "close"
+           * would drop them onto a 404 after the next navigation.
+           */
+          <ConsoleButton variant="primary" href="/admin/platform-libraries">
+            {r.backToList}
+          </ConsoleButton>
+        ) : (
+          <>
+            <ConsoleButton onClick={onClose} disabled={dismissBlocked}>
+              {d.cancel}
+            </ConsoleButton>
+            <ConsoleButton
+              variant="primary"
+              type="submit"
+              form={formId}
+              disabled={pending}
+              className="bg-err hover:bg-err/90"
+            >
+              {pending ? (
+                <>
+                  <SpinnerIcon size={14} className="motion-safe:animate-spin" />
+                  {r.pending}
+                </>
+              ) : (
+                r.submit
+              )}
+            </ConsoleButton>
+          </>
+        )
+      }
+    >
+      {done ? (
+        <p className="flex items-start gap-2 text-[12px] leading-[1.6] tracking-[-0.023em] text-pubink">
+          <CircleCheckIcon size={15} className="mt-px shrink-0" />
+          {fill(r.doneBody, { publicId: state?.publicId ?? target.publicId })}
+        </p>
+      ) : (
+        <form id={formId} onSubmit={submitOn(submit)} className="flex flex-col gap-3">
+          <input type="hidden" name="libraryId" value={target.id} />
+          <Refusal state={state} />
+          <TargetCard target={target} />
+          <ul className="flex flex-col gap-1.5">
+            {r.consequences.map((line) => (
+              <li
+                key={line}
+                className="flex items-start gap-1.5 text-[11px] leading-[1.55] tracking-[-0.023em] text-steel"
+              >
+                <span aria-hidden className="mt-px text-err">
+                  •
+                </span>
+                {line}
+              </li>
+            ))}
+          </ul>
+          <ReasonField label={r.reason} placeholder={r.reasonPlaceholder} ariaLabel={r.reason} />
+          <p className="text-[11px] leading-[1.55] tracking-[-0.023em] text-muted">{d.auditNote}</p>
+        </form>
+      )}
     </ConsoleDialog>
   );
 }

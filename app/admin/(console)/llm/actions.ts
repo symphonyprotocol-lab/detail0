@@ -2,17 +2,30 @@
 
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
-import { updateLlmConfig, LlmConfigRefused } from '@/lib/application/administration';
-import { priceMicroFromUsd } from '@/lib/domain/generation';
+import {
+  probeLlmConfig,
+  updateLlmAssignment,
+  updateLlmConfig,
+  LlmConfigRefused,
+  type LlmProbeResult,
+} from '@/lib/application/administration';
+import {
+  DEFAULT_LLM_API_KEY_ENV,
+  isApiKeyEnvName,
+  priceMicroFromUsd,
+  REASONING_EFFORTS,
+  TIMEOUT_MS,
+  type ReasoningEffort,
+} from '@/lib/domain/generation';
 import { AdminChangeRefused } from '@/lib/domain/admin';
 import { requireAdminCapability } from '@/lib/http/admin';
 
 /**
- * The one mutation the playground-model screen has -- adding an entry,
- * editing one, switching one off and choosing the default are all the same
- * append, distinguished only by which fields the form posts. Like every console
- * action, it re-resolves the session and re-checks the capability: a server
- * action is a public endpoint with a generated name.
+ * The registry's one mutation -- adding an entry, editing one and switching
+ * one off are the same append, distinguished only by which fields the form
+ * posts -- and the assignment's one. Like every console action, both
+ * re-resolve the session and re-check the capability: a server action is a
+ * public endpoint with a generated name.
  */
 export type LlmConfigError =
   | 'invalid_base_url'
@@ -23,6 +36,8 @@ export type LlmConfigError =
   | 'invalid_price'
   | 'invalid_slug'
   | 'invalid_effort'
+  | 'invalid_api_key_env'
+  | 'unknown_model'
   | 'reason_required'
   | 'unavailable';
 
@@ -49,6 +64,7 @@ export async function updateLlmConfigAction(
       label: String(form.get('label') ?? ''),
       baseUrl: String(form.get('baseUrl') ?? ''),
       model: String(form.get('model') ?? ''),
+      apiKeyEnv: form.get('apiKeyEnv') ? String(form.get('apiKeyEnv')) : null,
       maxInputTokens: Number(form.get('maxInputTokens') ?? Number.NaN),
       maxOutputTokens: Number(form.get('maxOutputTokens') ?? Number.NaN),
       timeoutMs: Number(form.get('timeoutMs') ?? Number.NaN),
@@ -60,7 +76,6 @@ export async function updateLlmConfigAction(
       cachePriceMicro: priceMicroFromUsd(Number(form.get('cachePriceUsd') ?? Number.NaN)),
       /* An unchecked checkbox posts nothing: absence is "off". */
       enabled: form.get('enabled') !== null,
-      isDefault: form.get('isDefault') !== null,
       supportsTools: form.get('supportsTools') !== null,
       supportsReasoning: form.get('supportsReasoning') !== null,
       supportsVision: form.get('supportsVision') !== null,
@@ -79,4 +94,84 @@ export async function updateLlmConfigAction(
     console.error(`llm config failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return { ok: false, error: 'unavailable' };
   }
+}
+
+function actorOf(session: { administratorId: string; email: string }, bag: Headers) {
+  return {
+    administratorId: session.administratorId,
+    email: session.email,
+    clientAddress: bag.get('x-forwarded-for')?.split(',')[0]?.trim() ?? bag.get('x-real-ip'),
+  };
+}
+
+export async function updateLlmAssignmentAction(
+  _previous: LlmConfigActionResult | null,
+  form: FormData,
+): Promise<LlmConfigActionResult> {
+  const session = await requireAdminCapability('plans');
+  try {
+    await updateLlmAssignment({
+      actor: actorOf(session, await headers()),
+      /* An empty option is the documented null: newest enabled for trial,
+         the trial model for subscribers. */
+      trialSlug: form.get('trialSlug') ? String(form.get('trialSlug')) : null,
+      subscriberSlug: form.get('subscriberSlug') ? String(form.get('subscriberSlug')) : null,
+      reason: String(form.get('reason') ?? ''),
+    });
+    revalidatePath('/admin/llm');
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof LlmConfigRefused) return { ok: false, error: error.code };
+    if (error instanceof AdminChangeRefused && error.code === 'reason_required') {
+      return { ok: false, error: 'reason_required' };
+    }
+    console.error(`llm assignment failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return { ok: false, error: 'unavailable' };
+  }
+}
+
+export type LlmProbeActionResult =
+  | ({ kind: 'result' } & LlmProbeResult)
+  | {
+      kind: 'refused';
+      error: 'invalid_base_url' | 'invalid_model' | 'invalid_timeout' | 'invalid_api_key_env';
+    };
+
+/**
+ * One call against the endpoint as typed into the form -- saved or not.
+ * The same fields the save validates, held to the same rules, so a probe
+ * cannot be run against a configuration the save would refuse.
+ */
+export async function testLlmConfigAction(form: FormData): Promise<LlmProbeActionResult> {
+  await requireAdminCapability('plans');
+
+  let baseUrl: URL;
+  try {
+    baseUrl = new URL(String(form.get('baseUrl') ?? ''));
+  } catch {
+    return { kind: 'refused', error: 'invalid_base_url' };
+  }
+  if (baseUrl.protocol !== 'https:') return { kind: 'refused', error: 'invalid_base_url' };
+  const model = String(form.get('model') ?? '').trim();
+  if (model.length === 0 || model.length > 120) return { kind: 'refused', error: 'invalid_model' };
+  const apiKeyEnv = String(form.get('apiKeyEnv') ?? '').trim() || DEFAULT_LLM_API_KEY_ENV;
+  if (!isApiKeyEnvName(apiKeyEnv)) return { kind: 'refused', error: 'invalid_api_key_env' };
+  const timeoutMs = Number(form.get('timeoutMs') ?? Number.NaN);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < TIMEOUT_MS.min || timeoutMs > TIMEOUT_MS.max) {
+    return { kind: 'refused', error: 'invalid_timeout' };
+  }
+  const effort = String(form.get('reasoningEffort') ?? '');
+  const reasoningEffort =
+    form.get('supportsReasoning') !== null && REASONING_EFFORTS.includes(effort as ReasoningEffort)
+      ? (effort as ReasoningEffort)
+      : null;
+
+  const result = await probeLlmConfig({
+    baseUrl: baseUrl.toString().replace(/\/+$/, ''),
+    model,
+    apiKeyEnv,
+    timeoutMs,
+    reasoningEffort,
+  });
+  return { kind: 'result', ...result };
 }

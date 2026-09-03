@@ -5,7 +5,7 @@
  * Ingestion is not built yet (architecture.md 21), so these lists are
  * legitimately empty rather than seeded with something that looks like content.
  */
-import { and, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { ref } from './column-ref';
 import { likePattern } from './like-pattern';
@@ -72,7 +72,8 @@ export async function listUserLibraries(input: {
   const database = db();
   const term = input.query?.trim();
 
-  const base = eq(schema.library.isPlatformLibrary, false);
+  /* User libraries that still exist; a deleted one is a tombstone (8.4). */
+  const base = and(eq(schema.library.isPlatformLibrary, false), isNull(schema.library.deletedAt))!;
   const conditions = [
     base,
     term
@@ -158,6 +159,8 @@ export async function listClaims(input: { query?: string; status?: ClaimFilter; 
 
   const statusCondition = claimCondition(input.status ?? 'all');
   const conditions = [
+    /* A claim on a deleted library is moot; the queue does not show it. */
+    isNull(schema.library.deletedAt),
     statusCondition,
     term
       ? or(ilike(schema.library.title, likePattern(term)), ilike(schema.library.publicId, likePattern(term)))

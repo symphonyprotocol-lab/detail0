@@ -30,12 +30,28 @@ export const CHUNKER_VERSION = 're0-chunker-1';
  * are what `manage-platform-libraries` already treats as an open operation, so
  * every stage between the two ends maps onto `running` on the row and is
  * reported separately.
+ *
+ * `cancelled` is the one state a row reaches without running: deleting a
+ * library withdraws every operation still queued for it (architecture.md
+ * 8.4), and a queued build that is silently dropped would leave the console
+ * showing work that will never happen.
  */
-export const OPERATION_STATES = ['pending', 'running', 'succeeded', 'failed', 'skipped'] as const;
+export const OPERATION_STATES = [
+  'pending',
+  'running',
+  'succeeded',
+  'failed',
+  'skipped',
+  'cancelled',
+] as const;
 
 export type OperationState = (typeof OPERATION_STATES)[number];
 
-/** The steps of architecture.md 8.2, in the order they run. */
+/**
+ * The steps of architecture.md 8.2, in the order they run -- plus `purge`,
+ * the Delete Workflow's single step (architecture.md 8.4), which runs on its
+ * own operation rather than as part of a build.
+ */
 export const INGESTION_STAGES = [
   'validate-source',
   'fetch-snapshot',
@@ -47,9 +63,56 @@ export const INGESTION_STAGES = [
   'profile',
   'evaluate',
   'publish',
+  'purge',
 ] as const;
 
 export type IngestionStage = (typeof INGESTION_STAGES)[number];
+
+/* ------------------------------------------------------------ fetch method */
+
+/**
+ * How a page's bytes were obtained. `direct` is our own fetch; the others are
+ * a rendering provider (`lib/infrastructure/connectors/render.ts`), reached
+ * only as a fallback when a site refuses the plain fetch or serves a script
+ * shell. The console shows this per operation, because a page rendered
+ * elsewhere is a page whose content we did not fetch ourselves, and an
+ * operator deciding whether to pay for a renderer wants to know how often it
+ * was needed.
+ */
+export type FetchMethod = 'direct' | 'firecrawl' | 'jina';
+
+export interface FetchSummary {
+  /** Pages our own fetch answered. */
+  direct: number;
+  /** Pages a rendering provider answered. */
+  rendered: number;
+  /** The provider that rendered them; null when none did. */
+  renderer: Exclude<FetchMethod, 'direct'> | null;
+}
+
+/**
+ * Tallies how one snapshot's files were fetched, or null when no file says --
+ * a repository or a Notion space has no fetch method to report, and the
+ * console shows nothing rather than "direct" for a choice that never existed.
+ */
+export function summarizeFetch(
+  files: readonly { fetchedVia?: FetchMethod }[],
+): FetchSummary | null {
+  let direct = 0;
+  let rendered = 0;
+  let renderer: FetchSummary['renderer'] = null;
+  for (const file of files) {
+    if (!file.fetchedVia) continue;
+    if (file.fetchedVia === 'direct') {
+      direct += 1;
+    } else {
+      rendered += 1;
+      renderer = file.fetchedVia;
+    }
+  }
+  if (direct === 0 && rendered === 0) return null;
+  return { direct, rendered, renderer };
+}
 
 /* ------------------------------------------------------------------ errors */
 
@@ -67,6 +130,7 @@ export const INGESTION_ERRORS = [
   'source_forbidden',
   'source_too_large',
   'source_empty',
+  'source_unrendered',
   'unsafe_content',
   'parse_failed',
   'embedding_unavailable',
@@ -500,6 +564,24 @@ export function normalizeText(value: string): string {
  * fill a library with hundreds of near-identical chunks that match every query
  * about the site and answer none of them.
  */
+/**
+ * Whether an HTML page is an application shell -- markup that a browser
+ * would turn into content and a plain fetch cannot.
+ *
+ * The tell is the combination: scripts present, text absent. A page with no
+ * scripts and little text is simply a short page; a page with scripts and
+ * plenty of text was rendered on the server. Only the pair means the content
+ * is still on the client. Kept as a rule here rather than a threshold in the
+ * connector so the failure it produces (`source_unrendered`) means one thing
+ * everywhere it is reported.
+ */
+const SHELL_TEXT_CHARS = 300;
+
+export function isRenderedShell(html: string): boolean {
+  if (!/<script\b/i.test(html)) return false;
+  return htmlToText(html).trim().length < SHELL_TEXT_CHARS;
+}
+
 export function htmlToText(html: string): string {
   const withoutNoise = html
     .replace(/<!--[\s\S]*?-->/g, ' ')

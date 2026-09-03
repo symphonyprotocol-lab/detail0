@@ -11,6 +11,7 @@ export {
 export {
   chooseDebitSource,
   commitCall,
+  hasPaidSubscription,
   releaseCall,
   reserveCall,
   type EarningLibraryFacts,

@@ -55,12 +55,29 @@ export const anchorStatusSchema = z.enum(['pending', 'anchored', 'unavailable'])
 
 // --- Library ID. requirement.md 6.1 ---
 
-/** `/owner/repo`, `/websites/slug`, `/docs/slug`, `/notion/slug`, optional `/version`. */
+/**
+ * `/owner/repo`, `/websites/slug`, `/docs/slug`, `/notion/slug`, optional
+ * `/version`. The slug namespaces nest up to four levels
+ * (`/websites/ethereum/whitepaper`), so two to six segments in all; which
+ * trailing segments are a library and which are a version is decided by
+ * what exists (lib/domain/library.ts `libraryIdCandidates`).
+ */
 export const libraryIdSchema = z
   .string()
   .max(256)
-  .regex(/^\/[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)?$/i, {
-    message: 'library id must look like /owner/name or /owner/name/version',
+  .regex(/^\/[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*){1,5}$/i, {
+    message: 'library id must look like /owner/name, /websites/slug/sub-slug or /owner/name/version',
+  });
+
+/**
+ * A policy list entry: a library id, or a prefix -- `/websites/ethereum/*`
+ * covers that library and everything nested under it.
+ */
+export const libraryIdPatternSchema = z
+  .string()
+  .max(258)
+  .regex(/^\/[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*){1,5}(\/\*)?$/i, {
+    message: 'library entry must be a library id, optionally ending in /* to cover nested libraries',
   });
 
 // --- Retrieval. Two-stage: resolve-library-id then query-docs. ---
@@ -219,14 +236,14 @@ export const workspacePolicySchema = z.object({
     minTrustScore: z.number().int().min(0).max(100).nullable(),
     maxAgeDays: z.number().int().positive().nullable(),
   }),
-  blockedLibraries: z.array(libraryIdSchema),
-  exceptedLibraries: z.array(libraryIdSchema),
-  allowedLibraries: z.array(libraryIdSchema),
+  blockedLibraries: z.array(libraryIdPatternSchema),
+  exceptedLibraries: z.array(libraryIdPatternSchema),
+  allowedLibraries: z.array(libraryIdPatternSchema),
 });
 
 const libraryIdListPatchSchema = z.object({
-  add: z.array(libraryIdSchema).max(200).optional(),
-  remove: z.array(libraryIdSchema).max(200).optional(),
+  add: z.array(libraryIdPatternSchema).max(200).optional(),
+  remove: z.array(libraryIdPatternSchema).max(200).optional(),
   clear: z.boolean().optional(),
 });
 

@@ -108,6 +108,38 @@ export const REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 /**
+ * Where a model entry's credential lives: the name of an environment
+ * variable, never the secret itself (architecture.md 15.3). One installation
+ * runs models from more than one provider, and one variable cannot hold two
+ * keys, so each entry names its own -- defaulting to the one variable every
+ * installation already has.
+ */
+export const DEFAULT_LLM_API_KEY_ENV = 'LLM_PROVIDER_API_KEY';
+/** Shell-safe: upper-case, digits and underscores, starting with a letter. */
+const API_KEY_ENV_NAME = /^[A-Z][A-Z0-9_]{0,127}$/;
+
+export function isApiKeyEnvName(value: string): boolean {
+  return API_KEY_ENV_NAME.test(value);
+}
+
+/**
+ * Who a configured model serves.
+ *
+ * `trial` answers anonymous visitors and workspaces on the free plan -- the
+ * models the platform is willing to spend on a visitor who has paid nothing.
+ * `subscriber` is what a paid plan buys: the entries only a workspace with an
+ * active paid subscription may call. A subscriber may still be answered by a
+ * trial model (naming one, or when no subscriber model is configured); a
+ * trial caller is never answered by a subscriber model.
+ */
+export const LLM_AUDIENCES = ['trial', 'subscriber'] as const;
+export type LlmAudience = (typeof LLM_AUDIENCES)[number];
+
+export function isLlmAudience(value: unknown): value is LlmAudience {
+  return typeof value === 'string' && (LLM_AUDIENCES as readonly string[]).includes(value);
+}
+
+/**
  * The unit prices are stored, frozen and computed in micro-USD per million
  * tokens, and typed into the console in dollars per million tokens.
  *
