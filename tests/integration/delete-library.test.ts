@@ -224,6 +224,7 @@ describeWithDb('library deletion', () => {
     const slug = `handbook-${stamp}`;
 
     const created = await createWorkspaceLibrary({
+      role: 'owner',
       workspaceId,
       title: 'Team handbook',
       visibility: 'private',
@@ -299,6 +300,7 @@ describeWithDb('library deletion', () => {
 
     /* The id is free again, and so is the plan's one slot. */
     const again = await createWorkspaceLibrary({
+      role: 'owner',
       workspaceId,
       title: 'Team handbook, again',
       visibility: 'private',
@@ -367,6 +369,7 @@ describeWithDb('library deletion', () => {
     const stranger = await workspaceOnPlan(5);
 
     const created = await createWorkspaceLibrary({
+      role: 'owner',
       workspaceId,
       title: 'Not yours',
       visibility: 'private',
@@ -417,6 +420,7 @@ describeWithDb('library deletion', () => {
     const workspaceId = await workspaceOnPlan(5);
 
     const created = await createWorkspaceLibrary({
+      role: 'owner',
       workspaceId,
       title: 'Queued',
       visibility: 'private',
@@ -515,6 +519,7 @@ describeWithDb('library deletion', () => {
     /* ...and a user library is not the console's to delete. */
     const workspaceId = await workspaceOnPlan(5);
     const user = await createWorkspaceLibrary({
+      role: 'owner',
       workspaceId,
       title: 'User library',
       visibility: 'private',

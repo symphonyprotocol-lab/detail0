@@ -25,7 +25,11 @@ export async function createApiKeyAction(
   const session = await requireSession('/dashboard/api-keys');
   try {
     const name = String(form.get('name') ?? '');
-    const { key } = await createApiKey({ workspaceId: session.workspace.id, name });
+    const { key } = await createApiKey({
+      workspaceId: session.workspace.id,
+      role: session.workspace.role,
+      name,
+    });
     revalidatePath('/dashboard/api-keys');
     revalidatePath('/dashboard');
     return { ok: true, key, name: name.trim() };
@@ -45,7 +49,11 @@ export async function revokeApiKeyAction(form: FormData): Promise<void> {
   const session = await requireSession('/dashboard/api-keys');
   const keyId = String(form.get('keyId') ?? '');
   if (keyId) {
-    await revokeApiKey({ workspaceId: session.workspace.id, keyId });
+    await revokeApiKey({
+      workspaceId: session.workspace.id,
+      role: session.workspace.role,
+      keyId,
+    });
     revalidatePath('/dashboard/api-keys');
     revalidatePath('/dashboard');
   }

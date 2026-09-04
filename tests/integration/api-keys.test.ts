@@ -76,7 +76,7 @@ describeWithDb('api key management', () => {
   it('mints a working key once, lists the mask, enforces the limit, revokes', async () => {
     const workspaceId = await workspaceOnPlan(2);
 
-    const first = await createApiKey({ workspaceId, name: 'ci retrieval' });
+    const first = await createApiKey({ role: 'owner', workspaceId, name: 'ci retrieval' });
     expect(first.key.startsWith('mm_live_')).toBe(true);
 
     /* The plaintext authenticates; the table holds only its hash. */
@@ -93,12 +93,12 @@ describeWithDb('api key management', () => {
     expect(listed[0]?.masked.endsWith(first.key.slice(-4))).toBe(true);
     expect(JSON.stringify(listed)).not.toContain(first.key);
 
-    await createApiKey({ workspaceId, name: 'second' });
-    await expect(createApiKey({ workspaceId, name: 'third' })).rejects.toMatchObject({
+    await createApiKey({ role: 'owner', workspaceId, name: 'second' });
+    await expect(createApiKey({ role: 'owner', workspaceId, name: 'third' })).rejects.toMatchObject({
       code: 'api_key_limit_exceeded',
     });
 
-    await revokeApiKey({ workspaceId, keyId: first.view.id });
+    await revokeApiKey({ role: 'owner', workspaceId, keyId: first.view.id });
     await expect(resolveApiKey(`Bearer ${first.key}`)).rejects.toMatchObject({
       code: 'invalid_api_key',
     });
@@ -107,7 +107,29 @@ describeWithDb('api key management', () => {
     /* A stranger cannot revoke someone else's key. */
     const stranger = await workspaceOnPlan(2);
     const second = (await listApiKeys(workspaceId))[0]!;
-    await revokeApiKey({ workspaceId: stranger, keyId: second.id });
+    await revokeApiKey({ role: 'owner', workspaceId: stranger, keyId: second.id });
     expect(await listApiKeys(workspaceId)).toHaveLength(1);
+  });
+
+  /**
+   * requirement.md 3.3: API keys are the owner's. Both actions are reached
+   * through a server action -- a public endpoint with a generated name -- so
+   * the page choosing not to render a button decides nothing.
+   */
+  it('refuses to mint or revoke a key for anyone but the owner', async () => {
+    const workspaceId = await workspaceOnPlan(2);
+    const mine = await createApiKey({ role: 'owner', workspaceId, name: 'owner key' });
+
+    for (const role of ['admin', 'developer', 'viewer'] as const) {
+      await expect(createApiKey({ role, workspaceId, name: 'not mine' })).rejects.toMatchObject({
+        code: 'access_denied',
+      });
+      await expect(
+        revokeApiKey({ role, workspaceId, keyId: mine.view.id }),
+      ).rejects.toMatchObject({ code: 'access_denied' });
+    }
+
+    /* Still live: none of those refusals touched it. */
+    expect((await resolveApiKey(`Bearer ${mine.key}`))?.workspaceId).toBe(workspaceId);
   });
 });

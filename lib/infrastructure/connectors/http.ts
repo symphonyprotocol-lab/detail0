@@ -48,10 +48,74 @@ export function assertFetchable(url: URL): void {
   if (PRIVATE_V4.test(host)) {
     throw new IngestionFailure('source_forbidden', STAGE, 'a private address is not a source');
   }
-  // IPv6 loopback, link-local and unique-local, in the forms a URL can carry.
-  if (host === '::1' || host.startsWith('fe80:') || /^f[cd][0-9a-f]{2}:/.test(host)) {
+  if (isPrivateV6(host)) {
     throw new IngestionFailure('source_forbidden', STAGE, 'a private address is not a source');
   }
+}
+
+/**
+ * The IPv6 half of the same check.
+ *
+ * Matching literal prefixes is not enough, because the URL parser canonicalises
+ * before we ever see the host: `[::ffff:169.254.169.254]` arrives as
+ * `::ffff:a9fe:a9fe`, which is neither dotted-quad for `PRIVATE_V4` nor any of
+ * the textual forms a prefix test looks for. So expand to the sixteen bytes and
+ * decide on those -- one shape, whatever the literal was written as.
+ */
+function isPrivateV6(host: string): boolean {
+  const bytes = parseV6(host);
+  if (!bytes) return false;
+
+  // v4-mapped (::ffff:a.b.c.d) and v4-compatible: judge the embedded address.
+  const mapped =
+    bytes.slice(0, 10).every((byte) => byte === 0) &&
+    ((bytes[10] === 0xff && bytes[11] === 0xff) || (bytes[10] === 0 && bytes[11] === 0));
+  if (mapped) {
+    const v4 = bytes.slice(12).join('.');
+    // `::` and `::1` land here as 0.0.0.0 and 0.0.0.1, which `PRIVATE_V4` covers.
+    return PRIVATE_V4.test(v4);
+  }
+
+  if (bytes[0] === 0xfe && (bytes[1]! & 0xc0) === 0x80) return true; // fe80::/10 link-local
+  if ((bytes[0]! & 0xfe) === 0xfc) return true; // fc00::/7 unique-local
+  return false;
+}
+
+/** The sixteen bytes of an IPv6 literal, or null if `host` is not one. */
+function parseV6(host: string): number[] | null {
+  if (!host.includes(':')) return null;
+
+  const halves = host.split('::');
+  if (halves.length > 2) return null;
+
+  const expand = (part: string): number[] | null => {
+    const out: number[] = [];
+    for (const group of part.split(':')) {
+      if (group.length === 0) continue;
+      if (group.includes('.')) {
+        // A trailing dotted quad, as in `::ffff:127.0.0.1`.
+        const quad = group.split('.');
+        if (quad.length !== 4) return null;
+        for (const octet of quad) {
+          if (!/^\d{1,3}$/.test(octet) || Number(octet) > 255) return null;
+          out.push(Number(octet));
+        }
+        continue;
+      }
+      if (!/^[0-9a-f]{1,4}$/.test(group)) return null;
+      const value = Number.parseInt(group, 16);
+      out.push(value >> 8, value & 0xff);
+    }
+    return out;
+  };
+
+  const head = expand(halves[0] ?? '');
+  const tail = halves.length === 2 ? expand(halves[1] ?? '') : [];
+  if (!head || !tail) return null;
+
+  const gap = 16 - head.length - tail.length;
+  if (halves.length === 2 ? gap < 0 : gap !== 0) return null;
+  return [...head, ...new Array<number>(Math.max(gap, 0)).fill(0), ...tail];
 }
 
 export interface FetchedResource {

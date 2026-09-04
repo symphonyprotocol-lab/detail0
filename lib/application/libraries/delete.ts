@@ -149,8 +149,16 @@ export async function markLibraryDeleted(
 export type WorkspaceRole = 'owner' | 'admin' | 'developer' | 'viewer';
 
 /** requirement.md 3.3: owners manage libraries; admins may too. The rest read. */
-export function canDeleteLibraries(role: WorkspaceRole): boolean {
+export function canManageLibraries(role: WorkspaceRole): boolean {
   return role === 'owner' || role === 'admin';
+}
+
+/** Creating and deleting are the same right; both are managing a library. */
+export const canDeleteLibraries = canManageLibraries;
+
+/** requirement.md 3.3: keys are the owner's. A developer may use one, not mint one. */
+export function canManageApiKeys(role: WorkspaceRole): boolean {
+  return role === 'owner';
 }
 
 export interface DeleteWorkspaceLibraryInput {

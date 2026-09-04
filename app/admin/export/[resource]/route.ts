@@ -12,6 +12,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { CONSOLE_EXPORTS, isExportableResource, recordAudit } from '@/lib/application/administration';
 import { requireAdmin } from '@/lib/http/admin';
+import { clientAddress } from '@/lib/http/client-address';
 
 export const runtime = 'nodejs';
 
@@ -48,7 +49,7 @@ export async function GET(
     targetId: resource,
     afterValue: { query: query ?? null, status: status ?? null, bytes: csv.length },
     clientAddress:
-      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? request.headers.get('x-real-ip'),
+      clientAddress(request.headers),
     result: 'success',
   });
 

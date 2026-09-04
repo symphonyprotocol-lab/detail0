@@ -29,24 +29,48 @@ interface Window {
   resetAt: number;
 }
 
-const windows = new Map<string, Window>();
+/**
+ * Live windows, partitioned by the scope their key names.
+ *
+ * One map for every scope meant one budget for every scope: a flood on the
+ * cheapest endpoint filled it, and a full map refuses every key it has not
+ * already seen. Anonymous retrieval keys hold an hour-long window, so enough
+ * of them arriving at one instance denied the console sign-in -- an endpoint
+ * they share no limit with, and the one an operator needs precisely then.
+ * Partitioned, a scope can only exhaust its own capacity.
+ */
+const windows = new Map<string, Map<string, Window>>();
 
-/** Bounded so a stream of distinct keys cannot grow the map without limit. */
+/** Bounded per scope, so a stream of distinct keys cannot grow one without limit. */
 const MAX_TRACKED_KEYS = 10_000;
 
+/** `ratelimit:<scope>:<digest>` (`rateLimitKey`), minus the caller's digest. */
+function scopeOf(key: string): string {
+  const cut = key.lastIndexOf(':');
+  return cut === -1 ? key : key.slice(0, cut);
+}
+
 function localCheck(key: string, rule: RateLimitRule, now: number): RateLimitVerdict {
-  const existing = windows.get(key);
+  const scope = scopeOf(key);
+  let scoped = windows.get(scope);
+  if (!scoped) {
+    scoped = new Map<string, Window>();
+    windows.set(scope, scoped);
+  }
+
+  const existing = scoped.get(key);
   if (!existing || existing.resetAt <= now) {
-    if (windows.size >= MAX_TRACKED_KEYS) {
-      for (const [candidate, window] of windows) {
-        if (window.resetAt <= now) windows.delete(candidate);
+    if (scoped.size >= MAX_TRACKED_KEYS) {
+      for (const [candidate, window] of scoped) {
+        if (window.resetAt <= now) scoped.delete(candidate);
       }
-      // Still full: every window is live, so refuse rather than stop counting.
-      if (windows.size >= MAX_TRACKED_KEYS) {
+      /* Still full: every window in *this* scope is live, so refuse rather
+         than stop counting. Every other scope keeps its own budget. */
+      if (scoped.size >= MAX_TRACKED_KEYS) {
         return { allowed: false, remaining: 0, retryAfterSeconds: rule.windowSeconds };
       }
     }
-    windows.set(key, { count: 1, resetAt: now + rule.windowSeconds * 1000 });
+    scoped.set(key, { count: 1, resetAt: now + rule.windowSeconds * 1000 });
     return { allowed: true, remaining: rule.limit - 1, retryAfterSeconds: 0 };
   }
 

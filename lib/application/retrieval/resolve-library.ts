@@ -223,31 +223,39 @@ export async function resolveLibrary(
    * evidence for the libraries it lives in.
    */
   const rareEvidence = new Map<string, number>();
-  for (const token of specific) {
-    const query = rareTermQuery(token);
-    const probe = database
-      .select({ libraryId: schema.chunk.libraryId })
-      .from(schema.chunk)
-      .innerJoin(
-        schema.library,
-        and(
-          eq(schema.library.id, schema.chunk.libraryId),
-          eq(schema.library.currentVersionId, schema.chunk.versionId),
-        ),
-      )
-      .where(
-        and(
-          visible,
-          sql`(${schema.chunk.searchVector} @@ to_tsquery('simple', ${query})
+  /* Concurrently: one probe per term, up to RARE_TOKEN_CAP of them, with no
+     data dependency between them -- awaited in turn they were that many
+     round trips of pure latency on the routing path every question pays. */
+  const probes = await Promise.all(
+    specific.map((token) => {
+      const query = rareTermQuery(token);
+      const probe = database
+        .select({ libraryId: schema.chunk.libraryId })
+        .from(schema.chunk)
+        .innerJoin(
+          schema.library,
+          and(
+            eq(schema.library.id, schema.chunk.libraryId),
+            eq(schema.library.currentVersionId, schema.chunk.versionId),
+          ),
+        )
+        .where(
+          and(
+            visible,
+            sql`(${schema.chunk.searchVector} @@ to_tsquery('simple', ${query})
                or ${schema.chunk.searchVectorCjk} @@ to_tsquery('simple', ${query}))`,
-        ),
-      )
-      .limit(RARE_TERM_MAX_DOCUMENTS + 1)
-      .as('probe');
-    const rows = await database
-      .select({ libraryId: probe.libraryId, hits: sql<number>`count(*)::int` })
-      .from(probe)
-      .groupBy(probe.libraryId);
+          ),
+        )
+        .limit(RARE_TERM_MAX_DOCUMENTS + 1)
+        .as('probe');
+      return database
+        .select({ libraryId: probe.libraryId, hits: sql<number>`count(*)::int` })
+        .from(probe)
+        .groupBy(probe.libraryId);
+    }),
+  );
+
+  for (const rows of probes) {
     const total = rows.reduce((sum, row) => sum + Number(row.hits), 0);
     if (total === 0 || total > RARE_TERM_MAX_DOCUMENTS) continue;
     for (const row of rows) {

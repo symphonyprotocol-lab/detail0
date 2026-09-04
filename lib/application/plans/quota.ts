@@ -10,11 +10,16 @@
  *
  * Concurrency: architecture.md 11.1 forbids "SELECT the remainder, then plain
  * INSERT". Two things make this correct instead: the workspace row is locked
- * (`FOR UPDATE`) for the duration of the reservation transaction, which
- * serialises concurrent reservations of one workspace, and `request_id` is
+ * (`FOR UPDATE`) for the duration of the reservation *and* the commit
+ * transaction, which serialises one workspace's counting, and `request_id` is
  * unique on both the reservation and the event, which makes a replay of the
  * same request a no-op rather than a second charge. Per-workspace
  * serialisation is the cost; it lasts three reads and one insert.
+ *
+ * The commit takes the same lock because it counts too: the daily
+ * attributable cap is read and then inserted against, and under READ
+ * COMMITTED concurrent commits would each read the same count and every one
+ * of them would pass a cap they jointly exceed.
  */
 import { and, asc, desc, eq, gte, lt, lte, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
@@ -30,6 +35,19 @@ import {
 } from '@/lib/domain';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { PLAN_VERSION_NEWEST_FIRST } from './configuration';
+
+/**
+ * How long a pending reservation can hold a seat.
+ *
+ * `releaseCall` runs in the request's own error path, so it never runs for a
+ * request that was killed outright -- a function timeout, an instance
+ * eviction, an OOM. Those reservations stayed `pending` for ever while `held`
+ * below counted every one of them against the allowance, so each killed
+ * request silently cost the workspace a call for the rest of the billing
+ * period, with no sweeper and no way for anyone to get it back. Longer than
+ * any request can plausibly run, so a seat this old is abandoned, not held.
+ */
+const RESERVATION_TTL_MS = 15 * 60 * 1000;
 
 export interface QuotaState {
   planAllowanceRemaining: number;
@@ -83,6 +101,23 @@ export async function reserveCall(input: {
       .where(eq(schema.workspace.id, input.workspaceId))
       .for('update');
     if (!locked) throw new AppError('access_denied', 'no such workspace');
+
+    /*
+     * Abandoned seats go back before anything is counted. Safe under the lock
+     * just taken, and safe against a slow request that does eventually finish:
+     * `commitCall` updates the reservation by id and does not require it to
+     * still be pending.
+     */
+    await tx
+      .update(schema.usageReservation)
+      .set({ status: 'released' })
+      .where(
+        and(
+          eq(schema.usageReservation.workspaceId, input.workspaceId),
+          eq(schema.usageReservation.status, 'pending'),
+          lt(schema.usageReservation.createdAt, new Date(Date.now() - RESERVATION_TTL_MS)),
+        ),
+      );
 
     const { allowance, periodStart, periodEnd, planVersionId, shareRateBps } = await planWindow(
       tx,
@@ -221,6 +256,21 @@ export async function commitCall(input: {
   const { reservation } = input;
 
   await database.transaction(async (tx) => {
+    /*
+     * Same lock as the reservation, for the same reason: the daily
+     * attributable cap below is a count followed by an insert, and without it
+     * concurrent commits of one workspace all read the count before any of
+     * them inserts -- so a burst lands more earning events than the cap
+     * allows, which is the anti-self-dealing rule the cap exists to enforce.
+     * Taken first, in the same order as `reserveCall`, so the two cannot
+     * deadlock against each other.
+     */
+    await tx
+      .select({ id: schema.workspace.id })
+      .from(schema.workspace)
+      .where(eq(schema.workspace.id, reservation.workspaceId))
+      .for('update');
+
     const written = await tx
       .insert(schema.usageEvent)
       .values({

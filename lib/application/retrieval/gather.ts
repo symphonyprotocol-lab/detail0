@@ -33,6 +33,7 @@
  */
 import type { ChunkResult } from '@/contracts/schemas';
 import { containsCjk } from '@/lib/domain/cjk';
+import type { EmbeddingAdapter } from '@/lib/infrastructure/ai/providers';
 import { confirmsRetrieval } from '@/lib/domain/routing';
 import type { CallerContext } from './index';
 import {
@@ -87,6 +88,8 @@ export async function gatherAcrossLibraries(
   const [top, ...rest] = input.libraries;
   if (!top) throw new Error('gather needs at least one library');
 
+  const shared = shareQueryEmbedding(dependencies);
+
   const retrieve = (library: GatherLibrary, meter: boolean) =>
     queryDocsDetailed(
       caller,
@@ -96,7 +99,7 @@ export async function gatherAcrossLibraries(
         maxTokens: input.maxTokens,
         format: 'json',
       },
-      dependencies,
+      shared,
       { meter },
     );
 
@@ -108,7 +111,7 @@ export async function gatherAcrossLibraries(
   const first = settled[0]!;
   if (first.status === 'rejected') throw first.reason;
 
-  const crossScript = containsCjk(input.query);
+  const questionHasHan = containsCjk(input.query);
   const results: { library: GatherLibrary; result: QueryDocsResult | null }[] = [];
   input.libraries.forEach((library, at) => {
     const outcome = settled[at]!;
@@ -128,12 +131,22 @@ export async function gatherAcrossLibraries(
   /*
    * A cache entry from before the confidence existed carries none, and is
    * trusted as it was -- the same rule the single-library path applied.
+   *
+   * `crossScript` is the question against *this* library's passages, not the
+   * question alone. The two thresholds exist because a non-multilingual
+   * embedding puts a question and an answer written in different scripts
+   * further apart than it puts two in the same one -- so the comparison needs
+   * both sides. Read off the question alone it was neither: a Chinese question
+   * about a Chinese corpus took the loose cross-script gate and confirmed
+   * passages that had nothing to do with it, while an English question about
+   * that same corpus took the strict one and refused the passages that did.
    */
-  const confirmed = results.map(
-    ({ result }) =>
-      result !== null &&
-      (result.confidence === null || confirmsRetrieval(result.confidence, { crossScript })),
-  );
+  const confirmed = results.map(({ result }) => {
+    if (result === null) return false;
+    if (result.confidence === null) return true;
+    const corpusHasHan = result.chunks.some((chunk) => containsCjk(chunk.text));
+    return confirmsRetrieval(result.confidence, { crossScript: questionHasHan !== corpusHasHan });
+  });
 
   const pool: { chunk: GatheredChunk; order: number; rank: number }[] = [];
   results.forEach(({ library, result }, order) => {
@@ -174,5 +187,47 @@ export async function gatherAcrossLibraries(
       failed: result === null,
     })),
     requestId: first.value.requestId,
+  };
+}
+
+/**
+ * The same dependencies, with one embedding of the question instead of one
+ * per candidate.
+ *
+ * Every candidate ran the identical `embed([query])` inside its own
+ * `query-docs`, so a three-candidate exchange made three identical POSTs to
+ * the provider for a vector that cannot differ -- three billings and three
+ * shares of the rate limit for one question. The query is embedded once here
+ * and every leg awaits the same promise; the vector is not cached beyond the
+ * call, because it belongs to this question and this request.
+ *
+ * Only the single-text case is shared. A batch is ingestion's shape, never a
+ * query's, and is passed straight through.
+ */
+function shareQueryEmbedding(dependencies: RetrievalDependencies): RetrievalDependencies {
+  const inflight = new Map<string, Promise<number[][]>>();
+  let shared: EmbeddingAdapter | null = null;
+
+  return {
+    ...dependencies,
+    embeddings(): EmbeddingAdapter {
+      const base = dependencies.embeddings();
+      shared ??= {
+        model: base.model,
+        dimensions: base.dimensions,
+        embed(texts: string[]): Promise<number[][]> {
+          const only = texts.length === 1 ? texts[0] : null;
+          if (only === null) return base.embed(texts);
+          const key = `${base.model}\u0000${only}`;
+          let pending = inflight.get(key);
+          if (!pending) {
+            pending = base.embed(texts);
+            inflight.set(key, pending);
+          }
+          return pending;
+        },
+      };
+      return shared;
+    },
   };
 }

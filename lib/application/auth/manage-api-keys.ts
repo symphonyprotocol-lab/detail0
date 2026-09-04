@@ -9,7 +9,9 @@ import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { uuidv7 } from '@/lib/domain/id';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans/configuration';
 import { hashApiKey } from './api-key';
+import { canManageApiKeys, type WorkspaceRole } from '@/lib/application/libraries';
 
 export interface ApiKeyView {
   id: string;
@@ -45,8 +47,16 @@ export async function listApiKeys(workspaceId: string): Promise<ApiKeyView[]> {
  */
 export async function createApiKey(input: {
   workspaceId: string;
+  role: WorkspaceRole;
   name: string;
 }): Promise<{ key: string; view: ApiKeyView }> {
+  /* requirement.md 3.3: keys are the owner's. A developer may use one; minting
+     and revoking are not theirs to do, and a server action is a public
+     endpoint whatever the page chooses to render. */
+  if (!canManageApiKeys(input.role)) {
+    throw new AppError('access_denied', 'only the workspace owner can create an API key');
+  }
+
   const name = input.name.trim();
   if (name.length === 0 || name.length > 80) {
     throw new AppError('invalid_request', 'a key needs a name (1-80 characters)');
@@ -94,7 +104,15 @@ export async function createApiKey(input: {
 }
 
 /** Revocation is scoped: a workspace can only silence its own keys. */
-export async function revokeApiKey(input: { workspaceId: string; keyId: string }): Promise<void> {
+export async function revokeApiKey(input: {
+  workspaceId: string;
+  role: WorkspaceRole;
+  keyId: string;
+}): Promise<void> {
+  if (!canManageApiKeys(input.role)) {
+    throw new AppError('access_denied', 'only the workspace owner can revoke an API key');
+  }
+
   await db()
     .update(schema.apiKey)
     .set({ revokedAt: new Date() })
@@ -130,7 +148,8 @@ async function apiKeyLimit(workspaceId: string): Promise<number> {
     .select({ limit: schema.planVersion.apiKeyLimit })
     .from(schema.planVersion)
     .where(eq(schema.planVersion.planId, 'free'))
-    .orderBy(desc(schema.planVersion.createdAt))
+    /* The id tiebreak, as every other plan-version reader uses. */
+    .orderBy(...PLAN_VERSION_NEWEST_FIRST)
     .limit(1);
   return free?.limit ?? 1;
 }

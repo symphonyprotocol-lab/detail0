@@ -27,6 +27,7 @@ import {
   type ReasoningEffort,
 } from '@/lib/domain/generation';
 import { uuidv7 } from '@/lib/domain/id';
+import { isAllowedApiKeyEnv } from '@/lib/infrastructure/ai/llm';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { recordAudit } from './audit';
 
@@ -310,7 +311,11 @@ export async function updateLlmConfig(input: UpdateLlmConfigInput): Promise<{ co
 
   const label = input.label.trim().slice(0, 120) || model;
   const apiKeyEnv = input.apiKeyEnv?.trim() ? input.apiKeyEnv.trim() : DEFAULT_LLM_API_KEY_ENV;
-  if (!isApiKeyEnvName(apiKeyEnv)) throw new LlmConfigRefused('invalid_api_key_env');
+  /* Shape *and* allowlist: the name is read out of `process.env` and sent as a
+     Bearer token, so which variables may be named is the deployment's call. */
+  if (!isApiKeyEnvName(apiKeyEnv) || !isAllowedApiKeyEnv(apiKeyEnv)) {
+    throw new LlmConfigRefused('invalid_api_key_env');
+  }
   const slug = input.slug?.trim() ? input.slug.trim() : slugFromLabel(label);
   if (!SLUG.test(slug)) throw new LlmConfigRefused('invalid_slug');
 

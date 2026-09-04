@@ -6,7 +6,7 @@
  * the console enforces MFA, it is not opt-in). Whatever happens, the attempt is
  * written to the audit log (requirement.md 5.3).
  */
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, lt, or, sql } from 'drizzle-orm';
 import {
   AdminAuthFailure,
   ADMIN_LOCKOUT_MS,
@@ -172,7 +172,37 @@ export async function signInAdmin(input: SignInAdminInput): Promise<SignInAdminR
   const token = randomToken();
   const expiresAt = adminSessionExpiryFrom(now);
 
-  await database.transaction(async (tx) => {
+  const claimed = await database.transaction(async (tx) => {
+    /*
+     * The step is burned first, and only by whoever still finds it unspent.
+     * `verifyTotpCounter` compared against a counter read at the top of this
+     * function, so two sign-ins carrying the same code both passed that check
+     * and both reached here: without the predicate, both wrote the counter and
+     * both got a session out of one code. Counted in SQL for the same reason
+     * the failure counter above is -- the read and the write have to be one
+     * statement, or the value read is already stale.
+     */
+    const [burned] = await tx
+      .update(schema.administrator)
+      .set({
+        failedAttempts: 0,
+        lockedUntil: null,
+        lastActiveAt: now,
+        mfaLastCounter: mfaCounter,
+      })
+      .where(
+        and(
+          eq(schema.administrator.id, account.id),
+          or(
+            isNull(schema.administrator.mfaLastCounter),
+            lt(schema.administrator.mfaLastCounter, mfaCounter),
+          ),
+        ),
+      )
+      .returning({ id: schema.administrator.id });
+
+    if (!burned) return false;
+
     await tx.insert(schema.adminSession).values({
       id: crypto.randomUUID(),
       administratorId: account.id,
@@ -181,17 +211,12 @@ export async function signInAdmin(input: SignInAdminInput): Promise<SignInAdminR
       lastSeenAt: now,
       expiresAt,
     });
-    await tx
-      .update(schema.administrator)
-      .set({
-        failedAttempts: 0,
-        lockedUntil: null,
-        lastActiveAt: now,
-        // Burns this TOTP step, so the same code cannot open a second session.
-        mfaLastCounter: mfaCounter,
-      })
-      .where(eq(schema.administrator.id, account.id));
+    return true;
   });
+
+  if (!claimed) {
+    return fail(email, clientAddress, account.id, 'mfa code mismatch or already spent');
+  }
 
   await recordAudit({
     administratorId: account.id,

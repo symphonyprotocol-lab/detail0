@@ -54,6 +54,28 @@ describe('strictRateLimit without Upstash', () => {
     expect(verdict.allowed).toBe(false);
     expect(verdict.retryAfterSeconds).toBeGreaterThan(0);
   });
+
+  /**
+   * The window map used to be one map for every scope, with one cap. Anonymous
+   * retrieval holds an hour-long window, so enough distinct callers filled it
+   * and every key the map had not already seen was refused -- including the
+   * console sign-in, which shares no limit with them and is exactly what an
+   * operator needs when a flood is under way.
+   */
+  it('does not let one scope exhaust another scope\'s capacity', async () => {
+    const RETRIEVAL = { limit: 30, windowSeconds: 3_600 };
+    for (let caller = 0; caller < 10_050; caller += 1) {
+      await strictRateLimit(`ratelimit:retrieval:caller-${caller}`, RETRIEVAL);
+    }
+    /* That scope is full and refuses a caller it has not seen... */
+    await expect(
+      strictRateLimit('ratelimit:retrieval:one-more', RETRIEVAL),
+    ).resolves.toMatchObject({ allowed: false });
+    /* ...while the console sign-in is untouched. */
+    await expect(
+      strictRateLimit('ratelimit:admin-login:an-operator', RULE),
+    ).resolves.toMatchObject({ allowed: true });
+  });
 });
 
 describe('strictRateLimit with a configured but broken Upstash', () => {

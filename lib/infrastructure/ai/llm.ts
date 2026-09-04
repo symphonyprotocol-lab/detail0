@@ -12,7 +12,12 @@
  */
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { streamText } from 'ai';
-import { DEFAULT_LLM_API_KEY_ENV, openThinkFilter, TIMEOUT_MS } from '@/lib/domain/generation';
+import {
+  DEFAULT_LLM_API_KEY_ENV,
+  isApiKeyEnvName,
+  openThinkFilter,
+  TIMEOUT_MS,
+} from '@/lib/domain/generation';
 import { ProviderUnavailable } from './providers';
 
 /** What one streamed completion hands back. No provider types, by design. */
@@ -54,8 +59,34 @@ export interface LlmAdapter {
   }): LlmStream;
 }
 
+/**
+ * The environment variables an entry may name as its credential.
+ *
+ * A shape check is not a boundary here. `apiKeyEnv` is typed into the console
+ * by anyone holding the `plans` capability and read straight out of
+ * `process.env` below, so any name that merely *looked* like a variable --
+ * `DATABASE_URL`, `SESSION_SIGNING_SECRET`, `CREDENTIAL_ENCRYPTION_KEY` --
+ * was sent as a Bearer token to a base URL the same operator chose. Which
+ * variables hold LLM credentials is a deployment fact, not a console one, so
+ * the deployment states it: `LLM_API_KEY_ENV_ALLOWLIST`, comma-separated,
+ * alongside the default every installation already has. Fail-closed: a name
+ * that is not on the list is refused rather than read.
+ */
+export function llmApiKeyEnvAllowlist(): readonly string[] {
+  const listed = (process.env.LLM_API_KEY_ENV_ALLOWLIST ?? '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0 && isApiKeyEnvName(name));
+  return [...new Set([DEFAULT_LLM_API_KEY_ENV, ...listed])];
+}
+
+export function isAllowedApiKeyEnv(name: string): boolean {
+  return llmApiKeyEnvAllowlist().includes(name);
+}
+
 /** Whether the named variable (the entry's, or the default) holds a key. */
 export function isLlmKeyPresent(apiKeyEnv: string = DEFAULT_LLM_API_KEY_ENV): boolean {
+  if (!isAllowedApiKeyEnv(apiKeyEnv)) return false;
   return Boolean(process.env[apiKeyEnv]);
 }
 
@@ -93,6 +124,12 @@ export function llmAdapter(config: {
   apiKeyEnv?: string;
 }): LlmAdapter {
   const apiKeyEnv = config.apiKeyEnv ?? DEFAULT_LLM_API_KEY_ENV;
+  /* Refused where the variable is actually read, so a row written before the
+     allowlist existed -- or by any path that forgets to validate -- cannot
+     turn an unrelated secret into an outbound Bearer token either. */
+  if (!isAllowedApiKeyEnv(apiKeyEnv)) {
+    throw new ProviderUnavailable('llm', `${apiKeyEnv} is not an allowed credential variable`);
+  }
   const apiKey = process.env[apiKeyEnv];
   if (!apiKey) throw new ProviderUnavailable('llm', `${apiKeyEnv} is not set`);
 

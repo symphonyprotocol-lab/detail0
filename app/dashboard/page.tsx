@@ -13,8 +13,8 @@ import {
 import { PlusIcon, TerminalIcon } from '@/components/ui/icons';
 import { listApiKeys } from '@/lib/application/auth';
 import { countWorkspaceLibraries } from '@/lib/application/libraries';
-import { usageOverview } from '@/lib/application/plans';
 import { INSTALL_COMMAND } from '@/lib/dashboard/demo-data';
+import { workspaceUsage } from '@/lib/http/dashboard';
 import { requireSession } from '@/lib/http/session';
 import { getMessages, translations } from '@/lib/i18n/server';
 
@@ -39,7 +39,7 @@ export default async function DashboardOverviewPage() {
   const workspaceId = session.workspace.id;
 
   const [overview, keys, libraryCount] = await Promise.all([
-    usageOverview(workspaceId),
+    workspaceUsage(workspaceId),
     listApiKeys(workspaceId),
     countWorkspaceLibraries(workspaceId),
   ]);

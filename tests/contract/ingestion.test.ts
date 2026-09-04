@@ -286,6 +286,26 @@ describe('chunking', () => {
     for (const chunk of chunks) expect(chunk.tokens).toBeLessThanOrEqual(CHUNK_MAX_TOKENS * 2);
   });
 
+  /**
+   * A line longer than a whole chunk used to be emitted whole, because the
+   * flush guard always admits the first line of a piece. The chunk then
+   * exceeded what an embedding call accepts and failed the entire build of a
+   * source whose only fault was not wrapping its lines.
+   */
+  it('cuts a single line that is longer than a whole chunk', () => {
+    for (const [label, body] of [
+      ['latin', 'word '.repeat(20_000)],
+      ['cjk', '隐翅虫素会引起皮炎'.repeat(6_000)],
+      ['no spaces at all', 'a'.repeat(400_000)],
+    ] as const) {
+      const chunks = chunkDocument(markdown(`# Long\n\n${body}`));
+      expect(chunks.length, label).toBeGreaterThan(1);
+      for (const chunk of chunks) {
+        expect(chunk.tokens, label).toBeLessThanOrEqual(CHUNK_MAX_TOKENS * 2);
+      }
+    }
+  });
+
   it('numbers chunks from zero without gaps, which the position index requires', () => {
     const chunks = chunkDocument(markdown('# A\n\nAlpha.\n\n## B\n\nBeta.'));
     expect(chunks.map((chunk) => chunk.ordinal)).toEqual(chunks.map((_, index) => index));

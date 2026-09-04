@@ -64,6 +64,34 @@ describe('what ingestion may fetch', () => {
     }
   });
 
+  /**
+   * The URL parser canonicalises an IPv6 literal before the check sees it, so
+   * `[::ffff:169.254.169.254]` arrives as `::ffff:a9fe:a9fe` -- neither a
+   * dotted quad for the v4 test nor any of the textual prefixes a literal
+   * comparison looks for. Every one of these reached the metadata endpoint.
+   */
+  it('refuses private addresses written as IPv6 literals, in every form', () => {
+    for (const host of [
+      'https://[::ffff:169.254.169.254]/latest/meta-data/',
+      'https://[::ffff:127.0.0.1]/x',
+      'https://[::ffff:10.0.0.5]/x',
+      'https://[::ffff:192.168.1.1]/x',
+      'https://[0:0:0:0:0:ffff:7f00:1]/x',
+      'https://[0:0:0:0:0:0:0:1]/x',
+      'https://[::]/x',
+      'https://[febf::1]/x',
+      'https://[fdff::1]/x',
+    ]) {
+      expect(refusalOf(host), host).toBe('source_forbidden');
+    }
+  });
+
+  it('leaves public IPv6 addresses alone', () => {
+    expect(refusalOf('https://[2606:4700:4700::1111]/x')).toBe('allowed');
+    expect(refusalOf('https://[2001:db8::1]/x')).toBe('allowed');
+    expect(refusalOf('https://[::ffff:8.8.8.8]/x')).toBe('allowed');
+  });
+
   it('leaves public addresses that only look private alone', () => {
     // 172.32 is outside the private block, and 11.x is public space.
     expect(refusalOf('https://172.32.0.1/x')).toBe('allowed');

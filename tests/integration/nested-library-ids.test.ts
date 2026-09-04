@@ -119,6 +119,7 @@ async function workspaceOnPlan(libraryLimit: number): Promise<string> {
 
 async function publish(workspaceId: string, slug: string, content: string) {
   const created = await createWorkspaceLibrary({
+    role: 'owner',
     workspaceId,
     title: slug,
     visibility: 'private',
@@ -221,6 +222,7 @@ describeWithDb('nested library ids', () => {
     /* A slug shaped like a version label is refused at creation. */
     await expect(
       createWorkspaceLibrary({
+        role: 'owner',
         workspaceId,
         title: 'Shadow',
         visibility: 'private',

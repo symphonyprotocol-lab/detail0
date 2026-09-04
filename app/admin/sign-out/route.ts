@@ -20,6 +20,7 @@ import {
 } from '@/lib/application/administration';
 import { ADMIN_SESSION_COOKIE, clearAdminSessionCookie } from '@/lib/http/admin';
 import { appBaseUrl, isSameOrigin } from '@/lib/http/session';
+import { clientAddress } from '@/lib/http/client-address';
 
 export const runtime = 'nodejs';
 
@@ -39,9 +40,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         action: 'admin.sign_out',
         targetType: 'administrator',
         targetId: session?.email ?? null,
-        clientAddress:
-          request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-          request.headers.get('x-real-ip'),
+        clientAddress: clientAddress(request.headers),
         result: 'success',
       });
     } catch (error) {

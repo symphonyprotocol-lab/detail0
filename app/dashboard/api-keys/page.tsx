@@ -18,7 +18,8 @@ import {
   ShieldCheckIcon,
 } from '@/components/ui/icons';
 import { listApiKeys } from '@/lib/application/auth';
-import { listRequests, usageOverview } from '@/lib/application/plans';
+import { listRequests } from '@/lib/application/plans';
+import { workspaceUsage } from '@/lib/http/dashboard';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
@@ -75,7 +76,7 @@ export default async function DashboardApiKeysPage() {
 
   const [keys, overview, recent] = await Promise.all([
     listApiKeys(workspaceId),
-    usageOverview(workspaceId),
+    workspaceUsage(workspaceId),
     listRequests(workspaceId, 8),
   ]);
 

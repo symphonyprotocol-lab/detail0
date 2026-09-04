@@ -241,20 +241,25 @@ export const plan = pgTable('plan', {
   name: text('name').notNull(),
 });
 
-export const planVersion = pgTable('plan_version', {
-  id: uuid('id').primaryKey(),
-  planId: text('plan_id').notNull().references(() => plan.id),
-  priceMinor: integer('price_minor').notNull(),
-  currency: text('currency').notNull().default('USD'),
-  monthlyCalls: integer('monthly_calls').notNull(),
-  libraryLimit: integer('library_limit').notNull(),
-  librarySizeBytesLimit: bigint('library_size_bytes_limit', { mode: 'number' }).notNull(),
-  apiKeyLimit: integer('api_key_limit').notNull(),
-  /** Publisher share rate, frozen per version. requirement.md 4.4 */
-  shareRateBps: integer('share_rate_bps').notNull().default(2000),
-  capabilities: jsonb('capabilities').$type<Record<string, unknown>>().notNull().default({}),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const planVersion = pgTable(
+  'plan_version',
+  {
+    id: uuid('id').primaryKey(),
+    planId: text('plan_id').notNull().references(() => plan.id),
+    priceMinor: integer('price_minor').notNull(),
+    currency: text('currency').notNull().default('USD'),
+    monthlyCalls: integer('monthly_calls').notNull(),
+    libraryLimit: integer('library_limit').notNull(),
+    librarySizeBytesLimit: bigint('library_size_bytes_limit', { mode: 'number' }).notNull(),
+    apiKeyLimit: integer('api_key_limit').notNull(),
+    /** Publisher share rate, frozen per version. requirement.md 4.4 */
+    shareRateBps: integer('share_rate_bps').notNull().default(2000),
+    capabilities: jsonb('capabilities').$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  /** "The newest version of this plan", which every allowance lookup asks. */
+  (t) => [index('plan_version_plan_idx').on(t.planId, t.createdAt.desc())],
+);
 
 export const subscription = pgTable(
   'subscription',
@@ -268,8 +273,12 @@ export const subscription = pgTable(
     periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
     periodEnd: timestamp('period_end', { withTimezone: true }).notNull(),
   },
-  /** The per-request quota transaction reads a workspace's subscription. */
-  (t) => [index('subscription_workspace_idx').on(t.workspaceId)],
+  (t) => [
+    /** The per-request quota transaction reads a workspace's subscription. */
+    index('subscription_workspace_idx').on(t.workspaceId),
+    /** "Is any subscription still on this plan version", before retiring one. */
+    index('subscription_plan_version_idx').on(t.planVersionId),
+  ],
 );
 
 /**
@@ -548,15 +557,20 @@ export const libraryClaim = pgTable(
   ],
 );
 
-export const libraryScore = pgTable('library_score', {
-  id: uuid('id').primaryKey(),
-  libraryId: uuid('library_id').notNull().references(() => library.id),
-  algorithmVersion: text('algorithm_version').notNull(),
-  trustScore: integer('trust_score').notNull(),
-  benchmarkScore: integer('benchmark_score').notNull(),
-  breakdown: jsonb('breakdown').$type<Record<string, number>>().notNull().default({}),
-  computedAt: timestamp('computed_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const libraryScore = pgTable(
+  'library_score',
+  {
+    id: uuid('id').primaryKey(),
+    libraryId: uuid('library_id').notNull().references(() => library.id),
+    algorithmVersion: text('algorithm_version').notNull(),
+    trustScore: integer('trust_score').notNull(),
+    benchmarkScore: integer('benchmark_score').notNull(),
+    breakdown: jsonb('breakdown').$type<Record<string, number>>().notNull().default({}),
+    computedAt: timestamp('computed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  /** "This library's newest score", which the catalogue reads per row. */
+  (t) => [index('library_score_current_idx').on(t.libraryId, t.computedAt.desc())],
+);
 
 export const document = pgTable(
   'document',
@@ -1094,6 +1108,10 @@ export const workflowOperation = pgTable(
     uniqueIndex('workflow_operation_uq').on(t.libraryId, t.sourceDigest, t.operationType),
     /** "Is anything open for this library", and the queue depth above the list. */
     index('workflow_operation_library_idx').on(t.libraryId, t.operationType, t.status),
+    /** The queue drain: oldest pending first, which every worker asks for. */
+    index('workflow_operation_pending_idx')
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'pending'`),
   ],
 );
 

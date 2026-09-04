@@ -4,11 +4,13 @@ import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import {
   probeLlmConfig,
+  recordAudit,
   updateLlmAssignment,
   updateLlmConfig,
   LlmConfigRefused,
   type LlmProbeResult,
 } from '@/lib/application/administration';
+import { isAllowedApiKeyEnv } from '@/lib/infrastructure/ai/llm';
 import {
   DEFAULT_LLM_API_KEY_ENV,
   isApiKeyEnvName,
@@ -19,6 +21,7 @@ import {
 } from '@/lib/domain/generation';
 import { AdminChangeRefused } from '@/lib/domain/admin';
 import { requireAdminCapability } from '@/lib/http/admin';
+import { clientAddress } from '@/lib/http/client-address';
 
 /**
  * The registry's one mutation -- adding an entry, editing one and switching
@@ -57,7 +60,7 @@ export async function updateLlmConfigAction(
       actor: {
         administratorId: session.administratorId,
         email: session.email,
-        clientAddress: bag.get('x-forwarded-for')?.split(',')[0]?.trim() ?? bag.get('x-real-ip'),
+        clientAddress: clientAddress(bag),
       },
       /* Absent for a new entry; present when appending to an existing one. */
       slug: form.get('slug') ? String(form.get('slug')) : null,
@@ -100,7 +103,7 @@ function actorOf(session: { administratorId: string; email: string }, bag: Heade
   return {
     administratorId: session.administratorId,
     email: session.email,
-    clientAddress: bag.get('x-forwarded-for')?.split(',')[0]?.trim() ?? bag.get('x-real-ip'),
+    clientAddress: clientAddress(bag),
   };
 }
 
@@ -143,7 +146,7 @@ export type LlmProbeActionResult =
  * cannot be run against a configuration the save would refuse.
  */
 export async function testLlmConfigAction(form: FormData): Promise<LlmProbeActionResult> {
-  await requireAdminCapability('plans');
+  const session = await requireAdminCapability('plans');
 
   let baseUrl: URL;
   try {
@@ -155,7 +158,9 @@ export async function testLlmConfigAction(form: FormData): Promise<LlmProbeActio
   const model = String(form.get('model') ?? '').trim();
   if (model.length === 0 || model.length > 120) return { kind: 'refused', error: 'invalid_model' };
   const apiKeyEnv = String(form.get('apiKeyEnv') ?? '').trim() || DEFAULT_LLM_API_KEY_ENV;
-  if (!isApiKeyEnvName(apiKeyEnv)) return { kind: 'refused', error: 'invalid_api_key_env' };
+  if (!isApiKeyEnvName(apiKeyEnv) || !isAllowedApiKeyEnv(apiKeyEnv)) {
+    return { kind: 'refused', error: 'invalid_api_key_env' };
+  }
   const timeoutMs = Number(form.get('timeoutMs') ?? Number.NaN);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < TIMEOUT_MS.min || timeoutMs > TIMEOUT_MS.max) {
     return { kind: 'refused', error: 'invalid_timeout' };
@@ -166,8 +171,27 @@ export async function testLlmConfigAction(form: FormData): Promise<LlmProbeActio
       ? (effort as ReasoningEffort)
       : null;
 
+  const target = baseUrl.toString().replace(/\/+$/, '');
+
+  /*
+   * Audited even though it changes nothing. The probe makes the server open an
+   * outbound call to an address an operator names, carrying a credential they
+   * also name -- the one console verb whose whole effect is off-platform, and
+   * so the one that most needs a record of who pointed it where.
+   */
+  const bag = await headers();
+  await recordAudit({
+    administratorId: session.administratorId,
+    action: 'llm_config.probe',
+    targetType: 'llm_config',
+    targetId: `${target}#${model}`,
+    reason: `probe with ${apiKeyEnv}`,
+    clientAddress: clientAddress(bag),
+    result: 'success',
+  });
+
   const result = await probeLlmConfig({
-    baseUrl: baseUrl.toString().replace(/\/+$/, ''),
+    baseUrl: target,
     model,
     apiKeyEnv,
     timeoutMs,

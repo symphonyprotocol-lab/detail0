@@ -3,6 +3,7 @@
 import { headers } from 'next/headers';
 import { completeEnrolment } from '@/lib/application/administration';
 import { AdminChangeRefused, type AdminChangeError } from '@/lib/domain/admin';
+import { clientAddress } from '@/lib/http/client-address';
 
 export interface EnrolResult {
   ok: boolean;
@@ -30,7 +31,7 @@ export async function completeEnrolmentAction(
       token: String(form.get('token') ?? ''),
       password,
       mfaCode: String(form.get('mfa') ?? ''),
-      clientAddress: bag.get('x-forwarded-for')?.split(',')[0]?.trim() ?? bag.get('x-real-ip'),
+      clientAddress: clientAddress(bag),
     });
     return { ok: true };
   } catch (error) {
