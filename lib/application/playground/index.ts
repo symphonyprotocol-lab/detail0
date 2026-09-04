@@ -423,38 +423,3 @@ export async function askPlayground(
     requestId,
   };
 }
-
-/**
- * What the playground page renders for one exchange: the web entry's
- * auto-routing (architecture.md 9.6 -- the server picks the library, where an
- * MCP agent picks its own), plus the generation outcome. A BFF shape, not a
- * /v1 contract: only the site consumes it.
- */
-export interface PlaygroundTranscript {
-  kind: 'answer' | 'degraded' | 'no_context' | 'no_library';
-  question: string;
-  /** What routing saw, so the transcript can show real tool calls. */
-  candidates: { libraryId: string; title: string }[];
-  libraryId: string | null;
-  libraryTitle: string | null;
-  version: string | null;
-  text: string | null;
-  citations: { claim: string; chunkId: string }[];
-  /** Citation targets, in retrieval order. */
-  sources: {
-    chunkId: string;
-    sourceUrl: string;
-    documentTitle: string;
-    section: string | null;
-  }[];
-  requestId: string;
-}
-
-/** Rule 4. Keeps only claims that resolve to a chunk returned by this request. */
-export function bindCitations(
-  citations: { claim: string; chunkId: string }[],
-  chunks: readonly { chunkId: string }[],
-): { claim: string; chunkId: string }[] {
-  const ids = new Set(chunks.map((c) => c.chunkId));
-  return citations.filter((c) => ids.has(c.chunkId));
-}

@@ -24,6 +24,8 @@ export {
 } from './create';
 export {
   canDeleteLibraries,
+  canManageApiKeys,
+  canManageLibraries,
   deleteWorkspaceLibrary,
   markLibraryDeleted,
   DELETE_OPERATION,

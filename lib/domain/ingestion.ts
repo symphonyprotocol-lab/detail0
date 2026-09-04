@@ -17,8 +17,13 @@
 /** Bumped whenever `parseDocument` changes what it produces. */
 export const PARSER_VERSION = 're0-parser-1';
 
-/** Bumped whenever `chunkDocument` moves a boundary. */
-export const CHUNKER_VERSION = 're0-chunker-1';
+/**
+ * Bumped whenever `chunkDocument` moves a boundary.
+ *
+ * -2: `fitBlock` now cuts a line that is longer than a whole chunk, instead of
+ * emitting it whole. Only documents holding such a line chunk differently.
+ */
+export const CHUNKER_VERSION = 're0-chunker-2';
 
 /* ------------------------------------------------------------------ states */
 
@@ -883,6 +888,13 @@ function fitBlock(text: string): string[] {
     : null;
   const body = opening && closing ? lines.slice(1, -1) : lines;
 
+  /* Re-fencing costs tokens on every piece, so the body's budget is what is
+     left after the markers -- otherwise each piece lands just over the max. */
+  const limit =
+    opening && closing
+      ? Math.max(1, CHUNK_MAX_TOKENS - estimateTokens(`${opening}\n\n${closing}`))
+      : CHUNK_MAX_TOKENS;
+
   const pieces: string[] = [];
   let current: string[] = [];
   let tokens = 0;
@@ -896,13 +908,68 @@ function fitBlock(text: string): string[] {
   };
 
   for (const line of body) {
-    const lineTokens = estimateTokens(line);
-    if (tokens > 0 && tokens + lineTokens > CHUNK_MAX_TOKENS) flush();
-    current.push(line);
-    tokens += lineTokens;
+    /*
+     * A line can be longer than a whole chunk on its own -- a CJK paragraph
+     * with no breaks, a minified bundle, a flattened OpenAPI description --
+     * and the `tokens > 0` guard below always admits the first line of a
+     * piece whatever its size. So the line is cut first: without this the
+     * function returned the very thing its name promises to prevent, and the
+     * oversized chunk went on to fail the embedding call and, with it, the
+     * whole build of a source that was merely badly wrapped.
+     */
+    for (const part of splitLine(line, limit)) {
+      const partTokens = estimateTokens(part);
+      if (tokens > 0 && tokens + partTokens > limit) flush();
+      current.push(part);
+      tokens += partTokens;
+    }
   }
   flush();
   return pieces;
+}
+
+/**
+ * One line as pieces no larger than a chunk, cut at the last space before the
+ * limit and mid-word only when there is no space to cut at -- which is the
+ * normal case for CJK, where every character is its own word.
+ */
+function splitLine(line: string, limit: number): string[] {
+  if (estimateTokens(line) <= limit) return [line];
+
+  const parts: string[] = [];
+  /* By code point: an astral character must not be cut in half. */
+  const chars = Array.from(line);
+  let start = 0;
+  let dense = 0;
+  let rest = 0;
+  let lastSpace = -1;
+
+  /* `estimateTokens`, accumulated as we go: measuring each candidate prefix
+     instead would make cutting a one-megabyte line quadratic. */
+  const cost = (): number => Math.ceil(rest / 4) + dense;
+
+  for (let at = 0; at < chars.length; at += 1) {
+    const character = chars[at] as string;
+    const code = character.codePointAt(0) ?? 0;
+    if ((code >= 0x2e80 && code <= 0xd7ff) || (code >= 0xf900 && code <= 0xfaff)) dense += 1;
+    else rest += 1;
+    if (character === ' ') lastSpace = at;
+
+    if (cost() < limit) continue;
+
+    /* At a word boundary where there is one, mid-word where there is not --
+       which is the normal case for CJK, where every character is its own word. */
+    const cut = lastSpace > start ? lastSpace + 1 : at + 1;
+    parts.push(chars.slice(start, cut).join(''));
+    start = cut;
+    at = cut - 1;
+    dense = 0;
+    rest = 0;
+    lastSpace = -1;
+  }
+
+  if (start < chars.length) parts.push(chars.slice(start).join(''));
+  return parts;
 }
 
 /**

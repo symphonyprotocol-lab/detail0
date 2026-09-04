@@ -173,6 +173,7 @@ describeWithDb('workspace library creation', () => {
     const workspaceId = await workspaceOnPlan(5);
 
     const created = await createWorkspaceLibrary({
+      role: 'owner',
       workspaceId,
       title: 'Team handbook',
       visibility: 'private',
@@ -231,6 +232,7 @@ describeWithDb('workspace library creation', () => {
     const workspaceId = await workspaceOnPlan(1);
 
     const first = await createWorkspaceLibrary({
+      role: 'owner',
       workspaceId,
       title: 'Only one',
       visibility: 'private',
@@ -242,6 +244,7 @@ describeWithDb('workspace library creation', () => {
 
     await expect(
       createWorkspaceLibrary({
+        role: 'owner',
         workspaceId,
         title: 'Second',
         visibility: 'private',
@@ -254,7 +257,8 @@ describeWithDb('workspace library creation', () => {
     const other = await workspaceOnPlan(5);
     await expect(
       createWorkspaceLibrary({
-        workspaceId: other,
+        role: 'owner',
+      workspaceId: other,
         title: 'Duplicate id',
         visibility: 'private',
         sourceType: 'openapi',
@@ -265,7 +269,8 @@ describeWithDb('workspace library creation', () => {
 
     await expect(
       createWorkspaceLibrary({
-        workspaceId: other,
+        role: 'owner',
+      workspaceId: other,
         title: 'Bad location',
         visibility: 'private',
         sourceType: 'github',

@@ -12,7 +12,7 @@ import type { NextResponse } from 'next/server';
 import { cache } from 'react';
 import { resolveAdminSession, type AdminSession } from '@/lib/application/administration';
 import { ADMIN_SESSION_LIFETIME_MS, type AdminCapability } from '@/lib/domain/admin';
-import { isSecureDeployment } from '@/lib/http/session';
+import { ADMIN_SESSION_COOKIE, isSecureDeployment } from '@/lib/http/cookie-names';
 
 /**
  * Separate from the product session cookie, and scoped to `/admin`.
@@ -22,8 +22,11 @@ import { isSecureDeployment } from '@/lib/http/session';
  * It does mean every handler that needs to *read* the session has to live under
  * `/admin` -- which is why sign-out is `/admin/sign-out` and not an
  * `/api/admin/...` route.
+ *
+ * Declared in `cookie-names.ts`, which the Edge middleware can also import;
+ * re-exported here because this is where the console reaches for it.
  */
-export const ADMIN_SESSION_COOKIE = isSecureDeployment() ? '__Secure-r0_admin' : 'r0_admin';
+export { ADMIN_SESSION_COOKIE };
 
 interface AdminCookieOptions {
   httpOnly: true;

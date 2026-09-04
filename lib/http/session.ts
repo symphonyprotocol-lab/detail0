@@ -4,22 +4,18 @@
  *
  * The Next.js specifics stop here; `lib/application/auth` stays framework free.
  */
+import { cache } from 'react';
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import type { NextResponse } from 'next/server';
 import { resolveSession, type UserSession } from '@/lib/application/auth';
+/* The names and the secure predicate live in a dependency-free module, because
+   the Edge middleware slides these same cookies and cannot import this file --
+   it used to restate them from memory instead. Re-exported here so every
+   existing importer keeps its one obvious source. */
+import { HANDSHAKE_COOKIE, isSecureDeployment, SESSION_COOKIE } from '@/lib/http/cookie-names';
 
-/**
- * `__Host-` pins the cookie to this exact origin, but the prefix requires
- * Secure, which http://localhost cannot satisfy. Production gets the hardened
- * name, local development the plain one.
- */
-export const SESSION_COOKIE = isSecureDeployment() ? '__Host-r0_session' : 'r0_session';
-export const HANDSHAKE_COOKIE = isSecureDeployment() ? '__Host-r0_oauth' : 'r0_oauth';
-
-export function isSecureDeployment(): boolean {
-  return (process.env.APP_BASE_URL ?? '').startsWith('https://');
-}
+export { HANDSHAKE_COOKIE, isSecureDeployment, SESSION_COOKIE };
 
 export function appBaseUrl(): string {
   const url = process.env.APP_BASE_URL;
@@ -63,11 +59,20 @@ export function clearHandshakeCookie(response: NextResponse): void {
   response.cookies.set(HANDSHAKE_COOKIE, '', { ...baseCookieOptions(), maxAge: 0 });
 }
 
-/** The session behind the current request, or null. Server components only. */
-export async function currentSession(): Promise<UserSession | null> {
+/**
+ * The session behind the current request, or null. Server components only.
+ *
+ * Memoised for the request, as `currentAdminSession` is.
+ *
+ * A dashboard render resolves the session in the layout and again in the page
+ * -- two session+workspace joins and, inside the sliding window, two writes --
+ * for one navigation. `cache()` collapses them; nothing is shared between
+ * requests, because React's cache is per-request.
+ */
+export const currentSession = cache(async (): Promise<UserSession | null> => {
   const jar = await cookies();
   return resolveSession(jar.get(SESSION_COOKIE)?.value);
-}
+});
 
 /**
  * Session for surfaces that merely decorate themselves with it.

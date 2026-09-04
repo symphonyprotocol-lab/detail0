@@ -17,6 +17,7 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
 process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
+process.env.API_KEY_HASH_SECRET ??= 'test-api-key-hash-secret-000000000000';
 
 const { completeOAuth } = await import('@/lib/application/auth/complete-oauth');
 const { resolveSession } = await import('@/lib/application/auth/resolve-session');
@@ -24,6 +25,8 @@ const { getConsoleUser, setUserAccountStatus } = await import(
   '@/lib/application/administration/manage-users'
 );
 const { listConsoleUsers } = await import('@/lib/application/administration/list-users');
+const { createApiKey } = await import('@/lib/application/auth/manage-api-keys');
+const { resolveApiKey } = await import('@/lib/application/auth/api-key');
 const { seal } = await import('@/lib/infrastructure/crypto/sealed');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { OAUTH_STATE_TTL_MS, SESSION_LIFETIME_MS } = await import('@/lib/domain/auth');
@@ -92,6 +95,9 @@ describeWithDb('suspending a registered account', () => {
         .delete(schema.subscription)
         .where(inArray(schema.subscription.workspaceId, workspaceIds));
     }
+    if (workspaceIds.length > 0) {
+      await database.delete(schema.apiKey).where(inArray(schema.apiKey.workspaceId, workspaceIds));
+    }
     await database.delete(schema.workspaceMember).where(eq(schema.workspaceMember.userId, userId));
     if (workspaceIds.length > 0) {
       await database.delete(schema.workspace).where(inArray(schema.workspace.id, workspaceIds));
@@ -142,6 +148,45 @@ describeWithDb('suspending a registered account', () => {
     // requirement.md 3.2: immediately, not at expiry.
     expect(await resolveSession(first.sessionToken)).toBeNull();
     expect(await resolveSession(second.sessionToken)).toBeNull();
+  });
+
+  /**
+   * requirement.md 3.2, and the contract `isAccountUsable` states: suspension
+   * has to stop *every* way the account reaches the platform. `resolveApiKey`
+   * checked only `revoked_at`, so a suspended account kept reading its usage
+   * and revenue, rewriting its policies and spending its quota through REST
+   * and MCP long after its browser sessions were gone.
+   */
+  it('stops the account’s API keys too, not only its web sessions', async () => {
+    const [membership] = await db()
+      .select({ workspaceId: schema.workspaceMember.workspaceId })
+      .from(schema.workspaceMember)
+      .where(eq(schema.workspaceMember.userId, userId));
+
+    const { key } = await createApiKey({
+      role: 'owner',
+      workspaceId: membership!.workspaceId,
+      name: 'suspension probe',
+    });
+
+    // Still suspended from the test above.
+    await expect(resolveApiKey(`Bearer ${key}`)).rejects.toMatchObject({
+      code: 'invalid_api_key',
+    });
+
+    await setUserAccountStatus({ actor, userId, status: 'active', reason: 'appeal upheld' });
+    const principal = await resolveApiKey(`Bearer ${key}`);
+    expect(principal?.workspaceId).toBe(membership!.workspaceId);
+
+    await setUserAccountStatus({
+      actor,
+      userId,
+      status: 'suspended',
+      reason: 'bulk scraping of public libraries',
+    });
+    await expect(resolveApiKey(`Bearer ${key}`)).rejects.toMatchObject({
+      code: 'invalid_api_key',
+    });
   });
 
   it('writes the operator, the values before and after, and the reason', async () => {

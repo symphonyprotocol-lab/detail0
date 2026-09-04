@@ -20,6 +20,7 @@ import { appBaseUrl, clientSummary, isSameOrigin } from '@/lib/http/session';
 import type { RateLimitRule } from '@/lib/infrastructure/cache/redis';
 import { strictRateLimit } from '@/lib/infrastructure/cache/strict-rate-limit';
 import { newRequestId } from '@/lib/http/respond';
+import { clientAddress } from '@/lib/http/client-address';
 
 export const runtime = 'nodejs';
 
@@ -87,8 +88,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return signInRedirect('invalid_credentials', returnTo);
   }
 
-  const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
-  const clientAddress = forwarded || request.headers.get('x-real-ip') || null;
 
   try {
     const { token, expiresAt } = await signInAdmin({
@@ -96,7 +95,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       password,
       mfaCode,
       clientSummary: clientSummary(request.headers.get('user-agent')),
-      clientAddress,
+      clientAddress: clientAddress(request.headers),
     });
 
     const response = NextResponse.redirect(new URL(returnTo, appBaseUrl()), 303);

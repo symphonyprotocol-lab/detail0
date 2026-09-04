@@ -1231,6 +1231,14 @@ export async function removePlatformLibrarySource(input: {
   const reason = normalizeReason(input.reason);
   const database = db();
   const target = await loadTarget(database, input.libraryId);
+
+  /* The same guard the other three source verbs carry. Without it an archived
+     library refused an edit to a source while allowing that source's deletion,
+     and the deletion was audited as a success. */
+  if (target.lifecycleStatus === 'archived') {
+    throw new PlatformLibraryRefused('archived', 'an archived library is not edited');
+  }
+
   const before = await loadSource(database, target.id, input.sourceId);
 
   /*

@@ -51,6 +51,31 @@ describe('answer parsing', () => {
     expect(segments.map((s) => s.refs)).toEqual([['1'], ['2'], ['2']]);
   });
 
+  /**
+   * The subject matter is full of interior periods. Treating them as sentence
+   * boundaries cut the answer into fragments, and only the last one carried
+   * the marker -- so the citation gate dropped the rest of the sentence.
+   */
+  it('does not break a sentence on a period inside a word', () => {
+    expect(parseCitedAnswer('Use next.config.js to enable the flag [ref:1]')).toEqual([
+      { text: 'Use next.config.js to enable the flag', refs: ['1'] },
+    ]);
+    expect(parseCitedAnswer('Node 20.11 or newer [ref:1]')).toEqual([
+      { text: 'Node 20.11 or newer', refs: ['1'] },
+    ]);
+    expect(parseCitedAnswer('See https://example.com/a.html for details [ref:2]')).toEqual([
+      { text: 'See https://example.com/a.html for details', refs: ['2'] },
+    ]);
+  });
+
+  it('still splits on a period that ends a sentence, and keeps abbreviations whole', () => {
+    expect(
+      parseCitedAnswer('Call array.map(fn). [ref:1] It is e.g. a transform. [ref:2]').map(
+        (s) => s.text,
+      ),
+    ).toEqual(['Call array.map(fn).', 'It is e.g. a transform.']);
+  });
+
   it('drops the space a marker written before CJK punctuation leaves behind', () => {
     const segments = parseCitedAnswer('EVM 处理所有交易 [ref:1]。 它是一台计算机 [ref:2]。');
     expect(segments.map((s) => s.text)).toEqual(['EVM 处理所有交易。', '它是一台计算机。']);

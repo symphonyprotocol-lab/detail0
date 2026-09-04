@@ -6,8 +6,9 @@
  * one unique-index lookup -- no per-key salt round-trips, and a database dump
  * alone cannot be turned into working keys without API_KEY_HASH_SECRET.
  */
-import { eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
+import { isAccountUsable } from '@/lib/domain/auth';
 import { hmacSha256 } from '@/lib/infrastructure/crypto/tokens';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
@@ -48,11 +49,37 @@ export async function resolveApiKey(authorization: string | null): Promise<ApiKe
       environment: schema.apiKey.environment,
       scopes: schema.apiKey.scopes,
       revokedAt: schema.apiKey.revokedAt,
+      ownerStatus: schema.user.status,
     })
     .from(schema.apiKey)
-    .where(eq(schema.apiKey.keyHash, await hashApiKey(key)));
+    /*
+     * Joined to the account behind the workspace, because `isAccountUsable` is
+     * the gate for requirement.md 3.2 and this is one of the three resolvers it
+     * names: suspending an account revokes its sessions, and a key that kept
+     * working would leave the same account reading its usage, rewriting its
+     * policies and spending its quota through REST and MCP.
+     *
+     * Left, not inner: the rule is "a suspended account stops", so a workspace
+     * that has no owner row at all has no account to suspend and is not what
+     * this refuses. The founding owner decides, the same membership
+     * `resolveSession` picks.
+     */
+    .leftJoin(
+      schema.workspaceMember,
+      and(
+        eq(schema.workspaceMember.workspaceId, schema.apiKey.workspaceId),
+        eq(schema.workspaceMember.role, 'owner'),
+      ),
+    )
+    .leftJoin(schema.user, eq(schema.user.id, schema.workspaceMember.userId))
+    .where(eq(schema.apiKey.keyHash, await hashApiKey(key)))
+    .orderBy(asc(schema.workspaceMember.createdAt), asc(schema.workspaceMember.userId))
+    .limit(1);
 
   if (!row || row.revokedAt) throw new AppError('invalid_api_key', 'unknown or revoked key');
+  if (row.ownerStatus !== null && !isAccountUsable(row.ownerStatus)) {
+    throw new AppError('invalid_api_key', 'unknown or revoked key');
+  }
 
   /* A usage timestamp, not an audit fact: losing one write is acceptable,
      failing the request over it is not. */

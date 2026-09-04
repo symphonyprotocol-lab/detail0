@@ -9,6 +9,7 @@ import {
   type AdminChangeError,
 } from '@/lib/domain/admin';
 import { requireAdminCapability } from '@/lib/http/admin';
+import { clientAddress } from '@/lib/http/client-address';
 
 /**
  * The one mutation behind the registered-user screens.
@@ -42,7 +43,7 @@ export async function setUserStatusAction(
         administratorId: session.administratorId,
         email: session.email,
         clientAddress:
-          bag.get('x-forwarded-for')?.split(',')[0]?.trim() ?? bag.get('x-real-ip'),
+          clientAddress(bag),
       },
       userId,
       status,

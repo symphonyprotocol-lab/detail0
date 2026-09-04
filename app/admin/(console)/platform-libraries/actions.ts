@@ -22,6 +22,7 @@ import {
   type PlatformLibraryError,
 } from '@/lib/domain/library';
 import { requireAdminCapability } from '@/lib/http/admin';
+import { clientAddress } from '@/lib/http/client-address';
 
 /**
  * The mutations behind the platform-library screens.
@@ -43,9 +44,9 @@ export interface PlatformLibraryActionResult {
   rebuilt?: { titles: number; terms: number };
 }
 
-async function clientAddress(): Promise<string | null> {
+async function actorAddress(): Promise<string | null> {
   const bag = await headers();
-  return bag.get('x-forwarded-for')?.split(',')[0]?.trim() ?? bag.get('x-real-ip');
+  return clientAddress(bag);
 }
 
 /**
@@ -73,7 +74,7 @@ async function actor(session: { administratorId: string; email: string }) {
   return {
     administratorId: session.administratorId,
     email: session.email,
-    clientAddress: await clientAddress(),
+    clientAddress: await actorAddress(),
   };
 }
 
@@ -84,11 +85,7 @@ export async function createPlatformLibraryAction(
   const session = await requireAdminCapability('platformLibraries');
   try {
     const { libraryId, publicId } = await createPlatformLibrary({
-      actor: {
-        administratorId: session.administratorId,
-        email: session.email,
-        clientAddress: await clientAddress(),
-      },
+      actor: await actor(session),
       title: text(form, 'title'),
       publicId: text(form, 'publicId'),
       sourceType: text(form, 'sourceType'),
@@ -117,11 +114,7 @@ export async function setPlatformLifecycleAction(
   const libraryId = text(form, 'libraryId');
   try {
     await setPlatformLibraryLifecycle({
-      actor: {
-        administratorId: session.administratorId,
-        email: session.email,
-        clientAddress: await clientAddress(),
-      },
+      actor: await actor(session),
       libraryId,
       action,
       reason: text(form, 'reason'),
@@ -143,11 +136,7 @@ export async function refreshPlatformLibraryAction(
   const libraryId = text(form, 'libraryId');
   try {
     const { created, operationId } = await requestPlatformLibraryRefresh({
-      actor: {
-        administratorId: session.administratorId,
-        email: session.email,
-        clientAddress: await clientAddress(),
-      },
+      actor: await actor(session),
       libraryId,
       reason: text(form, 'reason'),
     });

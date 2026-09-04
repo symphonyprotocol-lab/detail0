@@ -28,6 +28,7 @@ export async function createWorkspaceLibraryAction(
 
     const { publicId } = await createWorkspaceLibrary({
       workspaceId: session.workspace.id,
+      role: session.workspace.role,
       title: String(form.get('title') ?? ''),
       visibility,
       sourceType,

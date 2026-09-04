@@ -1,11 +1,17 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { ADMIN_SESSION_LIFETIME_MS } from '@/lib/domain/admin';
 import { SESSION_LIFETIME_MS } from '@/lib/domain/auth';
+import {
+  ADMIN_SESSION_COOKIE_NAMES,
+  isSecureDeployment,
+  SESSION_COOKIE_NAMES,
+} from '@/lib/http/cookie-names';
 
 /**
- * Cheap gate in front of the dashboard.
+ * Cheap gate in front of the dashboard, and the browser half of the sliding
+ * session everywhere else.
  *
- * This only looks for the presence of a session cookie: it saves anonymous
+ * The gate only looks for the presence of a session cookie: it saves anonymous
  * visitors a render, nothing more. The real check -- session live, account
  * active, workspace resolved -- happens in the dashboard layout against the
  * primary database, because permission state must not be decided on a cookie's
@@ -17,8 +23,6 @@ import { SESSION_LIFETIME_MS } from '@/lib/domain/auth';
  * `app/admin/(console)/layout.tsx`. Capturing the path here is also what lets
  * the sign-in send an administrator back where they were headed.
  */
-const SESSION_COOKIES = ['__Host-r0_session', 'r0_session'];
-const ADMIN_COOKIES = ['__Secure-r0_admin', 'r0_admin'];
 
 /**
  * Re-issues the session cookie with its window moved out again.
@@ -28,7 +32,7 @@ const ADMIN_COOKIES = ['__Secure-r0_admin', 'r0_admin'];
  * date while the row is still live. Same value, same attributes, new
  * `Expires`; the row stays the only authority on whether the session is
  * alive -- a cookie that outlives its row simply resolves to nothing.
- * Set-Cookie on every gated request is the price of not needing a response
+ * Set-Cookie on every matched request is the price of not needing a response
  * hook in every server component.
  */
 function slideCookie(
@@ -43,8 +47,7 @@ function slideCookie(
     if (!value) continue;
     response.cookies.set(name, value, {
       httpOnly: true,
-      /* The prefixed names exist only on https deployments (lib/http/session.ts). */
-      secure: name.startsWith('__'),
+      secure: isSecureDeployment(),
       sameSite: 'lax',
       path,
       expires: new Date(Date.now() + lifetimeMs),
@@ -59,11 +62,11 @@ export function middleware(request: NextRequest): NextResponse {
   const returnTo = path + request.nextUrl.search;
 
   if (path.startsWith('/admin')) {
-    if (ADMIN_COOKIES.some((name) => request.cookies.has(name))) {
+    if (ADMIN_SESSION_COOKIE_NAMES.some((name) => request.cookies.has(name))) {
       return slideCookie(
         request,
         NextResponse.next(),
-        ADMIN_COOKIES,
+        ADMIN_SESSION_COOKIE_NAMES,
         '/admin',
         ADMIN_SESSION_LIFETIME_MS,
       );
@@ -73,9 +76,26 @@ export function middleware(request: NextRequest): NextResponse {
     return NextResponse.redirect(signIn);
   }
 
-  if (SESSION_COOKIES.some((name) => request.cookies.has(name))) {
-    return slideCookie(request, NextResponse.next(), SESSION_COOKIES, '/', SESSION_LIFETIME_MS);
+  const signedIn = SESSION_COOKIE_NAMES.some((name) => request.cookies.has(name));
+  if (signedIn) {
+    return slideCookie(
+      request,
+      NextResponse.next(),
+      SESSION_COOKIE_NAMES,
+      '/',
+      SESSION_LIFETIME_MS,
+    );
   }
+
+  /*
+   * Only the dashboard is gated. Everywhere else an anonymous visitor is a
+   * visitor, and the request is matched purely so a signed-in one gets the
+   * cookie above: `resolveSession` slides the row on every page that renders
+   * the site header, so a reader who lives in the playground kept a live
+   * session while the browser dropped the cookie on the thirtieth day after
+   * sign-in -- signed out precisely because they had never stopped reading.
+   */
+  if (!path.startsWith('/dashboard')) return NextResponse.next();
 
   const login = new URL('/login', request.url);
   login.searchParams.set('returnTo', returnTo);
@@ -84,11 +104,18 @@ export function middleware(request: NextRequest): NextResponse {
 
 export const config = {
   /*
-   * Three console paths are excluded, each anchored so the exclusion cannot
-   * widen to a future `/admin/login-history`: the sign-in, which would
-   * otherwise redirect to itself; the sign-out, which has to answer a POST
-   * rather than be bounced once the cookie is already gone; and enrolment,
-   * which an invited administrator reaches before they have any session at all.
+   * Every browser navigation, so the cookie slides wherever a session is
+   * resolved rather than only where one is required.
+   *
+   * The exclusions: Next's own asset routes and the API, which carry no
+   * browser session to slide; and three console paths, each anchored so the
+   * exclusion cannot widen to a future `/admin/login-history` -- the sign-in,
+   * which would otherwise redirect to itself; the sign-out, which has to
+   * answer a POST rather than be bounced once the cookie is already gone, and
+   * whose own response must be the one that clears the cookie; and enrolment,
+   * which an invited administrator reaches before they have any session.
    */
-  matcher: ['/dashboard/:path*', '/admin/((?!login$|login/|sign-out$|enroll$).*)'],
+  matcher: [
+    '/((?!_next/|api/|mcp$|admin/login$|admin/login/|admin/sign-out$|admin/enroll$|favicon\\.ico$|icon\\.svg$|logo\\.png$).*)',
+  ],
 };

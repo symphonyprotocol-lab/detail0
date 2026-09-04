@@ -10,6 +10,7 @@ import {
 } from '@/lib/application/administration';
 import { AdminChangeRefused, type AdminChangeError } from '@/lib/domain/admin';
 import { requireAdminCapability } from '@/lib/http/admin';
+import { clientAddress } from '@/lib/http/client-address';
 
 /**
  * Mutations behind the administrators screen.
@@ -26,9 +27,9 @@ export interface ActionResult {
   enrolmentPath?: string;
 }
 
-async function clientAddress(): Promise<string | null> {
+async function actorAddress(): Promise<string | null> {
   const bag = await headers();
-  return bag.get('x-forwarded-for')?.split(',')[0]?.trim() ?? bag.get('x-real-ip');
+  return clientAddress(bag);
 }
 
 function refused(error: unknown): ActionResult {
@@ -49,7 +50,7 @@ export async function inviteAdministratorAction(
       actor: {
         administratorId: session.administratorId,
         email: session.email,
-        clientAddress: await clientAddress(),
+        clientAddress: await actorAddress(),
       },
       email: String(form.get('email') ?? ''),
       username: String(form.get('username') ?? ''),
@@ -72,7 +73,7 @@ export async function changeRoleAction(
       actor: {
         administratorId: session.administratorId,
         email: session.email,
-        clientAddress: await clientAddress(),
+        clientAddress: await actorAddress(),
       },
       administratorId: String(form.get('administratorId') ?? ''),
       role: String(form.get('role') ?? ''),
@@ -97,7 +98,7 @@ export async function setStatusAction(
       actor: {
         administratorId: session.administratorId,
         email: session.email,
-        clientAddress: await clientAddress(),
+        clientAddress: await actorAddress(),
       },
       administratorId: String(form.get('administratorId') ?? ''),
       status,
@@ -120,7 +121,7 @@ export async function revokeSessionsAction(
       actor: {
         administratorId: session.administratorId,
         email: session.email,
-        clientAddress: await clientAddress(),
+        clientAddress: await actorAddress(),
       },
       administratorId: String(form.get('administratorId') ?? ''),
       reason: String(form.get('reason') ?? ''),

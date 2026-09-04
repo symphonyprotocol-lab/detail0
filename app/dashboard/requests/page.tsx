@@ -8,7 +8,8 @@ import {
   ClockIcon,
   DatabaseIcon,
 } from '@/components/ui/icons';
-import { listRequests, usageOverview } from '@/lib/application/plans';
+import { listRequests } from '@/lib/application/plans';
+import { workspaceUsage } from '@/lib/http/dashboard';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
@@ -33,7 +34,7 @@ export default async function DashboardRequestsPage() {
   const r = t.dashboard.requests;
 
   const [overview, requests] = await Promise.all([
-    usageOverview(session.workspace.id),
+    workspaceUsage(session.workspace.id),
     listRequests(session.workspace.id),
   ]);
 

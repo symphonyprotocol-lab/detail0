@@ -163,13 +163,49 @@ export function priceUsdFromMicro(micro: number): number {
 }
 
 const MARKER = /\[ref:([^\]\s]{1,64})\]/g;
+
 /**
- * One sentence and the markers that belong to it: a body ending at sentence
- * punctuation (or the unpunctuated tail), then any run of trailing markers.
+ * Where one sentence can end.
+ *
+ * `!?。！？` always end one. A `.` only does when nothing follows it inside
+ * the same word: our subject matter is full of `next.config.js`, `20.11`,
+ * `array.map` and `example.com`, and treating those interior periods as
+ * boundaries cuts a sentence into fragments -- of which only the last carries
+ * the trailing `[ref:...]`, so the citation gate drops the rest of the answer.
+ * The lookbehind spares dotted initialisms (`e.g.`, `U.S.`), whose final
+ * period does sit before a space.
+ */
+const SENTENCE_PUNCTUATION = /[.!?。！？]/u;
+const LEADING_MARKER = /^\s*\[ref:[^\]\s]{1,64}\]/u;
+
+const TERMINATOR = /[!?。！？]|(?<!\.[A-Za-z])\.(?![^\s[])/gu;
+
+/**
+ * One sentence and the markers that belong to it: a body ending at a
+ * terminator (or the unpunctuated tail), then any run of trailing markers.
  * Written as a scan rather than a split, because a split at the boundary
  * would hand a sentence's trailing `[ref:...]` to the sentence after it.
+ *
+ * Returns the index just past the sentence starting at `from`, or -1 when
+ * what is left has no terminator. Shared by the parser and the streaming
+ * gate, so the two cannot disagree about where a sentence ends.
  */
-const SENTENCE = /([^.!?。！？]*[.!?。！？]+|[^.!?。！？]+$)((?:\s*\[ref:[^\]\s]{1,64}\])*)/gu;
+function sentenceEnd(text: string, from: number): number {
+  TERMINATOR.lastIndex = from;
+  const hit = TERMINATOR.exec(text);
+  if (!hit) return -1;
+
+  /* `?!` and `。。。` end one sentence, not three. */
+  let end = hit.index + hit[0].length;
+  while (end < text.length && SENTENCE_PUNCTUATION.test(text[end]!)) end += 1;
+
+  for (;;) {
+    const marker = LEADING_MARKER.exec(text.slice(end));
+    if (!marker) break;
+    end += marker[0].length;
+  }
+  return end;
+}
 
 /**
  * Take a raw completion apart into sentences and the ids each one cited.
@@ -178,8 +214,13 @@ const SENTENCE = /([^.!?。！？]*[.!?。！？]+|[^.!?。！？]+$)((?:\s*\[re
  */
 export function parseCitedAnswer(raw: string): AnswerSegment[] {
   const segments: AnswerSegment[] = [];
-  for (const match of raw.matchAll(SENTENCE)) {
-    const piece = match[0]!;
+  let at = 0;
+
+  while (at < raw.length) {
+    const end = sentenceEnd(raw, at);
+    const piece = end === -1 ? raw.slice(at) : raw.slice(at, end);
+    at = end === -1 ? raw.length : end;
+
     const refs: string[] = [];
     for (const marker of piece.matchAll(MARKER)) {
       if (!refs.includes(marker[1]!)) refs.push(marker[1]!);
@@ -202,9 +243,9 @@ export function parseCitedAnswer(raw: string): AnswerSegment[] {
 function layoutOf(raw: string): string {
   return raw
     .replace(/[ \t]{2,}/g, ' ')
-    /* A marker written before the full stop ("工作 [ref:1]。") leaves a
-       space no CJK punctuation ever carries. */
-    .replace(/[ \t]+([。！？，；：])/g, '$1')
+    /* A marker written before the full stop ("工作 [ref:1]。", "works [ref:1].")
+       leaves a space no sentence punctuation ever carries. */
+    .replace(/[ \t]+([。！？，；：.!?])/g, '$1')
     .replace(/[ \t]*\r?\n[ \t]*/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .replace(/^[ \t]+/, '')
@@ -328,9 +369,6 @@ export interface CitedAnswerStream {
   flush(): AnswerSegment[];
 }
 
-const SENTENCE_PUNCTUATION = /[.!?。！？]/u;
-const LEADING_MARKER = /^\s*\[ref:[^\]\s]{1,64}\]/u;
-
 /**
  * How much of the buffer can never change again.
  *
@@ -344,18 +382,8 @@ function settledLength(buffer: string): number {
   let at = 0;
 
   while (at < buffer.length) {
-    const offset = buffer.slice(at).search(SENTENCE_PUNCTUATION);
-    if (offset === -1) break;
-
-    /* `?!` and `。。。` end one sentence, not three. */
-    let end = at + offset + 1;
-    while (end < buffer.length && SENTENCE_PUNCTUATION.test(buffer[end]!)) end += 1;
-
-    for (;;) {
-      const marker = LEADING_MARKER.exec(buffer.slice(end));
-      if (!marker) break;
-      end += marker[0].length;
-    }
+    const end = sentenceEnd(buffer, at);
+    if (end === -1) break;
 
     const rest = buffer.slice(end);
     const next = rest.search(/\S/u);

@@ -6,6 +6,7 @@ import { createPlanVersion } from '@/lib/application/plans';
 import { AdminChangeRefused } from '@/lib/domain/admin';
 import { PlanChangeRefused, type PlanChangeError } from '@/lib/domain/plans';
 import { requireAdminCapability } from '@/lib/http/admin';
+import { clientAddress } from '@/lib/http/client-address';
 
 /**
  * The one mutation the subscription-configuration screen has.
@@ -23,9 +24,9 @@ export interface PlanActionResult {
   supersededSubscriptions?: number;
 }
 
-async function clientAddress(): Promise<string | null> {
+async function actorAddress(): Promise<string | null> {
   const bag = await headers();
-  return bag.get('x-forwarded-for')?.split(',')[0]?.trim() ?? bag.get('x-real-ip');
+  return clientAddress(bag);
 }
 
 function refused(error: unknown): PlanActionResult {
@@ -52,7 +53,7 @@ export async function createPlanVersionAction(
       actor: {
         administratorId: session.administratorId,
         email: session.email,
-        clientAddress: await clientAddress(),
+        clientAddress: await actorAddress(),
       },
       planId: String(form.get('planId') ?? ''),
       /*

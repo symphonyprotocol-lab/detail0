@@ -10,6 +10,7 @@ import {
   type RetrievalSettingKey,
 } from '@/lib/domain/retrieval-config';
 import { requireAdminCapability } from '@/lib/http/admin';
+import { clientAddress } from '@/lib/http/client-address';
 
 /**
  * The one mutation the retrieval screen has. Like every console action it
@@ -42,7 +43,7 @@ export async function updateRetrievalConfigAction(
       actor: {
         administratorId: session.administratorId,
         email: session.email,
-        clientAddress: bag.get('x-forwarded-for')?.split(',')[0]?.trim() ?? bag.get('x-real-ip'),
+        clientAddress: clientAddress(bag),
       },
       values,
       reason: String(form.get('reason') ?? ''),

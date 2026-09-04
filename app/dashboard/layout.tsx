@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { DashboardHeader } from '@/components/dashboard/header';
 import { DashboardSidebar } from '@/components/dashboard/sidebar';
-import { usageOverview } from '@/lib/application/plans';
+import { workspaceUsage } from '@/lib/http/dashboard';
 import { requireSession } from '@/lib/http/session';
 import { LocaleProvider } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
@@ -26,7 +26,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     translations(),
   ]);
   // The rail's quota is the same ledger figure the overview prints (usage.ts).
-  const overview = await usageOverview(workspace.id);
+  const overview = await workspaceUsage(workspace.id);
 
   return (
     <LocaleProvider locale={locale} messages={t}>

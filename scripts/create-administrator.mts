@@ -57,10 +57,28 @@ const now = new Date();
 const secret = randomTotpSecret();
 
 const [existing] = await database
-  .select({ id: schema.administrator.id })
+  .select({ id: schema.administrator.id, status: schema.administrator.status })
   .from(schema.administrator)
   .where(eq(schema.administrator.email, email))
   .limit(1);
+
+/*
+ * A disabled account is not re-opened here.
+ *
+ * Disabling is an audited console decision (`admin.disable`), and this script
+ * writes no audit row -- so re-running it for a disabled address used to flip
+ * the account back to `active`, clear its lockout and reset its roles to
+ * `--role`, with the audit chain still showing only the disable. Whoever runs
+ * this holds the database credentials and could of course write the row by
+ * hand; the point is that the reversal should not happen as a side effect of
+ * resetting someone's password. Re-enabling belongs in the console, where it
+ * is recorded.
+ */
+if (existing && existing.status === 'disabled') {
+  fail(
+    `${email} is disabled. Re-enable it in the console (/admin/administrators), where the change is audited, then re-run this to reset the credentials.`,
+  );
+}
 
 const administratorId = existing?.id ?? crypto.randomUUID();
 
@@ -70,6 +88,7 @@ const values = {
   passwordHash: await hashAdminPassword(password),
   mfaSecret: await seal(secret),
   mfaEnrolledAt: now,
+  /* An invited account completes enrolment here; an active one stays active. */
   status: 'active',
   failedAttempts: 0,
   lockedUntil: null,
