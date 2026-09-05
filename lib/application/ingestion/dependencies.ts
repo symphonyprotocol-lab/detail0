@@ -10,13 +10,12 @@
 import type { EmbeddingAdapter } from '@/lib/infrastructure/ai/providers';
 import { embeddingAdapter, isEmbeddingConfigured } from '@/lib/infrastructure/ai/providers';
 import { fetchSnapshot } from '@/lib/infrastructure/connectors';
-import type { SourceSnapshot } from '@/lib/infrastructure/connectors';
+import type { FetchSnapshotInput, SourceSnapshot } from '@/lib/infrastructure/connectors';
 import type { ObjectStore } from '@/lib/infrastructure/objects/store';
 import { isObjectStoreConfigured, objectStore } from '@/lib/infrastructure/objects/store';
-import type { PlatformSourceType } from '@/lib/domain/library';
 
 export interface IngestionDependencies {
-  fetchSnapshot(input: { type: PlatformSourceType; location: string }): Promise<SourceSnapshot>;
+  fetchSnapshot(input: FetchSnapshotInput): Promise<SourceSnapshot>;
   embeddings(): EmbeddingAdapter;
   store(): ObjectStore;
   /** Whether a build could run at all. Checked before anything is fetched. */
@@ -33,22 +32,39 @@ export const defaultDependencies: IngestionDependencies = {
   }),
 };
 
-/** An in-memory store, for tests and for nothing else. */
-export function memoryObjectStore(): ObjectStore & { keys(): string[] } {
-  const objects = new Map<string, Uint8Array>();
+/**
+ * An in-memory store, for tests and for nothing else. `now` is the clock its
+ * `uploadedAt` stamps come from, so a test can age an object.
+ */
+export function memoryObjectStore(
+  now: () => number = Date.now,
+): ObjectStore & { keys(): string[] } {
+  const objects = new Map<string, { body: Uint8Array; uploadedAt: Date }>();
   return {
     keys: () => [...objects.keys()],
     async put(key, body) {
-      objects.set(key, body);
+      objects.set(key, { body, uploadedAt: new Date(now()) });
     },
     async get(key) {
-      return objects.get(key) ?? null;
+      return objects.get(key)?.body ?? null;
+    },
+    async head(key) {
+      const object = objects.get(key);
+      return object ? { size: object.body.byteLength, contentType: null } : null;
+    },
+    async list(prefix) {
+      return [...objects.entries()]
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, object]) => ({ key, uploadedAt: object.uploadedAt }));
     },
     async delete(key) {
       objects.delete(key);
     },
     async signedUrl(key) {
       return `memory://${key}`;
+    },
+    async uploadTicket(key) {
+      return { kind: 'put', url: `memory://${key}?upload` };
     },
   };
 }

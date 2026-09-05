@@ -1,8 +1,8 @@
 'use server';
 
 import { AppError } from '@/contracts/errors';
-import { createWorkspaceLibrary } from '@/lib/application/libraries';
-import { isPlatformSourceType } from '@/lib/domain/library';
+import { createWorkspaceLibrary, prepareUploads, type PreparedUpload } from '@/lib/application/libraries';
+import { isConnectedSourceType, UPLOAD_LIMITS } from '@/lib/domain/library';
 import { requireSession } from '@/lib/http/session';
 
 /**
@@ -23,8 +23,17 @@ export async function createWorkspaceLibraryAction(
   const session = await requireSession('/dashboard/libraries/new');
   try {
     const sourceType = String(form.get('sourceType') ?? '');
-    if (!isPlatformSourceType(sourceType)) return { ok: false, error: 'invalid' };
+    if (!isConnectedSourceType(sourceType)) return { ok: false, error: 'invalid' };
     const visibility = form.get('visibility') === 'private' ? 'private' : 'public';
+
+    let uploads: unknown;
+    if (sourceType === 'pdf') {
+      try {
+        uploads = JSON.parse(String(form.get('uploads') ?? ''));
+      } catch {
+        return { ok: false, error: 'invalid' };
+      }
+    }
 
     const { publicId } = await createWorkspaceLibrary({
       workspaceId: session.workspace.id,
@@ -34,6 +43,7 @@ export async function createWorkspaceLibraryAction(
       sourceType,
       location: String(form.get('location') ?? ''),
       slug: String(form.get('slug') ?? ''),
+      uploads,
       description: String(form.get('description') ?? '') || null,
       language: String(form.get('language') ?? '') || null,
     });
@@ -45,7 +55,53 @@ export async function createWorkspaceLibraryAction(
     if (error instanceof AppError && error.code === 'invalid_request') {
       return { ok: false, error: error.message.includes('taken') ? 'taken' : 'invalid' };
     }
+    if (error instanceof AppError && error.code === 'provider_unavailable') {
+      return { ok: false, error: 'unavailable' };
+    }
     console.error(`create library failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return { ok: false, error: 'unavailable' };
+  }
+}
+
+/**
+ * Room in the store for the PDFs the wizard is about to upload: one upload
+ * ticket per file. The browser uploads straight to storage, so a 20 MB
+ * manual never passes through a server action and its body limit.
+ * Returns a coarse code like the create action; the size limit is repeated
+ * in the result so the wizard can say it without a second round trip.
+ */
+export interface PrepareUploadResult {
+  ok: boolean;
+  batchId?: string;
+  files?: PreparedUpload[];
+  maxFileBytes: number;
+  error?: 'invalid' | 'too_large' | 'access_denied' | 'unavailable';
+}
+
+export async function prepareUploadAction(
+  files: { name: string; size: number }[],
+  batchId?: string,
+): Promise<PrepareUploadResult> {
+  const session = await requireSession('/dashboard/libraries/new');
+  const maxFileBytes = UPLOAD_LIMITS.maxFileBytes;
+  if (!Array.isArray(files) || files.length > UPLOAD_LIMITS.maxFiles) {
+    return { ok: false, maxFileBytes, error: 'invalid' };
+  }
+  try {
+    const prepared = await prepareUploads({
+      workspaceId: session.workspace.id,
+      role: session.workspace.role,
+      files: files.map((file) => ({ name: String(file?.name ?? ''), size: Number(file?.size) })),
+      batchId: typeof batchId === 'string' ? batchId : undefined,
+    });
+    return { ok: true, maxFileBytes, ...prepared };
+  } catch (error) {
+    if (error instanceof AppError) {
+      if (error.code === 'library_size_exceeded') return { ok: false, maxFileBytes, error: 'too_large' };
+      if (error.code === 'access_denied') return { ok: false, maxFileBytes, error: 'access_denied' };
+      if (error.code === 'invalid_request') return { ok: false, maxFileBytes, error: 'invalid' };
+    }
+    console.error(`prepare upload failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return { ok: false, maxFileBytes, error: 'unavailable' };
   }
 }

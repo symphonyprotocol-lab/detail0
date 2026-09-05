@@ -15,11 +15,15 @@ import { AppError } from '@/contracts/errors';
 import { uuidv7 } from '@/lib/domain/id';
 import {
   idNamespace,
-  isPlatformSourceType,
+  isConnectedSourceType,
   normalizeLocation,
   normalizePublicId,
-  type PlatformSourceType,
+  parseUploadManifest,
+  uploadPrefix,
+  type ConnectedSourceType,
+  type UploadedFile,
 } from '@/lib/domain/library';
+import { isObjectStoreConfigured, objectStore, type ObjectStore } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { canManageLibraries, type WorkspaceRole } from './delete';
 import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans/configuration';
@@ -29,12 +33,21 @@ export interface CreateWorkspaceLibraryInput {
   role: WorkspaceRole;
   title: string;
   visibility: 'public' | 'private';
-  sourceType: PlatformSourceType;
+  sourceType: ConnectedSourceType;
+  /** Ignored for pdf, whose location is where its uploads sit. */
   location: string;
   /** Ignored for github, whose id is the repository. */
   slug: string;
+  /**
+   * For pdf only: the manifest the wizard posted after uploading, as parsed
+   * JSON. Checked against this workspace's key prefix and against the store
+   * before a row is written, because a form post can say anything.
+   */
+  uploads?: unknown;
   description?: string | null;
   language?: string | null;
+  /** The store the uploads are confirmed in; the configured one by default. */
+  store?: Pick<ObjectStore, 'head'>;
 }
 
 export interface CreateWorkspaceLibraryResult {
@@ -57,11 +70,29 @@ export async function createWorkspaceLibrary(
   if (title.length === 0 || title.length > 120) {
     throw new AppError('invalid_request', 'a library needs a title (1-120 characters)');
   }
-  if (!isPlatformSourceType(input.sourceType)) {
+  if (!isConnectedSourceType(input.sourceType)) {
     throw new AppError('invalid_request', 'unsupported source type');
   }
 
-  const location = normalizeLocation(input.sourceType, input.location);
+  /*
+   * A pdf source's location is derived, not typed: the prefix its files were
+   * uploaded under. Each file is confirmed to exist in the store at the size
+   * the manifest claims, so a build never starts on an upload that failed
+   * halfway or a manifest a client edited.
+   */
+  let uploaded: UploadedFile[] = [];
+  let location: string | null;
+  if (input.sourceType === 'pdf') {
+    const manifest = parseUploadManifest(input.uploads, input.workspaceId);
+    if (!manifest) {
+      throw new AppError('invalid_request', 'the upload manifest is not valid');
+    }
+    uploaded = manifest.files;
+    location = uploadPrefix(input.workspaceId, manifest.batchId);
+    await confirmUploads(uploaded, input.store);
+  } else {
+    location = normalizeLocation(input.sourceType, input.location);
+  }
   if (!location) {
     throw new AppError('invalid_request', 'the source location is not valid for this source type');
   }
@@ -132,6 +163,7 @@ export async function createWorkspaceLibrary(
         libraryId,
         type: input.sourceType,
         location,
+        config: input.sourceType === 'pdf' ? { files: uploaded } : {},
       });
       await tx.insert(schema.workflowOperation).values({
         id: operationId,
@@ -154,6 +186,22 @@ export async function createWorkspaceLibrary(
   }
 
   return { libraryId, publicId, operationId };
+}
+
+async function confirmUploads(files: UploadedFile[], store?: Pick<ObjectStore, 'head'>): Promise<void> {
+  if (!store && !isObjectStoreConfigured()) {
+    throw new AppError('provider_unavailable', 'no object storage is configured');
+  }
+  const reader = store ?? objectStore();
+  for (const file of files) {
+    const object = await reader.head(file.key);
+    if (!object) {
+      throw new AppError('invalid_request', `${file.name} was not uploaded`);
+    }
+    if (object.size !== file.size) {
+      throw new AppError('invalid_request', `${file.name} is not the size it was declared at`);
+    }
+  }
 }
 
 /** The plan's library ceiling: active subscription's version, or newest Free. */

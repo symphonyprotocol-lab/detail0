@@ -7,7 +7,7 @@
  * are the same for every source type and happen once, in the application layer,
  * which is why nothing here is format-aware.
  */
-import type { FetchMethod, SourceConfig } from '@/lib/domain/ingestion';
+import type { DocumentFormat, FetchMethod, SourceConfig } from '@/lib/domain/ingestion';
 
 export interface FetchedFile {
   /** Stable path within the source. Part of the snapshot digest. */
@@ -22,6 +22,13 @@ export interface FetchedFile {
    * rendered two ways is the same content.
    */
   fetchedVia?: FetchMethod;
+  /**
+   * How `content` should be parsed when the path's extension does not say --
+   * the PDF connector has already extracted text from a `.pdf`, and the
+   * extension must stay so the citation names the file the operator uploaded.
+   * Absent for every source whose files are what they are named.
+   */
+  format?: DocumentFormat;
 }
 
 export interface SourceSnapshot {

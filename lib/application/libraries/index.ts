@@ -17,6 +17,7 @@ export {
   type CatalogEntry,
   type PublicLibraryDetail,
 } from './catalog';
+export { prepareUploads, type PreparedUpload, type PrepareUploadsInput } from './uploads';
 export {
   createWorkspaceLibrary,
   type CreateWorkspaceLibraryInput,

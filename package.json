@@ -18,12 +18,14 @@
     "db:studio": "drizzle-kit studio",
     "postinstall": "fumadocs-mdx",
     "admin:create": "tsx scripts/create-administrator.mts",
-    "profiles:rebuild": "tsx scripts/rebuild-profiles.mts"
+    "profiles:rebuild": "tsx scripts/rebuild-profiles.mts",
+    "uploads:purge": "tsx scripts/purge-uploads.mts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.41",
     "@ai-sdk/react": "^4.0.90",
     "@neondatabase/serverless": "^1.0.1",
+    "@vercel/blob": "^2.8.0",
     "ai": "^7.0.87",
     "drizzle-orm": "^0.44.5",
     "fumadocs-core": "^15.8.4",
@@ -35,6 +37,7 @@
     "qrcode": "^1.5.4",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "unpdf": "^1.8.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {

@@ -22,6 +22,7 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { buildVersion } from './build-version';
 import { publishVersion } from './publish-version';
 import { purgeLibrary } from './purge-library';
+import { purgeAbandonedUploads } from './purge-uploads';
 import type { IngestionDependencies } from './dependencies';
 
 export type OperationOutcome =
@@ -256,6 +257,19 @@ export async function drainOperations(input: {
   const outcomes: OperationOutcome[] = [];
   for (const row of pending) {
     outcomes.push(await runOperation({ operationId: row.id, dependencies: input.dependencies }));
+  }
+
+  /*
+   * Housekeeping rides the same schedule: the drain is the one thing that
+   * runs periodically, and a store without lifecycle rules (Vercel Blob)
+   * needs someone to expire abandoned uploads. A failure here is logged, not
+   * thrown -- the builds above already happened, and a listing hiccup is not
+   * a reason to report them as failed.
+   */
+  try {
+    await purgeAbandonedUploads({ dependencies: input.dependencies });
+  } catch (error) {
+    console.error(`upload purge failed: ${error instanceof Error ? error.message : 'unknown'}`);
   }
   return outcomes;
 }

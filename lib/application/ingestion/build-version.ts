@@ -46,7 +46,7 @@ import {
   PROFILE_VERSION,
   profileSearchText,
 } from '@/lib/domain/profile';
-import { isPlatformSourceType, type PlatformSourceType } from '@/lib/domain/library';
+import { isConnectedSourceType } from '@/lib/domain/library';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { objectKeys } from '@/lib/infrastructure/objects/store';
 import type { FetchedFile, SourceSnapshot } from '@/lib/infrastructure/connectors';
@@ -134,6 +134,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       id: schema.source.id,
       type: schema.source.type,
       location: schema.source.location,
+      config: schema.source.config,
     })
     .from(schema.source)
     .where(eq(schema.source.libraryId, library.id))
@@ -147,7 +148,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
   const snapshots: { source: (typeof sources)[number]; snapshot: SourceSnapshot }[] = [];
   for (const source of sources) {
-    if (!isPlatformSourceType(source.type)) {
+    if (!isConnectedSourceType(source.type)) {
       throw new IngestionFailure(
         'source_unsupported',
         'validate-source',
@@ -155,8 +156,9 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       );
     }
     const snapshot = await dependencies.fetchSnapshot({
-      type: source.type as PlatformSourceType,
+      type: source.type,
       location: source.location,
+      config: source.config,
     });
     snapshots.push({ source, snapshot });
   }
@@ -299,13 +301,19 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
   const parsed: { file: FetchedFile; document: ParsedDocument }[] = [];
   for (const file of safe.slice(0, INGESTION_LIMITS.maxDocuments)) {
-    const format = documentFormat(file.path) ?? (isFallbackDocument(file.path) ? 'text' : null);
+    const format =
+      file.format ??
+      documentFormat(file.path) ??
+      (isFallbackDocument(file.path) ? 'text' : null);
     if (!format) continue;
     const document = parseDocument({
       path: file.path,
       format,
       content: file.content,
-      fallbackTitle: library.title,
+      /* A file the connector already extracted (an uploaded PDF) is a
+         document in its own right and falls back to its own name; a fetched
+         page with no heading is the library's and falls back to its title. */
+      fallbackTitle: file.format ? undefined : library.title,
     });
     if (document.body.trim().length === 0) continue;
     parsed.push({ file, document });
