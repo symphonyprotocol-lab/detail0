@@ -12,6 +12,7 @@ import {
   HashIcon,
 } from '@/components/ui/icons';
 import type { CreateLibraryResult } from '@/app/dashboard/libraries/new/actions';
+import { slugFromTitle } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
 
@@ -70,6 +71,9 @@ export function ImportWizard({
   const [source, setSource] = useState<SourceId | null>(null);
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');
+  /* The id follows the title until the operator edits it by hand; from then
+     on it is theirs, so retyping the title cannot undo their choice. */
+  const [slugEdited, setSlugEdited] = useState(false);
   const [location, setLocation] = useState('');
   const [description, setDescription] = useState('');
   const [language, setLanguage] = useState('');
@@ -185,7 +189,10 @@ export function ImportWizard({
               <Field label={w.titleLabel}>
                 <input
                   value={title}
-                  onChange={(event) => setTitle(event.target.value)}
+                  onChange={(event) => {
+                    setTitle(event.target.value);
+                    if (!slugEdited) setSlug(slugFromTitle(event.target.value));
+                  }}
                   maxLength={120}
                   className={FIELD}
                 />
@@ -201,7 +208,11 @@ export function ImportWizard({
                 <Field label={w.slugLabel} hint={fill(w.slugHint, { prefix: `/${namespace}/` })}>
                   <input
                     value={slug}
-                    onChange={(event) => setSlug(event.target.value)}
+                    onChange={(event) => {
+                      setSlug(event.target.value);
+                      setSlugEdited(event.target.value.trim().length > 0);
+                    }}
+                    placeholder={w.slugPlaceholder}
                     className={FIELD}
                   />
                 </Field>
