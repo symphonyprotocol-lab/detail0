@@ -14,7 +14,7 @@ import {
   RefreshIcon,
   ShieldCheckIcon,
 } from '@/components/ui/icons';
-import { canManageLibraries, workspaceLibraryDetail } from '@/lib/application/libraries';
+import { canManageLibraries, listVersionDocuments, workspaceLibraryDetail } from '@/lib/application/libraries';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
@@ -46,6 +46,10 @@ export default async function DashboardLibraryPage({
   ]);
   const library = await workspaceLibraryDetail({ workspaceId: session.workspace.id, libraryId });
   if (!library) notFound();
+  const currentVersionId = library.versions.find((version) => version.isCurrent)?.id ?? null;
+  const documents = currentVersionId
+    ? await listVersionDocuments({ libraryId: library.id, versionId: currentVersionId, limit: 200 })
+    : { documents: [], total: 0 };
 
   const d = t.dashboard.libraryDetail;
   const l = t.dashboard.libraries;
@@ -227,6 +231,41 @@ export default async function DashboardLibraryPage({
             when(operation.createdAt),
           ])}
         />
+      </section>
+
+      <section className={`${PANEL} p-0.5`}>
+        <div className="px-6 py-4">
+          <h2 className="text-[15px] font-semibold tracking-[-0.025em] text-ink">{d.documents.title}</h2>
+          <p className="mt-0.5 text-[11px] tracking-[-0.023em] text-muted">{d.documents.description}</p>
+        </div>
+        <Table
+          columns={d.documents.columns}
+          empty={d.documents.empty}
+          rows={documents.documents.map((document) => [
+            <Link
+              key="t"
+              href={`/dashboard/libraries/${library.id}/documents/${document.id}`}
+              className="text-brandink hover:text-brand"
+            >
+              {document.title}
+            </Link>,
+            <a
+              key="u"
+              href={document.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="break-all text-muted hover:text-ink"
+            >
+              {document.sourceUrl}
+            </a>,
+            number.format(document.chunks),
+          ])}
+        />
+        {documents.total > 0 ? (
+          <p className="border-t-2 border-line px-6 py-3 text-[11px] tracking-[-0.023em] text-muted">
+            {fill(d.documents.showing, { shown: documents.documents.length, total: documents.total })}
+          </p>
+        ) : null}
       </section>
 
       <section className={`${PANEL} p-0.5`}>

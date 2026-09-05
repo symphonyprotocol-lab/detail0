@@ -43,3 +43,9 @@ export {
 } from './delete';
 export { workspaceLibraryDetail, type WorkspaceLibraryDetail } from './detail';
 export { requestLibraryRebuild, type RebuildResult } from './rebuild';
+export {
+  documentPreview,
+  listVersionDocuments,
+  type DocumentPreview,
+  type VersionDocument,
+} from './documents';

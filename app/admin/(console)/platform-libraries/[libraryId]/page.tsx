@@ -28,7 +28,9 @@ import {
   TH,
 } from '@/components/admin/ui';
 import { ChevronLeftIcon, GlobeIcon } from '@/components/ui/icons';
+import Link from 'next/link';
 import { getPlatformLibrary } from '@/lib/application/administration';
+import { listVersionDocuments } from '@/lib/application/libraries';
 import { isIngestionConfigured } from '@/lib/application/ingestion';
 import type { FetchSummary } from '@/lib/domain/ingestion';
 import { isPlatformSourceType, type PlatformSourceType } from '@/lib/domain/library';
@@ -111,6 +113,10 @@ export default async function AdminPlatformLibraryPage({
 
   const record = await loadLibrary(libraryId);
   if (!record) notFound();
+
+  const documents = record.currentVersionId
+    ? await listVersionDocuments({ libraryId: record.id, versionId: record.currentVersionId, limit: 200 })
+    : { documents: [], total: 0 };
 
   const p = t.admin.platformLibraries;
   const d = t.admin.platformLibraryDetail;
@@ -321,6 +327,60 @@ export default async function AdminPlatformLibraryPage({
         stamp={utcStamp}
         t={d}
       />
+
+      <Panel>
+        <PanelHead title={d.documents.title} description={d.documents.description} />
+        <TableScroller>
+          <table className="w-full min-w-[620px] border-collapse text-left">
+            <thead>
+              <tr>
+                {d.documents.columns.map((column) => (
+                  <th key={column} scope="col" className={TH}>
+                    {column}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {documents.documents.length === 0 ? (
+                <Empty columns={d.documents.columns.length} message={d.documents.empty} />
+              ) : null}
+              {documents.documents.map((document) => (
+                <tr key={document.id} className="border-t-2 border-line">
+                  <td className={TD}>
+                    <Link
+                      href={`/admin/platform-libraries/${record.id}/documents/${document.id}`}
+                      title={d.documents.preview}
+                      className="text-brandink hover:text-brand"
+                    >
+                      {document.title}
+                    </Link>
+                  </td>
+                  <td className={`${TD} break-all`}>
+                    <a
+                      href={document.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={d.documents.open}
+                      className="text-muted hover:text-ink"
+                    >
+                      {document.sourceUrl}
+                    </a>
+                  </td>
+                  <td className={TD}>{number(document.chunks)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableScroller>
+        {documents.total > 0 ? (
+          <div className="border-t-2 border-line px-4 py-[11px]">
+            <p className="text-[12px] tracking-[-0.023em] text-muted">
+              {fill(d.documents.showing, { shown: documents.documents.length, total: documents.total })}
+            </p>
+          </div>
+        ) : null}
+      </Panel>
 
       <Panel>
         <PanelHead title={d.versions.title} description={d.versions.description} />

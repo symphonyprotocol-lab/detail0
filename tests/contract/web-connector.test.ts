@@ -350,3 +350,50 @@ describe('pages that need a browser', () => {
     expect(requests).toHaveLength(0);
   });
 });
+
+describe('an llms.txt index', () => {
+  const md = (lines: string[]) => ({ body: lines.join('\n'), type: 'text/markdown' });
+
+  it('fetches the listed documents and the ones a nested index lists, same host only', async () => {
+    const requests = serve({
+      '/llms.txt': md([
+        '# Site',
+        '',
+        '> For developers, see https://docs.example.test/dev/llms.txt and https://other.example.test/llms.txt.',
+        '',
+        '- [Intro](https://docs.example.test/intro/): start here',
+        '- [Elsewhere](https://other.example.test/page/): not ours',
+      ]),
+      '/dev/llms.txt': md([
+        '- [API](https://docs.example.test/dev/api/): the API',
+        '- [Deeper](https://docs.example.test/dev/deep/llms.txt): not followed twice',
+      ]),
+      '/intro/': { body: '<html><body><h1>Intro</h1><a href="/not-listed/">x</a></body></html>' },
+      '/dev/api/': { body: '<html><body><h1>API</h1></body></html>' },
+      '/dev/deep/llms.txt': md(['- [Too deep](https://docs.example.test/dev/deep/page/)']),
+      '/dev/deep/page/': { body: '<html><body><h1>Too deep</h1></body></html>' },
+      '/not-listed/': { body: '<html><body><h1>Unlisted</h1></body></html>' },
+    });
+    const snapshot = await fetchWebSnapshot({ type: 'llms_txt', location: `${HOST}/llms.txt` });
+    const fetched = requests.map((request) => request.url.replace(HOST, '')).sort();
+    expect(fetched).toEqual(['/dev/api/', '/dev/llms.txt', '/intro/', '/llms.txt']);
+    expect(fetched).not.toContain('/not-listed/');
+    expect(requests.some((request) => request.url.startsWith('https://other.example.test'))).toBe(false);
+    expect(snapshot.files.map((file) => file.path).sort()).toEqual(
+      ['dev/api.html', 'dev/llms.txt', 'intro.html', 'llms.txt'].sort(),
+    );
+  });
+
+  it('survives a dead link and a dead nested index', async () => {
+    serve({
+      '/llms.txt': md([
+        '- [Gone](https://docs.example.test/gone/)',
+        '- [Index gone](https://docs.example.test/gone/llms.txt)',
+        '- [Here](https://docs.example.test/here/)',
+      ]),
+      '/here/': { body: '<html><body><h1>Here</h1></body></html>' },
+    });
+    const snapshot = await fetchWebSnapshot({ type: 'llms_txt', location: `${HOST}/llms.txt` });
+    expect(snapshot.files.map((file) => file.path).sort()).toEqual(['here.html', 'llms.txt']);
+  });
+});

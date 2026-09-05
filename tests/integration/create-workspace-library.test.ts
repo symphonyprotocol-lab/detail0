@@ -22,6 +22,8 @@ const {
   libraryFiles,
   workspaceLibraryDetail,
   requestLibraryRebuild,
+  listVersionDocuments,
+  documentPreview,
 } = await import('@/lib/application/libraries');
 const { fetchPdfSnapshot } = await import('@/lib/infrastructure/connectors/pdf');
 const { readFile } = await import('node:fs/promises');
@@ -222,6 +224,15 @@ describeWithDb('workspace library creation', () => {
     expect(detail?.currentVersion?.chunks).toBeGreaterThan(0);
     expect(detail?.currentVersion?.documents).toBe(1);
     expect(detail?.versions[0]?.documents).toBe(1);
+
+    /* The documents panel and the preview behind it. */
+    const listed = await listVersionDocuments({ libraryId: created.libraryId, versionId: detail!.versions[0]!.id });
+    expect(listed.total).toBe(1);
+    expect(listed.documents[0]?.title).toBe('Team Handbook');
+    expect(listed.documents[0]?.chunks).toBeGreaterThan(0);
+    const preview = await documentPreview({ libraryId: created.libraryId, documentId: listed.documents[0]!.id });
+    expect(preview?.chunks[0]?.body).toContain('quartzloft');
+    expect(await documentPreview({ libraryId: crypto.randomUUID(), documentId: listed.documents[0]!.id })).toBeNull();
     expect(detail?.operations[0]?.status).toBe('succeeded');
     expect(await workspaceLibraryDetail({ workspaceId: crypto.randomUUID(), libraryId: created.libraryId })).toBeNull();
 

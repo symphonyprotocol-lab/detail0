@@ -183,8 +183,16 @@ export const INGESTION_LIMITS = {
   maxChunks: 60_000,
   /** How deep a crawl of one site may go from its entry point. */
   maxCrawlDepth: 2,
-  /** How many pages a crawl or an llms.txt may pull. */
+  /** How many pages a crawl may pull. */
   maxCrawlPages: 200,
+  /**
+   * How many documents an llms.txt may list, nested indexes included. Higher
+   * than the crawl cap because an index is a curated list of documentation,
+   * not a walk that can wander into a marketing site.
+   */
+  maxIndexPages: 500,
+  /** How many nested llms.txt indexes one index may point at. */
+  maxNestedIndexes: 10,
 } as const;
 
 /* ------------------------------------------------------------------ lookup */

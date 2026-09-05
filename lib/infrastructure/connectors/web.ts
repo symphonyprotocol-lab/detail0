@@ -127,17 +127,54 @@ function toFile(resource: FetchedResource, entry: URL): FetchedFile {
  * let one site's index decide what gets published under another site's Library
  * ID -- the same reason architecture.md 15.1 treats source scope as a security
  * property rather than a convenience.
+ *
+ * An index may point at further indexes -- ethereum.org's top-level file
+ * names `/developers/docs/llms.txt` for the developer documentation, in prose
+ * rather than as a link. Those are followed one level deep, same host, a
+ * bounded number of them, and the documents they list join the set. Pages
+ * are never crawled from: an index is the site saying what its documentation
+ * is, and following links out of the listed pages would replace that
+ * statement with a walk.
  */
 async function fetchIndex(entry: URL): Promise<FetchedFile[]> {
   const index = await fetchPage(entry.toString());
 
   const files: FetchedFile[] = [toFile(index, entry)];
+  const seen = new Set<string>([normalizeUrl(entry)]);
+  const targets: URL[] = [];
+  const nested: URL[] = [];
 
-  const targets = markdownLinks(index.body, entry)
-    .filter((url) => url.hostname === entry.hostname)
-    .slice(0, INGESTION_LIMITS.maxCrawlPages);
+  const collect = (body: string, base: URL) => {
+    for (const url of indexLinks(body, base)) {
+      if (url.hostname !== entry.hostname) continue;
+      const key = normalizeUrl(url);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      (isIndexUrl(url) ? nested : targets).push(url);
+    }
+  };
+  collect(index.body, entry);
 
-  for (const target of targets) {
+  for (const sub of nested.slice(0, INGESTION_LIMITS.maxNestedIndexes)) {
+    let page: FetchedResource;
+    try {
+      page = await fetchPage(sub.toString());
+    } catch (error) {
+      if (error instanceof IngestionFailure) continue;
+      throw error;
+    }
+    files.push(toFile(page, entry));
+    /* One level only: a nested index's own nested indexes are not followed. */
+    for (const url of indexLinks(page.body, sub)) {
+      if (url.hostname !== entry.hostname || isIndexUrl(url)) continue;
+      const key = normalizeUrl(url);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      targets.push(url);
+    }
+  }
+
+  for (const target of targets.slice(0, INGESTION_LIMITS.maxIndexPages)) {
     try {
       files.push(await fetchOne(target.toString(), entry));
     } catch (error) {
@@ -146,13 +183,32 @@ async function fetchIndex(entry: URL): Promise<FetchedFile[]> {
        * failure that means the whole source is unusable -- the index itself --
        * has already been thrown above, before this loop.
        */
-      if (error instanceof IngestionFailure && error.code === 'source_too_large') continue;
       if (error instanceof IngestionFailure) continue;
       throw error;
     }
   }
   return dedupe(files);
 }
+
+/** `llms.txt` and `llms-full.txt`, wherever they sit. */
+function isIndexUrl(url: URL): boolean {
+  return /\/llms(?:-full)?\.txt$/i.test(url.pathname);
+}
+
+/**
+ * Everything an index points at: its Markdown links, plus bare URLs of
+ * further indexes that the prose mentions without linking.
+ */
+function indexLinks(body: string, base: URL): URL[] {
+  const found = markdownLinks(body, base);
+  for (const match of body.matchAll(BARE_INDEX_URL)) {
+    const url = toUrl(match[0], base);
+    if (url) found.push(url);
+  }
+  return found;
+}
+
+const BARE_INDEX_URL = /https?:\/\/[^\s<>"'()]+\/llms(?:-full)?\.txt/gi;
 
 /**
  * A breadth-first crawl from one entry point, same host only.
