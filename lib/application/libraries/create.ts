@@ -41,7 +41,10 @@ export interface CreateWorkspaceLibraryInput {
   /**
    * For pdf only: the manifest the wizard posted after uploading, as parsed
    * JSON. Checked against this workspace's key prefix and against the store
-   * before a row is written, because a form post can say anything.
+   * before a row is written, because a form post can say anything. Absent,
+   * or a manifest with no files, creates an empty PDF library: the files
+   * come later through `updateLibraryFiles`, and no build is queued until
+   * they do.
    */
   uploads?: unknown;
   description?: string | null;
@@ -53,7 +56,8 @@ export interface CreateWorkspaceLibraryInput {
 export interface CreateWorkspaceLibraryResult {
   libraryId: string;
   publicId: string;
-  operationId: string;
+  /** The queued first build. Null for a PDF library created without files. */
+  operationId: string | null;
 }
 
 export async function createWorkspaceLibrary(
@@ -83,7 +87,10 @@ export async function createWorkspaceLibrary(
   let uploaded: UploadedFile[] = [];
   let location: string | null;
   if (input.sourceType === 'pdf') {
-    const manifest = parseUploadManifest(input.uploads, input.workspaceId);
+    const manifest =
+      input.uploads === undefined || input.uploads === null
+        ? { batchId: uuidv7(), files: [] }
+        : parseUploadManifest(input.uploads, input.workspaceId);
     if (!manifest) {
       throw new AppError('invalid_request', 'the upload manifest is not valid');
     }
@@ -111,7 +118,9 @@ export async function createWorkspaceLibrary(
 
   const libraryId = uuidv7();
   const sourceId = uuidv7();
-  const operationId = uuidv7();
+  /* Nothing to build yet for an empty PDF library; `source_empty` from a
+     build that could only fail is not information the operator lacks. */
+  const operationId = input.sourceType === 'pdf' && uploaded.length === 0 ? null : uuidv7();
 
   try {
     await database.transaction(async (tx) => {
@@ -165,13 +174,15 @@ export async function createWorkspaceLibrary(
         location,
         config: input.sourceType === 'pdf' ? { files: uploaded } : {},
       });
-      await tx.insert(schema.workflowOperation).values({
-        id: operationId,
-        libraryId,
-        operationType: 'ingest',
-        sourceDigest: null,
-        status: 'pending',
-      });
+      if (operationId) {
+        await tx.insert(schema.workflowOperation).values({
+          id: operationId,
+          libraryId,
+          operationType: 'ingest',
+          sourceDigest: null,
+          status: 'pending',
+        });
+      }
     });
   } catch (error) {
     /* The driver wraps the pg error; the constraint name sits on the cause. */
@@ -188,7 +199,11 @@ export async function createWorkspaceLibrary(
   return { libraryId, publicId, operationId };
 }
 
-async function confirmUploads(files: UploadedFile[], store?: Pick<ObjectStore, 'head'>): Promise<void> {
+export async function confirmUploads(
+  files: UploadedFile[],
+  store?: Pick<ObjectStore, 'head'>,
+): Promise<void> {
+  if (files.length === 0) return;
   if (!store && !isObjectStoreConfigured()) {
     throw new AppError('provider_unavailable', 'no object storage is configured');
   }

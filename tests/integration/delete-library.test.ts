@@ -235,7 +235,7 @@ describeWithDb('library deletion', () => {
     libraries.push(created.libraryId);
 
     const built = await runOperation({
-      operationId: created.operationId,
+      operationId: created.operationId!,
       dependencies: dependencies(),
     });
     expect(built.status).toBe('succeeded');
@@ -441,10 +441,10 @@ describeWithDb('library deletion', () => {
     const [ingest] = await database
       .select({ status: schema.workflowOperation.status })
       .from(schema.workflowOperation)
-      .where(eq(schema.workflowOperation.id, created.operationId));
+      .where(eq(schema.workflowOperation.id, created.operationId!));
     expect(ingest?.status).toBe('cancelled');
     expect(
-      (await runOperation({ operationId: created.operationId, dependencies: dependencies() }))
+      (await runOperation({ operationId: created.operationId!, dependencies: dependencies() }))
         .status,
     ).toBe('lost');
 

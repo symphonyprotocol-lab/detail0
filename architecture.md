@@ -419,7 +419,7 @@ quarantine/{operationId}/{objectId}
 uploads/{workspaceId}/{batchId}/{fileId}.pdf
 ```
 
-`uploads/` 是 Dashboard 向导直传的 PDF：建库前就已存在，`source.config.files` 记录其 Key，构建时由 PDF 连接器读回；Key 以工作空间 id 开头，建库请求只能引用自己前缀下的对象。
+`uploads/` 是 Dashboard 直传的 PDF：向导在建库前上传，或建库后在该库的文件页上传，`source.config.files` 记录其 Key，构建时由 PDF 连接器读回；Key 以工作空间 id 开头，建库和改文件的请求都只能引用自己前缀下的对象。文件页的每次保存（`updateLibraryFiles`）改写 `source.config.files` 并排队一次 `refresh`：已有 pending 的构建则复用它（它尚未读取来源），正在 running 的则在其后再排一次。被移除文件的对象不立即删除——已发布版本的引用仍指向它——由上传清扫在无来源引用且超过 24 小时后回收。没有文件的 PDF 库不排队构建，`index_status` 停在 `pending`。
 
 - 下载通过短时签名 URL 或服务端流式代理；
 - Object Metadata 不保存 Token、邮箱、Query 或私有标题；
@@ -459,7 +459,7 @@ stateDiagram-v2
 每一步由 Vercel Workflows 的持久化 Step 包装，并在 Postgres 写入状态：
 
 1. `validate-source`：套餐、容量、URL、授权和配置 Schema；
-2. `fetch-snapshot`：抓取后计算 Source Digest 并写对象存储。网站来源先直接抓取（浏览器样 UA、`Accept: text/markdown` 协商、sitemap 发现），只有被拒（403）或页面是 JS 空壳时才调用远程渲染服务（`RENDER_PROVIDER`，Firecrawl 或 Jina Reader，可替换）取 Markdown；渲染目标同样经过 §15.1 的地址校验，渲染结果同样受单文档大小上限约束。未配置渲染服务时入口页为空壳以 `source_unrendered` 失败，这个独立错误码让后台能统计需要渲染的来源比例；
+2. `fetch-snapshot`：抓取后计算 Source Digest 并写对象存储。网站来源先直接抓取（浏览器样 UA、`Accept: text/markdown` 协商、sitemap 发现），只有被拒（403）或页面是 JS 空壳时才调用远程渲染服务（`RENDER_PROVIDER`，Firecrawl 或 Jina Reader，可替换）取 Markdown；渲染目标同样经过 §15.1 的地址校验，渲染结果同样受单文档大小上限约束。未配置渲染服务时入口页为空壳以 `source_unrendered` 失败，这个独立错误码让后台能统计需要渲染的来源比例。PDF 来源从对象存储读回向导上传的文件（单文件 30 MB 以内），用 pdf.js（unpdf）就地抽取文本层；只有当至多一半页面有文本层时（扫描件）才把整个文件交给 OCR 服务（`OCR_PROVIDER`，目前为 ocr.space，可替换）识别，未配置 OCR 时扫描件解析为空文档，由 `discover-parse` 报 `parse_failed`。文件以 multipart 直接上传给 OCR 厂商，不签发对象存储的临时 URL；页数与大小上限由厂商套餐决定，超出时厂商的拒绝原样以 `parse_failed` 上报；
 3. `scan`：恶意文件、Secrets、PII、Prompt Injection 和链接安全；
 4. `discover-parse`：只解析允许的文件和页面；
 5. `normalize-cite`：产生统一文档格式和 Citation；
@@ -992,6 +992,10 @@ LLM_PROVIDER_API_KEY           # 仅在线试用的答案生成，见 §9.5
 RENDER_PROVIDER                # 可选，firecrawl | jina：网站来源被拒或返回 JS 空壳时的渲染兜底，见 §8.2
 RENDER_PROVIDER_API_KEY
 RENDER_PROVIDER_BASE_URL       # 可选，自托管实例的地址（如 http://firecrawl:3002）；设了它 key 可省略，内网 http 允许但不允许重定向
+OCR_PROVIDER                   # 可选，ocrspace：上传的 PDF 没有文本层（扫描件）时的 OCR 兜底，见 §8.2
+OCR_PROVIDER_API_KEY
+OCR_PROVIDER_BASE_URL          # 可选，付费套餐的区域端点（如 https://apipro1.ocr.space）；不设则用公共 API
+OCR_PROVIDER_LANGUAGE          # 可选，按厂商约定透传（ocr.space 为三字母码，如 chs）；不设由厂商自动检测
 PAYMENT_PROVIDER_SECRET
 PAYMENT_WEBHOOK_SECRET
 APP_BASE_URL

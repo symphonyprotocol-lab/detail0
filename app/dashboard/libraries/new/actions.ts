@@ -13,6 +13,8 @@ import { requireSession } from '@/lib/http/session';
 export interface CreateLibraryResult {
   ok: boolean;
   publicId?: string;
+  /** Where the files page of a PDF library created without files is. */
+  libraryId?: string;
   error?: 'invalid' | 'taken' | 'limit' | 'unavailable';
 }
 
@@ -26,16 +28,19 @@ export async function createWorkspaceLibraryAction(
     if (!isConnectedSourceType(sourceType)) return { ok: false, error: 'invalid' };
     const visibility = form.get('visibility') === 'private' ? 'private' : 'public';
 
+    /* The wizard posts an empty manifest field when no file was uploaded;
+       that is an empty PDF library, filled in from its files page. */
     let uploads: unknown;
-    if (sourceType === 'pdf') {
+    const posted = String(form.get('uploads') ?? '');
+    if (sourceType === 'pdf' && posted !== '') {
       try {
-        uploads = JSON.parse(String(form.get('uploads') ?? ''));
+        uploads = JSON.parse(posted);
       } catch {
         return { ok: false, error: 'invalid' };
       }
     }
 
-    const { publicId } = await createWorkspaceLibrary({
+    const { publicId, libraryId } = await createWorkspaceLibrary({
       workspaceId: session.workspace.id,
       role: session.workspace.role,
       title: String(form.get('title') ?? ''),
@@ -47,7 +52,7 @@ export async function createWorkspaceLibraryAction(
       description: String(form.get('description') ?? '') || null,
       language: String(form.get('language') ?? '') || null,
     });
-    return { ok: true, publicId };
+    return { ok: true, publicId, libraryId };
   } catch (error) {
     if (error instanceof AppError && error.code === 'library_limit_exceeded') {
       return { ok: false, error: 'limit' };
@@ -82,7 +87,9 @@ export async function prepareUploadAction(
   files: { name: string; size: number }[],
   batchId?: string,
 ): Promise<PrepareUploadResult> {
-  const session = await requireSession('/dashboard/libraries/new');
+  /* Shared with the library files page, which hands the same action to the
+     same uploader; the session is what matters, not the page. */
+  const session = await requireSession('/dashboard/libraries');
   const maxFileBytes = UPLOAD_LIMITS.maxFileBytes;
   if (!Array.isArray(files) || files.length > UPLOAD_LIMITS.maxFiles) {
     return { ok: false, maxFileBytes, error: 'invalid' };

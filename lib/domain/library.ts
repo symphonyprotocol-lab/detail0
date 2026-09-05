@@ -68,8 +68,13 @@ export interface UploadedFile {
 }
 
 export const UPLOAD_LIMITS = {
-  /** Per file. A manual or a report; a scanned archive is not a library. */
-  maxFileBytes: 25 * 1024 * 1024,
+  /**
+   * Per file. A manual, a report or a scanned booklet; an archive is not a
+   * library. Uploads go straight to the object store, so the app's request
+   * body limit plays no part; what bounds this is what one build should read
+   * back into memory, and what an OCR provider will accept (`ocr.ts`).
+   */
+  maxFileBytes: 30 * 1024 * 1024,
   /** Per library creation. */
   maxFiles: 20,
   /** Presigned upload URLs stop working after this many seconds. */
@@ -106,11 +111,14 @@ export function uploadFileName(name: string): string | null {
 }
 
 /**
- * The manifest a create request carries, checked field by field: the shape
- * came from a form post, so nothing about it is trusted. Every key must sit
- * under this workspace's prefix for this batch; anything else is refused as
- * a whole rather than filtered, because a manifest with a foreign key in it
- * was not produced by the wizard.
+ * The manifest a create or update request carries, checked field by field:
+ * the shape came from a form post, so nothing about it is trusted. Every key
+ * must sit under this workspace's prefix for this batch; anything else is
+ * refused as a whole rather than filtered, because a manifest with a foreign
+ * key in it was not produced by the wizard.
+ *
+ * An empty file list is a valid manifest: a PDF library may be created
+ * before its files exist, and filled in from the library's files page.
  */
 export function parseUploadManifest(
   value: unknown,
@@ -119,9 +127,7 @@ export function parseUploadManifest(
   if (typeof value !== 'object' || value === null) return null;
   const { batchId, files } = value as { batchId?: unknown; files?: unknown };
   if (typeof batchId !== 'string' || !UUID.test(batchId)) return null;
-  if (!Array.isArray(files) || files.length === 0 || files.length > UPLOAD_LIMITS.maxFiles) {
-    return null;
-  }
+  if (!Array.isArray(files) || files.length > UPLOAD_LIMITS.maxFiles) return null;
   const seen = new Set<string>();
   const parsed: UploadedFile[] = [];
   for (const file of files as unknown[]) {
@@ -143,6 +149,32 @@ export function parseUploadManifest(
     parsed.push({ id, name: fileName, size, key: uploadKey(workspaceId, batchId, id) });
   }
   return { batchId, files: parsed };
+}
+
+/**
+ * The file list of a `pdf` source after an edit: what it had, minus the ids
+ * being removed, plus the files a fresh manifest confirmed. Pure, so the
+ * ceiling and the duplicate rule are the same whether the caller is the
+ * dashboard or a test. Null when the edit is not one the source can take: a
+ * removal of a file it does not list, an addition it already lists, or more
+ * files than one library may hold.
+ */
+export function mergeUploadedFiles(
+  current: readonly UploadedFile[],
+  added: readonly UploadedFile[],
+  removedIds: readonly string[],
+): UploadedFile[] | null {
+  const known = new Set(current.map((file) => file.id));
+  const removed = new Set<string>();
+  for (const id of removedIds) {
+    if (!known.has(id) || removed.has(id)) return null;
+    removed.add(id);
+  }
+  for (const file of added) {
+    if (known.has(file.id)) return null;
+  }
+  const merged = [...current.filter((file) => !removed.has(file.id)), ...added];
+  return merged.length > UPLOAD_LIMITS.maxFiles ? null : merged;
 }
 
 /**

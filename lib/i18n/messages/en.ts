@@ -719,6 +719,7 @@ export const en: Dictionary = {
         exempt: 'Draft',
       },
       delete: 'Delete library',
+      files: 'Manage PDF files',
       deleteDialog: {
         title: 'Delete library',
         description:
@@ -742,6 +743,34 @@ export const en: Dictionary = {
         },
       },
     },
+    libraryFiles: {
+      metaTitle: 'PDF files',
+      back: '← Back to libraries',
+      title: 'PDF files',
+      description:
+        'The files of {title}. Saving a change queues a rebuild; the previous version keeps serving until the new one publishes.',
+      currentTitle: 'Current files',
+      currentEmpty: 'No files yet. The first PDFs you upload queue the first build.',
+      pendingRemoval: 'Removed on save',
+      remove: 'Remove',
+      undoRemove: 'Keep file',
+      addTitle: 'Add files',
+      addHint: 'Up to {max} files per library, {size} each. Files upload as soon as they are picked.',
+      building: 'A build is queued or running; this change takes effect after it.',
+      submit: 'Save and rebuild',
+      submitNoBuild: 'Save',
+      pending: 'Saving…',
+      savedQueued: 'Saved; a rebuild is queued. Indexing runs in the background and the list shows progress.',
+      savedNoBuild:
+        'Saved. The library has no files now, so nothing is queued; the published version keeps serving.',
+      errors: {
+        nothing: 'There is nothing to save.',
+        invalid: 'The file list is not valid: a file may still be uploading, or the limit is exceeded.',
+        not_found: 'That library was not found — it may already be deleted.',
+        access_denied: 'Only a workspace owner or admin can change a library’s files.',
+        unavailable: 'The change was not saved. Try again later.',
+      },
+    },
     newLibrary: {
       metaTitle: 'Add a library',
       back: '← Back to libraries',
@@ -762,7 +791,7 @@ export const en: Dictionary = {
           llms_txt: { name: 'llms.txt', note: 'A site’s published llms.txt index.' },
           openapi: { name: 'OpenAPI', note: 'An OpenAPI/Swagger document URL.' },
           notion: { name: 'Notion', note: 'A shared Notion space (needs a connector token).' },
-          pdf: { name: 'PDF upload', note: 'One or more PDF files from your computer.' },
+          pdf: { name: 'PDF upload', note: 'PDF files from your computer, now or after the library exists.' },
         },
         titleLabel: 'Library title',
         locationLabel: 'Source location',
@@ -775,7 +804,8 @@ export const en: Dictionary = {
           pdf: '',
         },
         filesLabel: 'PDF files',
-        filesHint: 'Up to {max} files, {size} each. Files upload as soon as they are picked.',
+        filesHint:
+          'Up to {max} files, {size} each. Files upload as soon as they are picked. You can also skip this and add or replace files from the library’s files page at any time.',
         filesPick: 'Choose PDF files',
         filesPickMore: 'Add more files',
         filesCount: '{n} file(s)',
@@ -803,6 +833,10 @@ export const en: Dictionary = {
         queuedBody:
           '{id} is created and its first build is in the ingestion queue. Indexing runs in the background; the library page shows progress.',
         queuedCta: 'Back to libraries',
+        createdTitle: 'Library created — waiting for files',
+        createdBodyNoFiles:
+          '{id} is created and has no files yet. The first PDFs you upload queue the first build; files can be added or removed and the library rebuilt at any time after that.',
+        createdCtaFiles: 'Upload PDFs',
         errorInvalid: 'Check the fields: the location or id is not valid for this source type.',
         errorTaken: 'That library id is already taken — pick another slug.',
         errorLimit: 'The plan’s library limit is reached — archive one or upgrade.',

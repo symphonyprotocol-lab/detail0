@@ -117,6 +117,8 @@
 
 对象存储用 Vercel Blob：在 Vercel 项目的 Storage 里为每个环境各建一个 Blob Store 并连接到项目，`BLOB_READ_WRITE_TOKEN` 会自动注入；本地用 `vercel env pull` 拉取。所有对象都以私有方式写入。Dashboard 的 PDF 导入向导由浏览器直接上传到 Blob（服务端只签发限定路径、类型和大小的 Client Token），不经过应用，也就不受请求体大小限制，不需要额外的 CORS 配置。Blob 没有生命周期规则，向导中途放弃的上传会留在 `uploads/` 前缀下，由 drain 每次收尾时清理超过 24 小时且未被引用的对象，也可以用 `npm run uploads:purge` 手动跑。未设置 `BLOB_READ_WRITE_TOKEN` 时，代码退回 `OBJECT_STORE_*` 描述的 S3 兼容 Bucket，那时 Bucket 要允许来自应用 Origin 的跨域 `PUT`。
 
+PDF 知识库可以在建库时就上传文件，也可以先建空库、之后在列表页该库的「管理 PDF 文件」页随时增删文件；保存后会排队重新构建，新版本发布前旧版本继续提供检索。空库不排队构建。PDF 单文件上限 30 MB，每个知识库最多 20 个文件。构建时用 pdf.js 抽取文本层；扫描件没有文本层，需要配置 OCR 服务才能索引：设置 `OCR_PROVIDER=ocrspace` 和 `OCR_PROVIDER_API_KEY`（[ocr.space](https://ocr.space/ocrapi)，免费 Key 限 1 MB、3 页，PDF 套餐才放开到 100 MB、999 页，付费套餐的区域端点填 `OCR_PROVIDER_BASE_URL`；中文扫描件设 `OCR_PROVIDER_LANGUAGE=chs`）。OCR 只在至多一半页面有文本层时触发，文件不经过应用之外的任何临时 URL，直接以 multipart 送给厂商。未配置时扫描件构建会以 `parse_failed` 结束。OCR 是 `lib/infrastructure/connectors/ocr.ts` 里的一个 Provider 接口，换厂商只改这一处。
+
 完整环境变量清单见 [architecture.md](./architecture.md) 第 19.1 节。Secret 不得进入前端 Bundle，只允许在 Server Component、Route Handler 和 Workflow 中读取。Anchor Signer 私钥不出现在任何环境变量里。
 
 ## 本地开发与登录

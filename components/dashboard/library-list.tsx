@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { DeleteLibraryControl, type DeleteLibraryAction } from '@/components/dashboard/library-delete';
 import { Badge, PANEL, SearchField, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
-import { ArrowRightIcon } from '@/components/ui/icons';
+import { ArrowRightIcon, FileTextIcon } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
 
 /** One row of the live list, mapped by the page from the workspace's rows. */
@@ -21,6 +21,8 @@ export interface LibraryListRow {
   statusLabel: string;
   updated: string;
   initial: string;
+  /** The files page of a PDF library; null for every other source. */
+  filesHref: string | null;
 }
 
 /** Deterministic tile colour from the slug: stable across renders and rows. */
@@ -57,6 +59,11 @@ export function LibraryList({
     { id: 'pending', label: l.filters.pending },
     { id: 'blocked', label: l.filters.blocked },
   ];
+
+  /* Room on the right for the controls that sit beside a row: the files
+     link of a PDF library and the delete button. */
+  const controls = (deleteAction ? 1 : 0) + (allRows.some((row) => row.filesHref) ? 1 : 0);
+  const controlPad = controls === 2 ? 'pr-[104px]' : controls === 1 ? 'pr-[64px]' : '';
 
   const rows = useMemo(() => {
     const needle = term.trim().toLowerCase();
@@ -98,9 +105,7 @@ export function LibraryList({
       <div className="overflow-x-auto">
         <div className="min-w-[620px]">
           <div
-            className={`grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center bg-subtle px-[18px] py-3 text-[11px] font-semibold tracking-[-0.023em] text-muted ${
-              deleteAction ? 'pr-[64px]' : ''
-            }`}
+            className={`grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center bg-subtle px-[18px] py-3 text-[11px] font-semibold tracking-[-0.023em] text-muted ${controlPad}`}
           >
             {l.columns.map((column) => (
               <span key={column}>{column}</span>
@@ -157,9 +162,7 @@ export function LibraryList({
             );
             /* Room on the right for the delete control, which sits beside the
                row rather than inside it -- see DeleteLibraryControl. */
-            const rowClass = `grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center border-t-2 border-line px-[18px] py-[19px] ${
-              deleteAction ? 'pr-[64px]' : ''
-            }`;
+            const rowClass = `grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center border-t-2 border-line px-[18px] py-[19px] ${controlPad}`;
 
             return (
               <div key={library.id} className="relative">
@@ -173,9 +176,20 @@ export function LibraryList({
                 ) : (
                   <div className={rowClass}>{cells}</div>
                 )}
-                {deleteAction ? (
-                  <span className="absolute top-1/2 right-[18px] -translate-y-1/2">
-                    <DeleteLibraryControl
+                {controls > 0 ? (
+                  <span className="absolute top-1/2 right-[18px] flex -translate-y-1/2 items-center gap-2">
+                    {library.filesHref ? (
+                      <Link
+                        href={library.filesHref}
+                        aria-label={l.files}
+                        title={l.files}
+                        className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-[6px] border-2 border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-ink"
+                      >
+                        <FileTextIcon size={14} />
+                      </Link>
+                    ) : null}
+                    {deleteAction ? (
+                      <DeleteLibraryControl
                       action={deleteAction}
                       target={{
                         id: library.id,
@@ -185,6 +199,7 @@ export function LibraryList({
                         color: tileColor(library.slug),
                       }}
                     />
+                    ) : null}
                   </span>
                 ) : null}
               </div>

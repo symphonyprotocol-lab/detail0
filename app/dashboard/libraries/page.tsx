@@ -97,6 +97,7 @@ export default async function DashboardLibrariesPage() {
       statusLabel: statusLabels[status],
       updated: row.updatedAt ? date.format(new Date(row.updatedAt)) : '—',
       initial: (row.title.trim()[0] ?? '?').toUpperCase(),
+      filesHref: row.hasFiles ? `/dashboard/libraries/${row.id}/files` : null,
     };
   });
 

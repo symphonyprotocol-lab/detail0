@@ -15,7 +15,9 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
-const { createWorkspaceLibrary, prepareUploads } = await import('@/lib/application/libraries');
+const { createWorkspaceLibrary, prepareUploads, updateLibraryFiles, libraryFiles } = await import(
+  '@/lib/application/libraries'
+);
 const { fetchPdfSnapshot } = await import('@/lib/infrastructure/connectors/pdf');
 const { readFile } = await import('node:fs/promises');
 const { runOperation, memoryObjectStore, purgeAbandonedUploads } = await import(
@@ -203,7 +205,7 @@ describeWithDb('workspace library creation', () => {
 
     /* The queued operation is the whole hand-off: the drain builds it. */
     const outcome = await runOperation({
-      operationId: created.operationId,
+      operationId: created.operationId!,
       dependencies: dependencies(),
     });
     expect(outcome.status).toBe('succeeded');
@@ -297,7 +299,7 @@ describeWithDb('workspace library creation', () => {
     expect(source?.location).toBe(`uploads/${workspaceId}/${prepared.batchId}`);
     expect((source?.config as { files: { name: string }[] }).files[0]?.name).toBe('Team Handbook.pdf');
 
-    const outcome = await runOperation({ operationId: created.operationId, dependencies: dependencies() });
+    const outcome = await runOperation({ operationId: created.operationId!, dependencies: dependencies() });
     expect(outcome.status).toBe('succeeded');
 
     await db()
@@ -326,6 +328,109 @@ describeWithDb('workspace library creation', () => {
     expect(after.deleted).toBe(1);
     expect(await store.head(orphan)).toBeNull();
     expect(await store.head(claimedKey)).not.toBeNull();
+  });
+
+  it('creates an empty PDF library, then fills it in from the files page and rebuilds', async () => {
+    const stamp = Date.now();
+    const workspaceId = await workspaceOnPlan(5);
+    const bytes = new Uint8Array(await readFile(new URL('../fixtures/handbook.pdf', import.meta.url)));
+
+    /* No files, no build: the library waits. */
+    const created = await createWorkspaceLibrary({
+      role: 'owner',
+      workspaceId,
+      title: 'Later PDFs',
+      visibility: 'private',
+      sourceType: 'pdf',
+      location: '',
+      slug: `later-pdfs-${stamp}`,
+      store,
+    });
+    libraries.push(created.libraryId);
+    expect(created.operationId).toBeNull();
+    const empty = await libraryFiles({ workspaceId, libraryId: created.libraryId });
+    expect(empty?.files).toEqual([]);
+    expect(empty?.building).toBe(false);
+    expect(
+      await db()
+        .select({ id: schema.workflowOperation.id })
+        .from(schema.workflowOperation)
+        .where(eq(schema.workflowOperation.libraryId, created.libraryId)),
+    ).toHaveLength(0);
+
+    /* Another workspace's library is nobody's business: not found, not refused. */
+    const stranger = await workspaceOnPlan(5);
+    expect(await libraryFiles({ workspaceId: stranger, libraryId: created.libraryId })).toBeNull();
+    await expect(
+      updateLibraryFiles({ workspaceId: stranger, role: 'owner', libraryId: created.libraryId, remove: [crypto.randomUUID()] }),
+    ).rejects.toMatchObject({ code: 'library_not_found' });
+
+    /* Upload one file the same way the wizard does, then save it in. */
+    const upload = async (name: string) => {
+      const prepared = await prepareUploads({ workspaceId, role: 'owner', files: [{ name, size: bytes.byteLength }], store });
+      for (const file of prepared.files) {
+        if (file.ticket.kind !== 'put') throw new Error('the memory store issues PUT tickets');
+        await store.put(file.ticket.url.replace(/^memory:\/\//, '').replace(/\?upload$/, ''), bytes, 'application/pdf');
+      }
+      return { batchId: prepared.batchId, files: prepared.files.map(({ id, name, size }) => ({ id, name, size })) };
+    };
+    const first = await updateLibraryFiles({
+      workspaceId,
+      role: 'owner',
+      libraryId: created.libraryId,
+      add: await upload('Team Handbook.pdf'),
+      store,
+    });
+    expect(first.files.map((file) => file.name)).toEqual(['Team Handbook.pdf']);
+    expect(first.operationId).not.toBeNull();
+    expect((await libraryFiles({ workspaceId, libraryId: created.libraryId }))?.building).toBe(true);
+
+    /* A second edit while the build is still pending rides the same operation. */
+    const second = await updateLibraryFiles({
+      workspaceId,
+      role: 'owner',
+      libraryId: created.libraryId,
+      add: await upload('Appendix.pdf'),
+      store,
+    });
+    expect(second.files).toHaveLength(2);
+    expect(second.operationId).toBe(first.operationId);
+
+    const outcome = await runOperation({ operationId: first.operationId!, dependencies: dependencies() });
+    expect(outcome.status).toBe('succeeded');
+    if (outcome.status === 'succeeded') expect(outcome.documents).toBe(2);
+
+    /* Removing one after the build queues a fresh rebuild; removing a file
+       the source does not list is refused. */
+    const appendix = second.files.find((file) => file.name === 'Appendix.pdf')!;
+    await expect(
+      updateLibraryFiles({ workspaceId, role: 'owner', libraryId: created.libraryId, remove: [crypto.randomUUID()] }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+    const third = await updateLibraryFiles({
+      workspaceId,
+      role: 'owner',
+      libraryId: created.libraryId,
+      remove: [appendix.id],
+    });
+    expect(third.files.map((file) => file.name)).toEqual(['Team Handbook.pdf']);
+    expect(third.operationId).not.toBeNull();
+    expect(third.operationId).not.toBe(first.operationId);
+
+    /* Emptying the list saves, but queues nothing. */
+    const last = third.files[0]!;
+    const fourth = await updateLibraryFiles({
+      workspaceId,
+      role: 'owner',
+      libraryId: created.libraryId,
+      remove: [last.id],
+    });
+    expect(fourth.files).toEqual([]);
+    expect(fourth.operationId).toBeNull();
+
+    /* A developer may look, not change. */
+    await expect(
+      updateLibraryFiles({ workspaceId, role: 'developer', libraryId: created.libraryId, remove: [] }),
+    ).rejects.toMatchObject({ code: 'access_denied' });
   });
 
   it('enforces the plan limit and public-id uniqueness', async () => {

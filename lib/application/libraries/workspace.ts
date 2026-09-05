@@ -3,7 +3,7 @@
  * rows other flows own: creation goes through the import wizard, review
  * through the console, refresh through the workflow queue.
  */
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import type { LifecycleStatus, IndexStatus, Visibility } from '@/lib/domain';
 
@@ -18,6 +18,8 @@ export interface WorkspaceLibraryRow {
   totalChunks: number;
   storageBytes: number;
   updatedAt: string | null;
+  /** True for a library whose source is uploaded PDFs, which has a files page. */
+  hasFiles: boolean;
 }
 
 export async function listWorkspaceLibraries(workspaceId: string): Promise<WorkspaceLibraryRow[]> {
@@ -40,6 +42,25 @@ export async function listWorkspaceLibraries(workspaceId: string): Promise<Works
     .where(OWNED_AND_LIVE(workspaceId))
     .orderBy(desc(schema.library.createdAt));
 
+  const withFiles = new Set(
+    rows.length === 0
+      ? []
+      : (
+          await db()
+            .select({ libraryId: schema.source.libraryId })
+            .from(schema.source)
+            .where(
+              and(
+                eq(schema.source.type, 'pdf'),
+                inArray(
+                  schema.source.libraryId,
+                  rows.map((row) => row.id),
+                ),
+              ),
+            )
+        ).map((source) => source.libraryId),
+  );
+
   return rows.map((row) => ({
     id: row.id,
     publicId: row.publicId,
@@ -51,6 +72,7 @@ export async function listWorkspaceLibraries(workspaceId: string): Promise<Works
     totalChunks: row.totalChunks ?? 0,
     storageBytes: row.storageBytes,
     updatedAt: (row.lastSuccessfulRefreshAt ?? row.createdAt)?.toISOString() ?? null,
+    hasFiles: withFiles.has(row.id),
   }));
 }
 

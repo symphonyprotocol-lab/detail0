@@ -19,6 +19,13 @@ export {
 } from './catalog';
 export { prepareUploads, type PreparedUpload, type PrepareUploadsInput } from './uploads';
 export {
+  libraryFiles,
+  updateLibraryFiles,
+  type LibraryFilesView,
+  type UpdateLibraryFilesInput,
+  type UpdateLibraryFilesResult,
+} from './files';
+export {
   createWorkspaceLibrary,
   type CreateWorkspaceLibraryInput,
   type CreateWorkspaceLibraryResult,

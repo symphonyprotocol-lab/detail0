@@ -129,7 +129,7 @@ async function publish(workspaceId: string, slug: string, content: string) {
   });
   libraries.push(created.libraryId);
   const built = await runOperation({
-    operationId: created.operationId,
+    operationId: created.operationId!,
     dependencies: dependencies(content),
   });
   expect(built.status).toBe('succeeded');
@@ -190,7 +190,7 @@ describeWithDb('nested library ids', () => {
     const [operation] = await db()
       .select({ fetchSummary: schema.workflowOperation.fetchSummary })
       .from(schema.workflowOperation)
-      .where(eq(schema.workflowOperation.id, parent.operationId));
+      .where(eq(schema.workflowOperation.id, parent.operationId!));
     expect(operation?.fetchSummary).toEqual({ direct: 1, rendered: 1, renderer: 'firecrawl' });
 
     const owner = { workspaceId, apiKeyId: null, requestId: `req_${crypto.randomUUID()}`, anonymous: false };
