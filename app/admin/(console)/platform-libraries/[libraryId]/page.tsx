@@ -30,7 +30,12 @@ import {
 import { ChevronLeftIcon, GlobeIcon } from '@/components/ui/icons';
 import Link from 'next/link';
 import { getPlatformLibrary } from '@/lib/application/administration';
-import { documentsPage, DOCUMENTS_PAGE_SIZE, listVersionDocuments } from '@/lib/application/libraries';
+import {
+  documentsPage,
+  documentsPageSize,
+  DOCUMENTS_PAGE_SIZES,
+  listVersionDocuments,
+} from '@/lib/application/libraries';
 import { isIngestionConfigured } from '@/lib/application/ingestion';
 import type { FetchSummary } from '@/lib/domain/ingestion';
 import { isPlatformSourceType, type PlatformSourceType } from '@/lib/domain/library';
@@ -118,16 +123,18 @@ export default async function AdminPlatformLibraryPage({
   if (!record) notFound();
 
   const docsPage = documentsPage(query.docs);
+  const docsSize = documentsPageSize(query.size);
   const documents = record.currentVersionId
     ? await listVersionDocuments({
         libraryId: record.id,
         versionId: record.currentVersionId,
-        limit: DOCUMENTS_PAGE_SIZE,
-        offset: (docsPage - 1) * DOCUMENTS_PAGE_SIZE,
+        limit: docsSize,
+        offset: (docsPage - 1) * docsSize,
       })
     : { documents: [], total: 0 };
-  const docsPages = Math.max(1, Math.ceil(documents.total / DOCUMENTS_PAGE_SIZE));
-  const docsHref = (page: number) => `/admin/platform-libraries/${record.id}?docs=${page}#documents`;
+  const docsPages = Math.max(1, Math.ceil(documents.total / docsSize));
+  const docsHref = (page: number, size: number = docsSize) =>
+    `/admin/platform-libraries/${record.id}?docs=${page}&size=${size}#documents`;
 
   const p = t.admin.platformLibraries;
   const d = t.admin.platformLibraryDetail;
@@ -397,6 +404,21 @@ export default async function AdminPlatformLibraryPage({
               {fill(d.documents.showing, { shown: documents.documents.length, total: documents.total })}
             </p>
             <span className="flex items-center gap-2">
+              <span className="flex items-center gap-1 text-[11px] text-muted">
+                {d.documents.pageSize}
+                {DOCUMENTS_PAGE_SIZES.map((size) => (
+                  <Link
+                    key={size}
+                    href={docsHref(1, size)}
+                    aria-current={size === docsSize ? 'true' : undefined}
+                    className={`rounded-[5px] px-1.5 py-0.5 ${
+                      size === docsSize ? 'bg-subtle font-semibold text-ink' : 'hover:text-ink'
+                    }`}
+                  >
+                    {size}
+                  </Link>
+                ))}
+              </span>
               {docsPage > 1 ? (
                 <ConsoleButton href={docsHref(docsPage - 1)}>{t.admin.actions.prev}</ConsoleButton>
               ) : null}

@@ -46,7 +46,9 @@ export { requestLibraryRebuild, type RebuildResult } from './rebuild';
 export {
   documentPreview,
   documentsPage,
+  documentsPageSize,
   DOCUMENTS_PAGE_SIZE,
+  DOCUMENTS_PAGE_SIZES,
   listVersionDocuments,
   type DocumentPreview,
   type VersionDocument,

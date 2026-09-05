@@ -14,6 +14,7 @@ import {
   extractTerms,
   PROFILE_LIMITS,
   PROFILE_VERSION,
+  platformSpecificity,
   profileSearchText,
   routingTokens,
   searchTokens,
@@ -97,6 +98,29 @@ describe('term extraction', () => {
     for (const noise of ['https', 'cdnjs', 'ajax', 'libs', 'twemoji', 'svg', 'com', 'org', 'example', 'ops']) {
       expect(terms).not.toContain(noise);
     }
+  });
+
+  it('ranks by frequency times platform specificity, so a term every library has drops', () => {
+    const texts = [
+      'information information information information ethereum ethereum ethereum validators validators',
+    ];
+    expect(extractTerms(texts)[0]).toBe('information');
+    const frequency = new Map([
+      ['information', 20],
+      ['ethereum', 1],
+    ]);
+    const weighted = extractTerms(texts, PROFILE_LIMITS.maxTerms, platformSpecificity(frequency, 20));
+    expect(weighted[0]).toBe('ethereum');
+    expect(weighted).toContain('information');
+  });
+
+  it('weighs nothing while the platform has no other profiles to compare against', () => {
+    const weight = platformSpecificity(new Map(), 0);
+    expect(weight('anything')).toBe(1);
+    const some = platformSpecificity(new Map([['common', 3]]), 3);
+    expect(some('rare')).toBe(1);
+    expect(some('common')).toBeLessThan(0.5);
+    expect(some('common')).toBeGreaterThan(0.3);
   });
 
   it('leaves discourse and ordinal words out too', () => {
@@ -194,6 +218,6 @@ describe('centroid accumulator', () => {
 
 describe('versioning', () => {
   it('stamps a stable extractor version', () => {
-    expect(PROFILE_VERSION).toBe('re0-profile-3');
+    expect(PROFILE_VERSION).toBe('re0-profile-4');
   });
 });

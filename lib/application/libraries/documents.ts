@@ -14,12 +14,20 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const DOCUMENTS_PAGE_SIZE = 50;
+/** Page sizes a documents panel offers; the first is the default. */
+export const DOCUMENTS_PAGE_SIZES = [10, 25, 50, 100] as const;
+export const DOCUMENTS_PAGE_SIZE: number = DOCUMENTS_PAGE_SIZES[0];
 
 /** Which page of documents `?docs=` asks for: a positive integer, else the first. */
 export function documentsPage(value: string | string[] | undefined): number {
   const n = Number(Array.isArray(value) ? value[0] : value);
   return Number.isInteger(n) && n > 0 ? n : 1;
+}
+
+/** How many per page `?size=` asks for: one of the offered sizes, else the default. */
+export function documentsPageSize(value: string | string[] | undefined): number {
+  const n = Number(Array.isArray(value) ? value[0] : value);
+  return (DOCUMENTS_PAGE_SIZES as readonly number[]).includes(n) ? n : DOCUMENTS_PAGE_SIZE;
 }
 
 export interface VersionDocument {
@@ -54,7 +62,7 @@ export async function listVersionDocuments(input: {
       .where(scope)
       .groupBy(schema.document.id)
       .orderBy(asc(schema.document.sourceUrl))
-      .limit(input.limit ?? 50)
+      .limit(input.limit ?? DOCUMENTS_PAGE_SIZE)
       .offset(input.offset ?? 0),
     database.select({ n: count() }).from(schema.document).where(scope),
   ]);

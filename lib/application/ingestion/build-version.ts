@@ -49,6 +49,7 @@ import {
 import { isConnectedSourceType } from '@/lib/domain/library';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { objectKeys } from '@/lib/infrastructure/objects/store';
+import { platformTermWeight } from './term-weights';
 import type { FetchedFile, SourceSnapshot } from '@/lib/infrastructure/connectors';
 import { defaultDependencies, type IngestionDependencies } from './dependencies';
 
@@ -569,7 +570,11 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     }
 
     const titles = rows.map((row) => row.document.title).slice(0, PROFILE_LIMITS.maxTitles);
-    const terms = extractTerms(pending.map((chunk) => chunk.body));
+    const terms = extractTerms(
+      pending.map((chunk) => chunk.body),
+      PROFILE_LIMITS.maxTerms,
+      await platformTermWeight(library.id),
+    );
 
     await database.transaction(async (tx) => {
       /*

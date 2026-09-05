@@ -17,7 +17,8 @@ import {
 import {
   canManageLibraries,
   documentsPage,
-  DOCUMENTS_PAGE_SIZE,
+  documentsPageSize,
+  DOCUMENTS_PAGE_SIZES,
   listVersionDocuments,
   workspaceLibraryDetail,
 } from '@/lib/application/libraries';
@@ -59,16 +60,18 @@ export default async function DashboardLibraryPage({
   if (!library) notFound();
   const currentVersionId = library.versions.find((version) => version.isCurrent)?.id ?? null;
   const docsPage = documentsPage(query.docs);
+  const docsSize = documentsPageSize(query.size);
   const documents = currentVersionId
     ? await listVersionDocuments({
         libraryId: library.id,
         versionId: currentVersionId,
-        limit: DOCUMENTS_PAGE_SIZE,
-        offset: (docsPage - 1) * DOCUMENTS_PAGE_SIZE,
+        limit: docsSize,
+        offset: (docsPage - 1) * docsSize,
       })
     : { documents: [], total: 0 };
-  const docsPages = Math.max(1, Math.ceil(documents.total / DOCUMENTS_PAGE_SIZE));
-  const docsHref = (page: number) => `/dashboard/libraries/${library.id}?docs=${page}#documents`;
+  const docsPages = Math.max(1, Math.ceil(documents.total / docsSize));
+  const docsHref = (page: number, size: number = docsSize) =>
+    `/dashboard/libraries/${library.id}?docs=${page}&size=${size}#documents`;
 
   const d = t.dashboard.libraryDetail;
   const l = t.dashboard.libraries;
@@ -287,6 +290,21 @@ export default async function DashboardLibraryPage({
               {fill(d.documents.showing, { shown: documents.documents.length, total: documents.total })}
             </p>
             <span className="flex items-center gap-2">
+              <span className="flex items-center gap-1 text-[11px] text-muted">
+                {d.documents.pageSize}
+                {DOCUMENTS_PAGE_SIZES.map((size) => (
+                  <Link
+                    key={size}
+                    href={docsHref(1, size)}
+                    aria-current={size === docsSize ? 'true' : undefined}
+                    className={`rounded-[5px] px-1.5 py-0.5 ${
+                      size === docsSize ? 'bg-subtle font-semibold text-ink' : 'hover:text-ink'
+                    }`}
+                  >
+                    {size}
+                  </Link>
+                ))}
+              </span>
               {docsPage > 1 ? (
                 <Link href={docsHref(docsPage - 1)} className={PAGER}>
                   {d.documents.prev}

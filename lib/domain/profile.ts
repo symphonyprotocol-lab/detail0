@@ -19,7 +19,7 @@
  */
 
 /** Frozen into `library_profile.profile_version`; bump on any change here. */
-export const PROFILE_VERSION = 're0-profile-3';
+export const PROFILE_VERSION = 're0-profile-4';
 
 export const PROFILE_LIMITS = {
   /** Titles kept on the profile row. Routing only needs the vocabulary. */
@@ -162,6 +162,7 @@ const HAS_HAN = /\p{Script=Han}/u;
 export function extractTerms(
   texts: readonly string[],
   limit: number = PROFILE_LIMITS.maxTerms,
+  weight: TermWeight = () => 1,
 ): string[] {
   const counts = new Map<string, number>();
   const bump = (term: string, by: number) => counts.set(term, (counts.get(term) ?? 0) + by);
@@ -187,9 +188,15 @@ export function extractTerms(
     }
   }
 
-  const ranked = [...counts.entries()].sort(
-    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
-  );
+  /*
+   * Frequency times specificity. Frequency alone ranks whatever a site says
+   * most, and every documentation site says "information", "users" and
+   * "account" a lot; the weight is where the platform's other libraries get
+   * a say in what is distinctive about this one (`platformSpecificity`).
+   */
+  const ranked = [...counts.entries()]
+    .map(([term, tally]) => [term, tally * weight(term)] as const)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 
   /*
    * Absorption is for Han grams only. A shorter gram inside a kept longer
@@ -215,6 +222,30 @@ export function extractTerms(
   }
 
   return kept.map((entry) => entry.term);
+}
+
+/** A multiplier per term, applied to its frequency before ranking. */
+export type TermWeight = (term: string) => number;
+
+/**
+ * Inverse document frequency across the platform's libraries: a term that
+ * sits in the profile of most other libraries says little about this one.
+ *
+ * `libraries` is how many other libraries have a profile, `frequency` how
+ * many of them carry the term. The smoothed log keeps a term nobody else has
+ * at its full count and takes a term everybody has down towards a third of
+ * it -- a dampener, not a veto, because a library about the very thing every
+ * other library mentions in passing still needs the word in its profile.
+ * With few libraries on the platform the weights stay close to one, which
+ * is the honest answer: there is not yet evidence that a term is generic.
+ */
+export function platformSpecificity(
+  frequency: ReadonlyMap<string, number>,
+  libraries: number,
+): TermWeight {
+  if (libraries <= 0) return () => 1;
+  const ceiling = Math.log(libraries + 1) + 1;
+  return (term) => (Math.log((libraries + 1) / ((frequency.get(term) ?? 0) + 1)) + 1) / ceiling;
 }
 
 /**
