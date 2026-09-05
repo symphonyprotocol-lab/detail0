@@ -22,6 +22,7 @@ import {
   type WorkspaceLibraryRow,
 } from '@/lib/application/libraries';
 import { requireSession } from '@/lib/http/session';
+import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
 import { deleteWorkspaceLibraryAction } from './actions';
 
@@ -98,6 +99,7 @@ export default async function DashboardLibrariesPage() {
       updated: row.updatedAt ? date.format(new Date(row.updatedAt)) : '—',
       initial: (row.title.trim()[0] ?? '?').toUpperCase(),
       filesHref: row.hasFiles ? `/dashboard/libraries/${row.id}/files` : null,
+      note: row.reviewNote ? fill(l.reviewNote, { note: row.reviewNote }) : null,
     };
   });
 

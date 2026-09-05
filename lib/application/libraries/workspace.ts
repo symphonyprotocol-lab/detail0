@@ -20,6 +20,8 @@ export interface WorkspaceLibraryRow {
   updatedAt: string | null;
   /** True for a library whose source is uploaded PDFs, which has a files page. */
   hasFiles: boolean;
+  /** The latest reviewer's note, when the library is waiting on the owner. */
+  reviewNote: string | null;
 }
 
 export async function listWorkspaceLibraries(workspaceId: string): Promise<WorkspaceLibraryRow[]> {
@@ -41,6 +43,28 @@ export async function listWorkspaceLibraries(workspaceId: string): Promise<Works
     .leftJoin(schema.libraryVersion, eq(schema.libraryVersion.id, schema.library.currentVersionId))
     .where(OWNED_AND_LIVE(workspaceId))
     .orderBy(desc(schema.library.createdAt));
+
+  /* The latest manual review of each library that is sent back or
+     suspended: that is the one the owner has to act on. */
+  const blocked = rows.filter(
+    (row) => row.lifecycleStatus === 'changes_requested' || row.lifecycleStatus === 'suspended',
+  );
+  const notes = new Map<string, string>();
+  if (blocked.length > 0) {
+    const reviews = await db()
+      .select({ libraryId: schema.libraryReview.libraryId, feedback: schema.libraryReview.feedback })
+      .from(schema.libraryReview)
+      .where(
+        inArray(
+          schema.libraryReview.libraryId,
+          blocked.map((row) => row.id),
+        ),
+      )
+      .orderBy(desc(schema.libraryReview.createdAt));
+    for (const review of reviews) {
+      if (!notes.has(review.libraryId) && review.feedback[0]) notes.set(review.libraryId, review.feedback[0]);
+    }
+  }
 
   const withFiles = new Set(
     rows.length === 0
@@ -73,6 +97,7 @@ export async function listWorkspaceLibraries(workspaceId: string): Promise<Works
     storageBytes: row.storageBytes,
     updatedAt: (row.lastSuccessfulRefreshAt ?? row.createdAt)?.toISOString() ?? null,
     hasFiles: withFiles.has(row.id),
+    reviewNote: notes.get(row.id) ?? null,
   }));
 }
 

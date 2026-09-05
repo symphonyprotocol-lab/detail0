@@ -19,6 +19,8 @@
  * console, the tests and any future admin API answer the same way.
  */
 
+import type { LifecycleStatus, Visibility } from '@/lib/domain';
+
 /* ------------------------------------------------------------------ sources */
 
 /**
@@ -548,6 +550,89 @@ export function lifecycleActionAvailable(
     : state === 'published';
 }
 
+/* ----------------------------------------------------------- user review */
+
+/**
+ * What a build does to a user library's lifecycle once its version is
+ * published. requirement.md 6.2 and architecture.md 8.1:
+ *
+ * - a private library is never reviewed by a person: it goes live as soon as
+ *   the security scan and the index have passed, so `published`;
+ * - a public library waits for a reviewer: `submitted`. A rebuild after
+ *   `changes_requested` is the owner's resubmission, so it queues again;
+ * - a platform library is published by an operator, never by a build;
+ * - a suspended or archived library stays where it was put. A rebuild is not
+ *   a way around a reviewer's decision.
+ *
+ * Null means the build leaves the status alone.
+ */
+export function lifecycleAfterBuild(input: {
+  lifecycleStatus: LifecycleStatus;
+  visibility: Visibility;
+  isPlatformLibrary: boolean;
+}): LifecycleStatus | null {
+  if (input.isPlatformLibrary) return null;
+  const from = input.lifecycleStatus;
+  if (from === 'suspended' || from === 'archived') return null;
+  if (input.visibility === 'private') return from === 'published' ? null : 'published';
+  return from === 'draft' || from === 'changes_requested' ? 'submitted' : null;
+}
+
+/**
+ * The reviewer's three verbs over a user library (requirement.md 7.4), plus
+ * the same verbs read as a safety pause and its lifting on a library that
+ * needs no review.
+ */
+export const USER_REVIEW_ACTIONS = ['approve', 'request_changes', 'reject'] as const;
+
+export type UserReviewAction = (typeof USER_REVIEW_ACTIONS)[number];
+
+export function isUserReviewAction(value: unknown): value is UserReviewAction {
+  return typeof value === 'string' && (USER_REVIEW_ACTIONS as readonly string[]).includes(value);
+}
+
+/**
+ * Where each verb lands. There is no `rejected` state in the enum: a
+ * rejected library is `suspended` -- out of retrieval, its content kept, and
+ * reversible by a later approval -- which is also what a safety pause is.
+ */
+export function reviewTarget(action: UserReviewAction): LifecycleStatus {
+  switch (action) {
+    case 'approve':
+      return 'published';
+    case 'request_changes':
+      return 'changes_requested';
+    case 'reject':
+      return 'suspended';
+  }
+}
+
+/**
+ * Whether a verb applies to a user library in a given state.
+ *
+ * A private library is not reviewed, so only the pause and its lifting apply
+ * to it. `draft` is a library that has not built a version yet, and nothing
+ * can be decided about content that does not exist; `archived` is terminal.
+ */
+export function reviewActionAvailable(
+  state: LifecycleStatus,
+  visibility: Visibility,
+  action: UserReviewAction,
+): boolean {
+  if (state === 'draft' || state === 'archived') return false;
+  if (visibility === 'private') {
+    return action === 'approve' ? state === 'suspended' : action === 'reject' && state === 'published';
+  }
+  switch (action) {
+    case 'approve':
+      return state !== 'published';
+    case 'request_changes':
+      return state !== 'changes_requested';
+    case 'reject':
+      return state !== 'suspended';
+  }
+}
+
 /* ------------------------------------------------------------------ errors */
 
 /**
@@ -560,6 +645,7 @@ export function lifecycleActionAvailable(
 export const PLATFORM_LIBRARY_ERRORS = [
   'not_found',
   'not_platform_library',
+  'not_user_library',
   'invalid_title',
   'invalid_public_id',
   'public_id_taken',

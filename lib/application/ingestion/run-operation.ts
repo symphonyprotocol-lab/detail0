@@ -19,6 +19,7 @@ import {
   type IngestionErrorCode,
 } from '@/lib/domain/ingestion';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { advanceLifecycleAfterBuild } from './advance-lifecycle';
 import { buildVersion } from './build-version';
 import { publishVersion } from './publish-version';
 import { purgeLibrary } from './purge-library';
@@ -105,6 +106,11 @@ export async function runOperation(input: {
      * and requirement.md 6.2 forbids collapsing the two into one field.
      */
     await publishVersion({ libraryId: operation.libraryId, versionId: built.versionId });
+
+    /* A user library, by contrast, does move: private goes live, public
+       joins the review queue (`lifecycleAfterBuild`). Platform rows are
+       left alone, as the comment above says. */
+    await advanceLifecycleAfterBuild(operation.libraryId);
 
     await finish(operation.id, 'succeeded', null);
     return {

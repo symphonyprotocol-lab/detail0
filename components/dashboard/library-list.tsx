@@ -23,6 +23,8 @@ export interface LibraryListRow {
   initial: string;
   /** The files page of a PDF library; null for every other source. */
   filesHref: string | null;
+  /** A reviewer's feedback the owner has to act on, already translated. */
+  note: string | null;
 }
 
 /** Deterministic tile colour from the slug: stable across renders and rows. */
@@ -140,6 +142,11 @@ export function LibraryList({
                       {library.slug}
                       {library.version ? ` · ${library.version}` : ''}
                     </span>
+                    {library.note ? (
+                      <span className="truncate text-[10px] tracking-[-0.023em] text-rose" title={library.note}>
+                        {library.note}
+                      </span>
+                    ) : null}
                   </span>
                 </span>
 

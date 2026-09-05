@@ -210,13 +210,13 @@ describeWithDb('workspace library creation', () => {
     });
     expect(outcome.status).toBe('succeeded');
 
-    /* Draft + private: queryable by the owner (lifecycle gates the catalogue,
-       not the owner's own access -- but retrieval requires published+ready,
-       so publish the lifecycle as the console eventually would). */
-    await db()
-      .update(schema.library)
-      .set({ lifecycleStatus: 'published' })
+    /* Private: no review, so the build itself published the lifecycle and
+       the owner can query it straight away (requirement.md 6.2). */
+    const [afterBuild] = await db()
+      .select({ lifecycleStatus: schema.library.lifecycleStatus })
+      .from(schema.library)
       .where(eq(schema.library.id, created.libraryId));
+    expect(afterBuild?.lifecycleStatus).toBe('published');
 
     const owner = { workspaceId, apiKeyId: null, requestId: `req_${crypto.randomUUID()}`, anonymous: false };
     const output = await queryDocs(
@@ -302,10 +302,6 @@ describeWithDb('workspace library creation', () => {
     const outcome = await runOperation({ operationId: created.operationId!, dependencies: dependencies() });
     expect(outcome.status).toBe('succeeded');
 
-    await db()
-      .update(schema.library)
-      .set({ lifecycleStatus: 'published' })
-      .where(eq(schema.library.id, created.libraryId));
     const owner = { workspaceId, apiKeyId: null, requestId: `req_${crypto.randomUUID()}`, anonymous: false };
     const output = await queryDocs(
       owner,

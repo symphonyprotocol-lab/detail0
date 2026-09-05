@@ -22,7 +22,16 @@ export interface ConsoleLibraryRow {
   visibility: 'public' | 'private';
   lifecycleStatus: string;
   createdAt: Date;
+  /** Whether the current version is indexed, which approval requires. */
+  hasReadyVersion: boolean;
 }
+
+/** Whether `current_version_id` points at a version whose index is ready. */
+const hasReadyVersion = sql<boolean>`exists (
+  select 1 from ${schema.libraryVersion}
+  where ${ref(schema.libraryVersion.id)} = ${ref(schema.library.currentVersionId)}
+    and ${ref(schema.libraryVersion.indexStatus)} = 'ready'
+)`;
 
 /** The one source a library was built from, when it has exactly one. */
 const sourceType = sql<string | null>`(
@@ -94,6 +103,7 @@ export async function listUserLibraries(input: {
         createdAt: schema.library.createdAt,
         ownerName,
         sourceType,
+        hasReadyVersion,
       })
       .from(schema.library)
       .where(and(...conditions))
@@ -252,8 +262,10 @@ function normalize(row: {
   createdAt: Date;
   ownerName: string | null;
   sourceType: string | null;
+  hasReadyVersion: boolean;
 }): ConsoleLibraryRow {
   return {
+    hasReadyVersion: row.hasReadyVersion,
     id: row.id,
     publicId: row.publicId,
     title: row.title,

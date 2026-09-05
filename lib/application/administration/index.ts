@@ -121,3 +121,11 @@ export {
   type RetrievalConfiguration,
   type UpdateRetrievalConfigInput,
 } from './manage-retrieval-config';
+export {
+  getUserLibrary,
+  reviewUserLibrary,
+  MANUAL_REVIEW_STAGE,
+  type ReviewResult,
+  type UserLibraryDetail,
+  type UserLibraryReviewView,
+} from './review-libraries';
