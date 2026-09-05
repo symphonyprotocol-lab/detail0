@@ -33,7 +33,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       <div className="product-surface flex min-h-screen flex-col">
         <DashboardHeader workspaceName={workspace.name} workspaceInitial={workspace.initial} />
         <div className="dashboard-wash flex-1">
-          <div className="mx-auto flex w-full max-w-[918px] flex-col items-start gap-7 px-5 pt-[34px] pb-16 lg:flex-row">
+          <div className="mx-auto flex w-full max-w-[1080px] flex-col items-start gap-7 px-5 pt-[34px] pb-16 lg:flex-row">
             <DashboardSidebar
               workspaceName={workspace.name}
               workspaceInitial={workspace.initial}

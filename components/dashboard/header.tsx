@@ -10,7 +10,7 @@ import { getMessages } from '@/lib/i18n/server';
 /**
  * Dashboard chrome header -- design source frame `E4GWD`.
  *
- * Same 918px column and marketing nav as `SiteHeader`, but it trades the login
+ * Same nav as `SiteHeader` on the dashboard's 1080px column, but it trades the login
  * button for the workspace pill and sits on an opaque card background rather
  * than the translucent marketing one.
  */
@@ -31,7 +31,7 @@ export async function DashboardHeader({
 
   return (
     <header className="sticky top-0 z-30 border-b-2 border-line bg-card">
-      <div className="mx-auto flex h-[78px] w-full max-w-[918px] items-center justify-between gap-6 px-5">
+      <div className="mx-auto flex h-[78px] w-full max-w-[1080px] items-center justify-between gap-6 px-5">
         <div className="flex items-center gap-8">
           <Wordmark />
           <nav className="hidden items-center gap-[18px] md:flex">
