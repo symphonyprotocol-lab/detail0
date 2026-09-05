@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { LiveRefresh } from '@/components/dashboard/live-refresh';
 import { RebuildLibraryButton } from '@/components/dashboard/library-rebuild';
-import { Badge, IconTile, PANEL, StatTile, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
+import { Badge, IconTile, PANEL, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
 import {
   ArrowRightIcon,
   BadgeCheckIcon,
@@ -145,16 +145,31 @@ export default async function DashboardLibraryPage({
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-[9px] sm:grid-cols-4">
-        <StatTile icon={<ShieldCheckIcon size={17} />} value={label(d.indexStatus, library.indexStatus)} label={d.stats.status} />
-        <StatTile icon={<DatabaseIcon size={17} />} value={library.currentVersion?.label ?? d.stats.versionNone} label={d.stats.version} />
-        <StatTile
-          icon={<FileTextIcon size={17} />}
-          value={`${number.format(library.currentVersion?.documents ?? 0)} / ${number.format(library.currentVersion?.chunks ?? 0)}`}
-          label={d.stats.chunks}
-        />
-        <StatTile icon={<ClockIcon size={17} />} value={when(library.lastSuccessfulRefreshAt)} label={d.stats.lastBuild} />
-      </section>
+      {/* Plain 2x2 readout, not four cards: the banner above already carries
+          the one thing that matters, and cards would compete with it. */}
+      <dl className="grid grid-cols-1 gap-x-10 px-1 sm:grid-cols-2">
+        {[
+          [d.stats.status, label(d.indexStatus, library.indexStatus), <ShieldCheckIcon key="i" size={16} />],
+          [d.stats.version, library.currentVersion?.label ?? d.stats.versionNone, <DatabaseIcon key="i" size={16} />],
+          [
+            d.stats.chunks,
+            `${number.format(library.currentVersion?.documents ?? 0)} / ${number.format(library.currentVersion?.chunks ?? 0)}`,
+            <FileTextIcon key="i" size={16} />,
+          ],
+          [d.stats.lastBuild, when(library.lastSuccessfulRefreshAt), <ClockIcon key="i" size={16} />],
+        ].map(([key, value, icon]) => (
+          <div
+            key={String(key)}
+            className="flex items-center gap-3 border-b border-line/70 py-3.5 sm:[&:nth-last-child(-n+2)]:border-b-0"
+          >
+            <span className="text-brand">{icon}</span>
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <dt className="text-[11px] tracking-[-0.023em] text-muted">{key}</dt>
+              <dd className="truncate text-[15px] font-semibold tracking-[-0.025em] text-ink">{value}</dd>
+            </span>
+          </div>
+        ))}
+      </dl>
 
       <section className={`${PANEL} p-6`}>
         <h2 className="text-[15px] font-semibold tracking-[-0.025em] text-ink">{d.basics.title}</h2>
