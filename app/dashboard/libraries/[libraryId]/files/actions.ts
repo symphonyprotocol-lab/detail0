@@ -1,7 +1,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import { AppError } from '@/contracts/errors';
+import { runOperation } from '@/lib/application/ingestion';
 import { updateLibraryFiles } from '@/lib/application/libraries';
 import { requireSession } from '@/lib/http/session';
 
@@ -47,8 +49,19 @@ export async function updateLibraryFilesAction(
       remove: remove as string[],
     });
     revalidatePath(`/dashboard/libraries/${libraryId}/files`);
+    revalidatePath(`/dashboard/libraries/${libraryId}`);
     revalidatePath('/dashboard/libraries');
-    return { ok: true, queued: result.operationId !== null };
+    const operationId = result.operationId;
+    if (operationId) {
+      after(async () => {
+        try {
+          await runOperation({ operationId });
+        } catch (error) {
+          console.error(`library rebuild run failed: ${error instanceof Error ? error.message : 'unknown'}`);
+        }
+      });
+    }
+    return { ok: true, queued: operationId !== null };
   } catch (error) {
     if (error instanceof AppError) {
       if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };

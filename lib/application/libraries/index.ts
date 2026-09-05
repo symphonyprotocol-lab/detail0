@@ -41,3 +41,5 @@ export {
   type DeleteWorkspaceLibraryInput,
   type WorkspaceRole,
 } from './delete';
+export { workspaceLibraryDetail, type WorkspaceLibraryDetail } from './detail';
+export { requestLibraryRebuild, type RebuildResult } from './rebuild';

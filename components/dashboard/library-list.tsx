@@ -116,14 +116,9 @@ export function LibraryList({
           </div>
 
           {rows.map((library) => {
-            /*
-             * The public detail page only resolves ROUTABLE libraries (public,
-             * published, ready, with a current version -- catalog.ts), so a
-             * private or in-flight row renders the same cells unlinked rather
-             * than a link that 404s on the owner.
-             */
-            const routable =
-              library.scope === 'public' && library.status === 'live' && library.version !== null;
+            /* Every row opens the owner's own detail page -- readiness,
+               version, queue -- which is also where the public page is
+               linked from once the library is routable. */
             const cells: ReactNode = (
               <>
                 <span className="flex min-w-0 items-center gap-2.5 pr-3">
@@ -164,7 +159,7 @@ export function LibraryList({
 
                 <span className="text-[12px] tracking-[-0.023em] text-muted">{library.updated}</span>
 
-                {routable ? <ArrowRightIcon size={14} className="text-muted" /> : <span />}
+                <ArrowRightIcon size={14} className="text-muted" />
               </>
             );
             /* Room on the right for the delete control, which sits beside the
@@ -173,16 +168,12 @@ export function LibraryList({
 
             return (
               <div key={library.id} className="relative">
-                {routable ? (
-                  <Link
-                    href={`/libraries${library.slug}`}
-                    className={`${rowClass} transition-colors hover:bg-subtle`}
-                  >
-                    {cells}
-                  </Link>
-                ) : (
-                  <div className={rowClass}>{cells}</div>
-                )}
+                <Link
+                  href={`/dashboard/libraries/${library.id}`}
+                  className={`${rowClass} transition-colors hover:bg-subtle`}
+                >
+                  {cells}
+                </Link>
                 {controls > 0 ? (
                   <span className="absolute top-1/2 right-[18px] flex -translate-y-1/2 items-center gap-2">
                     {library.filesHref ? (

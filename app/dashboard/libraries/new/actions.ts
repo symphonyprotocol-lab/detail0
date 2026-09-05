@@ -1,6 +1,8 @@
 'use server';
 
+import { after } from 'next/server';
 import { AppError } from '@/contracts/errors';
+import { runOperation } from '@/lib/application/ingestion';
 import { createWorkspaceLibrary, prepareUploads, type PreparedUpload } from '@/lib/application/libraries';
 import { isConnectedSourceType, UPLOAD_LIMITS } from '@/lib/domain/library';
 import { requireSession } from '@/lib/http/session';
@@ -40,7 +42,7 @@ export async function createWorkspaceLibraryAction(
       }
     }
 
-    const { publicId, libraryId } = await createWorkspaceLibrary({
+    const { publicId, libraryId, operationId } = await createWorkspaceLibrary({
       workspaceId: session.workspace.id,
       role: session.workspace.role,
       title: String(form.get('title') ?? ''),
@@ -52,6 +54,19 @@ export async function createWorkspaceLibraryAction(
       description: String(form.get('description') ?? '') || null,
       language: String(form.get('language') ?? '') || null,
     });
+    /* Queued, and then run after the response: the wizard says "queued" at
+       once, and by the time the owner opens the library page the first build
+       has usually finished. A drain that overlaps loses the claim and does
+       nothing; a failure lands on the operation row, not here. */
+    if (operationId) {
+      after(async () => {
+        try {
+          await runOperation({ operationId });
+        } catch (error) {
+          console.error(`library build run failed: ${error instanceof Error ? error.message : 'unknown'}`);
+        }
+      });
+    }
     return { ok: true, publicId, libraryId };
   } catch (error) {
     if (error instanceof AppError && error.code === 'library_limit_exceeded') {

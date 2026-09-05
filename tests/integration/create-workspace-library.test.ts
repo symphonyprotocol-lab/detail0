@@ -15,9 +15,14 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
-const { createWorkspaceLibrary, prepareUploads, updateLibraryFiles, libraryFiles } = await import(
-  '@/lib/application/libraries'
-);
+const {
+  createWorkspaceLibrary,
+  prepareUploads,
+  updateLibraryFiles,
+  libraryFiles,
+  workspaceLibraryDetail,
+  requestLibraryRebuild,
+} = await import('@/lib/application/libraries');
 const { fetchPdfSnapshot } = await import('@/lib/infrastructure/connectors/pdf');
 const { readFile } = await import('node:fs/promises');
 const { runOperation, memoryObjectStore, purgeAbandonedUploads } = await import(
@@ -209,6 +214,27 @@ describeWithDb('workspace library creation', () => {
       dependencies: dependencies(),
     });
     expect(outcome.status).toBe('succeeded');
+
+    /* The owner's detail page: ready, with the version and the run on it. */
+    const detail = await workspaceLibraryDetail({ workspaceId, libraryId: created.libraryId });
+    expect(detail?.queryable).toBe(true);
+    expect(detail?.building).toBe(false);
+    expect(detail?.currentVersion?.chunks).toBeGreaterThan(0);
+    expect(detail?.currentVersion?.documents).toBe(1);
+    expect(detail?.versions[0]?.documents).toBe(1);
+    expect(detail?.operations[0]?.status).toBe('succeeded');
+    expect(await workspaceLibraryDetail({ workspaceId: crypto.randomUUID(), libraryId: created.libraryId })).toBeNull();
+
+    /* A rebuild queues once; a second request while it waits reuses it. */
+    const rebuild = await requestLibraryRebuild({ workspaceId, role: 'owner', libraryId: created.libraryId });
+    expect(rebuild.created).toBe(true);
+    const again = await requestLibraryRebuild({ workspaceId, role: 'owner', libraryId: created.libraryId });
+    expect(again).toEqual({ operationId: rebuild.operationId, created: false });
+    expect((await workspaceLibraryDetail({ workspaceId, libraryId: created.libraryId }))?.building).toBe(true);
+    await expect(
+      requestLibraryRebuild({ workspaceId, role: 'viewer', libraryId: created.libraryId }),
+    ).rejects.toMatchObject({ code: 'access_denied' });
+    expect((await runOperation({ operationId: rebuild.operationId, dependencies: dependencies() })).status).toBe('skipped');
 
     /* Private: no review, so the build itself published the lifecycle and
        the owner can query it straight away (requirement.md 6.2). */

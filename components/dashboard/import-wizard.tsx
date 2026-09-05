@@ -89,6 +89,9 @@ export function ImportWizard({
   const [description, setDescription] = useState('');
   const [language, setLanguage] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
+  /* The last step is a real confirmation: nothing submits until this is
+     ticked, so a stray Enter cannot create a library. */
+  const [confirmed, setConfirmed] = useState(false);
   const files = usePdfUploads(prepare);
   const [state, formAction, pending] = useActionState(action, null);
 
@@ -327,6 +330,15 @@ export function ImportWizard({
                   </span>
                 </div>
               ))}
+              <label className="mt-2 flex items-start gap-2 border-t-2 border-line pt-3 text-[12px] leading-[1.5] tracking-[-0.023em] text-ink">
+                <input
+                  type="checkbox"
+                  checked={confirmed}
+                  onChange={(event) => setConfirmed(event.target.checked)}
+                  className="mt-0.5 size-4 shrink-0 accent-brand"
+                />
+                {w.confirmCheck}
+              </label>
             </div>
           ) : null}
 
@@ -352,8 +364,13 @@ export function ImportWizard({
           >
             {n.back2}
           </button>
+          {/* Distinct keys: these must be two DOM nodes. With one, React
+              retargets the node from Continue to Submit while the Enter that
+              pressed Continue is still down, and the same key submits the
+              form -- the confirm step is skipped. */}
           {step < steps.length - 1 ? (
             <button
+              key="continue"
               type="button"
               onClick={() => setStep((current) => current + 1)}
               disabled={!canContinue}
@@ -364,8 +381,9 @@ export function ImportWizard({
             </button>
           ) : (
             <button
+              key="submit"
               type="submit"
-              disabled={pending || !detailsComplete || source === null}
+              disabled={pending || !detailsComplete || source === null || !confirmed}
               className="inline-flex h-[35px] items-center gap-1.5 rounded-[7px] bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40"
             >
               {w.submit}

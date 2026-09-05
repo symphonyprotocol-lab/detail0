@@ -1002,6 +1002,7 @@ PAYMENT_PROVIDER_SECRET
 PAYMENT_WEBHOOK_SECRET
 APP_BASE_URL
 API_BASE_URL
+CRON_SECRET                    # Vercel Cron 调用 /api/cron/drain 时携带的 Bearer；队列兜底与上传清扫
 
 APTOS_NETWORK                  # 固定 mainnet
 APTOS_NODE_URL
