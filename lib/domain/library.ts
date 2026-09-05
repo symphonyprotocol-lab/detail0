@@ -104,6 +104,26 @@ const SLUG = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 export const MAX_NESTED_SLUGS = 4;
 
 /**
+ * The slug a title suggests, so the wizard can fill the id in as the title is
+ * typed instead of asking for it twice. Runs of anything outside the slug
+ * alphabet fold to one dash, accents drop their marks first (`Café` gives
+ * `cafe`), and the result is clipped to a segment's length. A title with no
+ * usable characters -- one written in Chinese, say -- gives '' and the id has
+ * to be typed; `normalizePublicId` is still the check on what was typed.
+ */
+export function slugFromTitle(title: string): string {
+  const folded = title
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^[^a-z0-9]+/, '')
+    .replace(/-+$/, '');
+  const clipped = folded.slice(0, 64).replace(/-+$/, '');
+  return SLUG.test(clipped) && !isVersionLabelShaped(clipped) ? clipped : '';
+}
+
+/**
  * The shape `versionLabel` in lib/domain/ingestion.ts produces: a UTC date, a
  * digest prefix, an optional build number. A nested slug may not look like
  * one, because `/websites/ethereum/<label>` must keep meaning "that version of
