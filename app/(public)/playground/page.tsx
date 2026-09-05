@@ -12,7 +12,7 @@ export default async function PlaygroundPage() {
 
   return (
     <section>
-      <div className="mx-auto w-full max-w-[918px] px-5 pt-14 pb-20">
+      <div className="mx-auto w-full max-w-[1080px] px-5 pt-14 pb-20">
         <h1 className="text-center text-[26px] leading-[1.35] font-semibold tracking-[-0.04em] text-ink sm:text-[30px]">
           {playground.titleLine1}
           <br />

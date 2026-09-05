@@ -73,7 +73,7 @@ export default async function CatalogPage({ searchParams }: Search) {
   const total = number.format(await countPublicLibraries());
 
   return (
-    <section className="mx-auto w-full max-w-[918px] px-5 pt-11 pb-16">
+    <section className="mx-auto w-full max-w-[1080px] px-5 pt-11 pb-16">
       <SectionHeading
         eyebrow="KNOWLEDGE DIRECTORY"
         title={c.title}

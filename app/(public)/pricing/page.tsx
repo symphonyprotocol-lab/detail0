@@ -46,7 +46,7 @@ function CtaBanner({
   className?: string;
 }) {
   return (
-    <div className={`mx-auto w-full max-w-[918px] px-5 ${className}`}>
+    <div className={`mx-auto w-full max-w-[1080px] px-5 ${className}`}>
       <section className="flex flex-wrap items-center justify-between gap-7 rounded-[11px] bg-panel px-10 py-[34px] shadow-[0_4px_10px_rgba(45,45,83,0.06)] md:h-[150px] md:flex-nowrap md:py-0">
         <div className="flex flex-col gap-[11px] pt-2">
           <p className="text-[11px] font-bold tracking-[-0.03em] text-brand">{eyebrow}</p>
@@ -80,7 +80,7 @@ export default async function PricingPage() {
         * header.
         */}
       <div className="-mt-[78px] bg-subtle pt-[78px]">
-        <section className="mx-auto w-full max-w-[918px] px-5 pt-[50px] pb-[70px]">
+        <section className="mx-auto w-full max-w-[1080px] px-5 pt-[50px] pb-[70px]">
           <SectionHeading
             eyebrow="PLANS"
             title={p.title}
@@ -164,7 +164,7 @@ export default async function PricingPage() {
           </p>
         </section>
 
-        <div className="mx-auto w-full max-w-[918px] px-5 pt-16 pb-18">
+        <div className="mx-auto w-full max-w-[1080px] px-5 pt-16 pb-18">
           <SectionHeading
             eyebrow="COMPARE"
             title={p.compareTitle}
@@ -219,7 +219,7 @@ export default async function PricingPage() {
         className="mt-[68px]"
       />
 
-      <section className="mx-auto flex w-full max-w-[918px] flex-col gap-10 px-5 py-[68px] md:flex-row md:gap-[72px]">
+      <section className="mx-auto flex w-full max-w-[1080px] flex-col gap-10 px-5 py-[68px] md:flex-row md:gap-[72px]">
         <div className="md:w-[300px] md:shrink-0">
           <CircleHelpIcon size={20} className="text-brand" />
           <p className="mt-[13px] text-[10px] font-extrabold tracking-[0.1em] text-brand">FAQ</p>

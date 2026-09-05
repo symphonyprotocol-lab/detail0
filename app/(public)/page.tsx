@@ -43,7 +43,7 @@ export default async function HomePage() {
     <>
       {/* Hero -- geometry, type and icons follow the design source frame `hRx0w`. */}
       <section>
-        <div className="mx-auto flex w-full max-w-[918px] flex-col items-start px-5 pt-[72px] pb-[40px]">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-col items-start px-5 pt-[72px] pb-[40px]">
           <p className="flex w-full items-center gap-[7px] text-[12px] leading-[1.5] font-[650] text-brandink">
             <ShieldCheckIcon size={15} />
             {t.home.badge}
@@ -88,7 +88,7 @@ export default async function HomePage() {
       </section>
 
       {/* Knowledge directory -- design source frame `EG2Gu`. */}
-      <section className="mx-auto w-full max-w-[918px] px-5 pt-6 pb-[70px]">
+      <section className="mx-auto w-full max-w-[1080px] px-5 pt-6 pb-[70px]">
         <SectionHeading
           eyebrow="KNOWLEDGE DIRECTORY"
           title={t.home.directoryTitle}
@@ -143,7 +143,7 @@ export default async function HomePage() {
       </section>
 
       {/* Surfaces -- design source frame `jByip`. */}
-      <section className="mx-auto w-full max-w-[918px] px-5 pt-11 pb-[54px]">
+      <section className="mx-auto w-full max-w-[1080px] px-5 pt-11 pb-[54px]">
         <p className="text-center text-[13px] tracking-[-0.029em] text-muted">
           {t.home.surfacesNote}
         </p>
@@ -161,7 +161,7 @@ export default async function HomePage() {
       </section>
 
       {/* On-chain proof -- design source frame `oKG2g`. */}
-      <section className="mx-auto w-full max-w-[918px] px-5 pt-13 pb-[70px]">
+      <section className="mx-auto w-full max-w-[1080px] px-5 pt-13 pb-[70px]">
         <SectionHeading eyebrow="ON-CHAIN PROOF" title={t.home.proofTitle} />
         <div className="mt-7 grid gap-[18px] sm:grid-cols-3">
           {t.home.proof.map((item) => (
@@ -181,7 +181,7 @@ export default async function HomePage() {
       </section>
 
       {/* CTA -- design source frame `B1XJrb`. */}
-      <section className="mx-auto w-full max-w-[918px] px-5 pt-16 pb-16">
+      <section className="mx-auto w-full max-w-[1080px] px-5 pt-16 pb-16">
         <div className="flex flex-col items-start justify-between gap-[30px] rounded-xl bg-panel px-10 py-9 shadow-[0_4px_10px_rgba(45,45,83,0.06)] sm:flex-row sm:items-center">
           <div className="flex flex-col gap-[11px] pt-2">
             <span className="text-[11px] font-bold tracking-[-0.029em] text-brand">

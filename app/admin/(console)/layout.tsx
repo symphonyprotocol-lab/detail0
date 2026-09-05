@@ -12,7 +12,7 @@ import { translations } from '@/lib/i18n/server';
  * Dark rail on the left, a search-and-identity header above the work column,
  * and a fluid content column: chrome every console screen shares, so each page
  * renders only its own stack. The column keeps the design's rail-to-content
- * proportion rather than the marketing site's 918px cap -- the console's tables
+ * proportion rather than the marketing site's old 918px cap (now 1080px too) -- the console's tables
  * are wide, and the design source is drawn at three quarters of desktop scale.
  *
  * This is also the authorization boundary. The console is a separate authority

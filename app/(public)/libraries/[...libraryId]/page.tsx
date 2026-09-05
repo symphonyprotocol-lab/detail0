@@ -67,7 +67,7 @@ export default async function LibraryDetailPage({ params }: Params) {
   const sizeMb = Math.max(1, Math.round(entry.storageBytes / 1_048_576));
 
   return (
-    <section className="mx-auto w-full max-w-[918px] px-5 pt-7 pb-14">
+    <section className="mx-auto w-full max-w-[1080px] px-5 pt-7 pb-14">
       <nav className="flex items-center gap-2 text-[12px] text-muted">
         <Link href="/libraries" className="hover:text-ink">
           {l.breadcrumb}
