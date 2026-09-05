@@ -7,18 +7,24 @@
  * `lib/infrastructure`.
  */
 import { IngestionFailure } from '@/lib/domain/ingestion';
-import type { PlatformSourceType } from '@/lib/domain/library';
+import type { ConnectedSourceType } from '@/lib/domain/library';
+import { objectStore } from '@/lib/infrastructure/objects/store';
 import { fetchGithubSnapshot } from './github';
 import { fetchNotionSnapshot } from './notion';
+import { fetchPdfSnapshot } from './pdf';
 import { fetchWebSnapshot } from './web';
 import type { SourceSnapshot } from './types';
 
 export type { FetchedFile, SourceSnapshot } from './types';
 
-export async function fetchSnapshot(input: {
-  type: PlatformSourceType;
+export interface FetchSnapshotInput {
+  type: ConnectedSourceType;
   location: string;
-}): Promise<SourceSnapshot> {
+  /** `source.config`: what the source row carries beyond a location. */
+  config?: Record<string, unknown>;
+}
+
+export async function fetchSnapshot(input: FetchSnapshotInput): Promise<SourceSnapshot> {
   switch (input.type) {
     case 'github':
       return fetchGithubSnapshot({ location: input.location });
@@ -28,6 +34,8 @@ export async function fetchSnapshot(input: {
       return fetchWebSnapshot({ type: input.type, location: input.location });
     case 'notion':
       return fetchNotionSnapshot({ location: input.location });
+    case 'pdf':
+      return fetchPdfSnapshot({ config: input.config ?? {}, store: objectStore() });
     default:
       throw new IngestionFailure(
         'source_unsupported',
@@ -44,6 +52,6 @@ export async function fetchSnapshot(input: {
  * the operator is looking at the library, rather than leaving a row in the
  * queue that fails minutes later for a reason that was knowable up front.
  */
-export function connectorConfigured(type: PlatformSourceType): boolean {
+export function connectorConfigured(type: ConnectedSourceType): boolean {
   return type === 'notion' ? Boolean(process.env.NOTION_INGESTION_TOKEN) : true;
 }

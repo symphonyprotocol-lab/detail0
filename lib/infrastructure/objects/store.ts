@@ -1,6 +1,12 @@
 /**
- * S3-compatible object storage. R2 first, but only the portable subset is used --
- * no vendor-specific API. architecture.md 1.2.
+ * Object storage behind one seam: Vercel Blob when `BLOB_READ_WRITE_TOKEN`
+ * is set (the deployment's own store, architecture.md 1.2), otherwise an
+ * S3-compatible bucket configured through `OBJECT_STORE_*`. Callers only see
+ * `ObjectStore` and the key layout below; which of the two answers is an
+ * environment fact.
+ *
+ * The S3 half is written by hand: only the portable subset is used -- no
+ * vendor-specific API.
  *
  * Signed by hand with SigV4 over `fetch` rather than through an SDK. The four
  * calls below are the whole of architecture.md 7's requirement, every one of
@@ -10,12 +16,41 @@
  * implementation accepts.
  */
 
+import { uploadKey } from '@/lib/domain/library';
+import { isVercelBlobConfigured, VercelBlobStore } from './vercel-blob';
+
 export interface ObjectStore {
   put(key: string, body: Uint8Array, contentType: string): Promise<void>;
   get(key: string): Promise<Uint8Array | null>;
+  /** Size and type without the bytes; null when there is no such object. */
+  head(key: string): Promise<{ size: number; contentType: string | null } | null>;
   delete(key: string): Promise<void>;
   signedUrl(key: string, ttlSeconds: number): Promise<string>;
+  /**
+   * What a browser needs to upload one object straight to the store, so a
+   * file never passes through the app (or its request-size limit). The shape
+   * depends on the store -- a presigned PUT for S3, a scoped client token for
+   * Vercel Blob -- and the wizard knows how to redeem each.
+   */
+  uploadTicket(
+    key: string,
+    options: { contentType: string; maxBytes: number; ttlSeconds: number },
+  ): Promise<UploadTicket>;
+  /** Every object under a prefix, paginated to the end. */
+  list(prefix: string): Promise<StoredObject[]>;
 }
+
+export interface StoredObject {
+  key: string;
+  /** Null when the store does not say. */
+  uploadedAt: Date | null;
+}
+
+export type UploadTicket =
+  /** PUT the bytes to this URL. The bucket must allow CORS PUT from the app. */
+  | { kind: 'put'; url: string }
+  /** `put(pathname, file, { token })` from `@vercel/blob/client`. */
+  | { kind: 'vercel-blob'; pathname: string; token: string };
 
 export interface ObjectStoreConfig {
   endpoint: string;
@@ -51,10 +86,12 @@ export function objectStoreConfig(): ObjectStoreConfig | null {
 }
 
 export function isObjectStoreConfigured(): boolean {
-  return objectStoreConfig() !== null;
+  return isVercelBlobConfigured() || objectStoreConfig() !== null;
 }
 
 export function objectStore(): ObjectStore {
+  const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+  if (blobToken) return new VercelBlobStore(blobToken);
   const config = objectStoreConfig();
   if (!config) throw new Error('object storage is not configured');
   return new S3Store(config);
@@ -75,6 +112,17 @@ class S3Store implements ObjectStore {
     return new Uint8Array(await response.arrayBuffer());
   }
 
+  async head(key: string): Promise<{ size: number; contentType: string | null } | null> {
+    const response = await this.send('HEAD', key, {});
+    if (response.status === 404) return null;
+    if (!response.ok) throw await storeError('head', key, response);
+    const size = Number(response.headers.get('content-length') ?? '');
+    return {
+      size: Number.isFinite(size) ? size : 0,
+      contentType: response.headers.get('content-type'),
+    };
+  }
+
   async delete(key: string): Promise<void> {
     const response = await this.send('DELETE', key, {});
     // A delete of something that is already gone has achieved its purpose.
@@ -88,6 +136,19 @@ class S3Store implements ObjectStore {
    * which cannot add an `authorization` header of its own.
    */
   async signedUrl(key: string, ttlSeconds: number): Promise<string> {
+    return this.presign('GET', key, ttlSeconds);
+  }
+
+  async uploadTicket(
+    key: string,
+    options: { contentType: string; maxBytes: number; ttlSeconds: number },
+  ): Promise<UploadTicket> {
+    /* A presigned PUT cannot bind the size or the type; the create step
+       confirms both against the object once it is there. */
+    return { kind: 'put', url: await this.presign('PUT', key, options.ttlSeconds) };
+  }
+
+  private async presign(method: 'GET' | 'PUT', key: string, ttlSeconds: number): Promise<string> {
     const url = this.url(key);
     const now = new Date();
     const stamp = amzDate(now);
@@ -99,26 +160,61 @@ class S3Store implements ObjectStore {
     url.searchParams.set('X-Amz-Expires', String(Math.max(1, Math.min(604_800, ttlSeconds))));
     url.searchParams.set('X-Amz-SignedHeaders', 'host');
 
-    const canonical = canonicalRequest('GET', url, { host: url.host }, UNSIGNED);
+    const canonical = canonicalRequest(method, url, { host: url.host }, UNSIGNED);
     const signature = await sign(this.config, stamp, await sha256Hex(canonical));
     url.searchParams.set('X-Amz-Signature', signature);
     return url.toString();
   }
 
-  private url(key: string): URL {
+  /**
+   * ListObjectsV2, the one listing call every S3 implementation offers. The
+   * response is XML; the two elements read are `Key` and `LastModified`, and
+   * a continuation token is followed until the store says it is done.
+   */
+  async list(prefix: string): Promise<StoredObject[]> {
+    const objects: StoredObject[] = [];
+    let continuation: string | undefined;
+    do {
+      const query: Record<string, string> = { 'list-type': '2', prefix, 'max-keys': '1000' };
+      if (continuation) query['continuation-token'] = continuation;
+      const response = await this.send('GET', '', { query });
+      if (!response.ok) throw await storeError('list', prefix, response);
+      const body = await response.text();
+      for (const match of body.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+        const key = /<Key>([^<]*)<\/Key>/.exec(match[1] ?? '')?.[1];
+        const modified = /<LastModified>([^<]*)<\/LastModified>/.exec(match[1] ?? '')?.[1];
+        if (!key) continue;
+        const stamp = modified ? new Date(decodeXml(modified)) : null;
+        objects.push({
+          key: decodeXml(key),
+          uploadedAt: stamp && !Number.isNaN(stamp.getTime()) ? stamp : null,
+        });
+      }
+      const truncated = /<IsTruncated>true<\/IsTruncated>/.test(body);
+      continuation = truncated
+        ? /<NextContinuationToken>([^<]*)<\/NextContinuationToken>/.exec(body)?.[1]
+        : undefined;
+      if (continuation) continuation = decodeXml(continuation);
+    } while (continuation);
+    return objects;
+  }
+
+  private url(key: string, query?: Record<string, string>): URL {
     const path = key
       .split('/')
       .map((segment) => encodeURIComponent(segment))
       .join('/');
-    return new URL(`${this.config.endpoint}/${this.config.bucket}/${path}`);
+    const url = new URL(`${this.config.endpoint}/${this.config.bucket}/${path}`);
+    for (const [name, value] of Object.entries(query ?? {})) url.searchParams.set(name, value);
+    return url;
   }
 
   private async send(
     method: string,
     key: string,
-    options: { body?: Uint8Array; contentType?: string },
+    options: { body?: Uint8Array; contentType?: string; query?: Record<string, string> },
   ): Promise<Response> {
-    const url = this.url(key);
+    const url = this.url(key, options.query);
     const now = new Date();
     const stamp = amzDate(now);
     const payloadDigest = options.body ? await sha256HexBytes(options.body) : await sha256Hex('');
@@ -172,6 +268,16 @@ async function storeError(operation: string, key: string, response: Response): P
   }
   const detail = code ? `${response.status} ${code}` : String(response.status);
   return new Error(`object store ${operation} failed with ${detail} for ${key}`);
+}
+
+/** The five entities S3 escapes in XML text. */
+function decodeXml(value: string): string {
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
 }
 
 /* ------------------------------------------------------------------ sigv4 */
@@ -283,4 +389,6 @@ export const objectKeys = {
     `manifests/${libraryId}/${versionId}/vectors.json`,
   quarantine: (operationId: string, objectId: string): string =>
     `quarantine/${operationId}/${objectId}`,
+  /** Uploaded files; the layout is fixed in `lib/domain/library.ts`. */
+  upload: uploadKey,
 };

@@ -22,7 +22,7 @@ re0 使用一个 TypeScript 代码库交付公共站点、用户 Dashboard、管
 | 关键词检索 | Postgres 全文检索 + BM25 排序，可重建派生索引 |
 | 向量检索 | 同库 pgvector，与 Chunk 同事务；库内召回默认精确扫描，不依赖全局 ANN，见 §9.1 |
 | 库级发现 | 库画像（文档标题集 + 实体表 + 聚类质心）+ 全局 GIN 倒排 + scatter-gather 确认，见 §9.6 |
-| 对象存储 | S3 兼容私有 Bucket，首发 Cloudflare R2 |
+| 对象存储 | Vercel Blob（私有 Blob）；同一 Adapter 接口保留 S3 兼容实现作为退路，见 §1.2 |
 | 长任务 | Vercel Workflows |
 | 边缘态 | Upstash Redis，只承担匿名限流与检索缓存 |
 | 身份 | 可替换 Identity Adapter；首发 GitHub + Google OAuth |
@@ -50,7 +50,12 @@ re0 使用一个 TypeScript 代码库交付公共站点、用户 Dashboard、管
 
 **为什么用 Neon 取代 D1 + Vectorize。** 决定性理由不是性能或额度，是**一致性边界**。3.0 形态下 Chunk 正文在 D1、关键词索引在 D1、向量在 Vectorize，三者会漂移，所以发布事务只能覆盖 D1 那一部分，向量与对象的一致性靠写入顺序约定和 Recovery 清理兜底。换成 Neon 后，Chunk、全文索引和向量在同一个 Postgres 事务内，§8.3 的发布事务成为真正的 ACID 事务，孤儿数据这一整类故障随之消失。
 
-**为什么保留 S3 兼容对象存储而不用平台自带的对象服务。** 三条理由，按权重排序：
+**对象存储：2026-09-05 改为 Vercel Blob。** 下面「保留 S3 兼容对象存储」的三条理由当时成立，现在被一个更重的运营理由压过：项目已经完全跑在 Vercel 上，Blob 随部署账户开通，Development / Preview / Production 各一个 Store 只是 Vercel 项目里的一个开关，不必再维护第二家供应商的账号、凭据轮换和 CORS 配置。代价照旧承认：`@vercel/blob` 只有一个实现，所以 `lib/infrastructure/objects/store.ts` 的 `ObjectStore` 接口不变，S3 实现原样保留，Key 布局（§7）对两者相同，换回 S3 兼容存储只是换环境变量。两点与 §7 相关的差异：
+
+1. Blob 没有生命周期规则，§7 里「用存储侧规则清理临时对象」在 Blob 上不成立。向导中途放弃的 PDF 上传（`uploads/` 前缀）由 `drainOperations` 每次收尾时清理（`lib/application/ingestion/purge-uploads.ts`）：列出前缀，减去仍被某个 `pdf` Source 引用的 Key，删除超过 24 小时的剩余对象；也可用 `npm run uploads:purge` 手动执行。失败任务的其他临时对象仍由 Recovery 处理。
+2. 浏览器直传不用预签名 PUT，而是服务端用读写 Token 签发一个限定路径、类型、大小和有效期的 Client Token，浏览器用 `@vercel/blob/client` 上传；下载用 `issueSignedToken` + `presignUrl` 生成短时 URL。两种存储的这两个动作都收敛在 `ObjectStore.uploadTicket` 和 `signedUrl` 后面。
+
+**（原）为什么保留 S3 兼容对象存储而不用平台自带的对象服务。** 三条理由，按权重排序：
 
 1. **可移植性**：S3 API 有多家实现，同一个 Adapter 可对 R2、S3、MinIO 等；专有对象服务只有一个实现，换平台时适配器作废。本项目已经历一次平台迁移，可移植性在此已被验证有价值。
 2. **原生生命周期规则**：直接满足 §7 关于清理失败任务临时对象和过期导出的要求，不需要自建清理任务。
@@ -402,7 +407,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 
 ## 7. 对象存储布局
 
-Bucket 默认私有且使用 S3 兼容接口，Object Key 不使用用户输入原文：
+存储默认私有（Vercel Blob 全部以 `access: 'private'` 写入；S3 实现则要求 Bucket 私有），Object Key 不使用用户输入原文：
 
 ```text
 sources/{workspaceHash}/{libraryId}/{operationId}/snapshot.*
@@ -411,7 +416,10 @@ manifests/{libraryId}/{versionId}/documents.json
 manifests/{libraryId}/{versionId}/vectors.json
 exports/{workspaceHash}/{exportId}.csv
 quarantine/{operationId}/{objectId}
+uploads/{workspaceId}/{batchId}/{fileId}.pdf
 ```
+
+`uploads/` 是 Dashboard 向导直传的 PDF：建库前就已存在，`source.config.files` 记录其 Key，构建时由 PDF 连接器读回；Key 以工作空间 id 开头，建库请求只能引用自己前缀下的对象。
 
 - 下载通过短时签名 URL 或服务端流式代理；
 - Object Metadata 不保存 Token、邮箱、Query 或私有标题；
@@ -963,7 +971,8 @@ duration_ms
 ```text
 DATABASE_URL               # Neon 连接池端点
 DATABASE_URL_UNPOOLED      # 迁移与 Workflow 用的直连端点
-OBJECT_STORE_ENDPOINT      # S3 兼容端点
+BLOB_READ_WRITE_TOKEN      # Vercel Blob 读写 Token；设置后对象存储走 Blob
+OBJECT_STORE_ENDPOINT      # 退路：S3 兼容端点，仅在未设置 BLOB_READ_WRITE_TOKEN 时使用
 OBJECT_STORE_BUCKET
 OBJECT_STORE_ACCESS_KEY_ID
 OBJECT_STORE_SECRET_ACCESS_KEY

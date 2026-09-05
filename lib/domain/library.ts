@@ -38,6 +38,158 @@ export function isPlatformSourceType(value: unknown): value is PlatformSourceTyp
 }
 
 /**
+ * Every source type that has a connector, which is what a build can ingest.
+ *
+ * The platform set plus `pdf`: a workspace uploads its PDFs through the
+ * dashboard wizard (requirement.md 6.1 reserves `/docs/slug` for uploaded
+ * material), and the connector reads them back from object storage at build
+ * time. `markdown` upload is still not offered anywhere, so it stays out.
+ */
+export const CONNECTED_SOURCE_TYPES = [...PLATFORM_SOURCE_TYPES, 'pdf'] as const;
+
+export type ConnectedSourceType = (typeof CONNECTED_SOURCE_TYPES)[number];
+
+export function isConnectedSourceType(value: unknown): value is ConnectedSourceType {
+  return typeof value === 'string' && (CONNECTED_SOURCE_TYPES as readonly string[]).includes(value);
+}
+
+/* ----------------------------------------------------------------- uploads */
+
+/**
+ * What one uploaded file looks like on `source.config.files` for a `pdf`
+ * source. The key is where the bytes sit in object storage; the name is what
+ * the operator called it and is only ever shown, never used as a key.
+ */
+export interface UploadedFile {
+  id: string;
+  name: string;
+  size: number;
+  key: string;
+}
+
+export const UPLOAD_LIMITS = {
+  /** Per file. A manual or a report; a scanned archive is not a library. */
+  maxFileBytes: 25 * 1024 * 1024,
+  /** Per library creation. */
+  maxFiles: 20,
+  /** Presigned upload URLs stop working after this many seconds. */
+  uploadUrlTtlSeconds: 15 * 60,
+} as const;
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * The object key of one uploaded file. Built from ids only (architecture.md 7
+ * keeps user input out of keys), and rooted in the workspace so that a
+ * create request can only ever reference uploads the same workspace
+ * prepared: a key that does not start with the caller's workspace prefix is
+ * refused before the store is asked anything.
+ */
+export function uploadKey(workspaceId: string, batchId: string, fileId: string): string {
+  return `${uploadPrefix(workspaceId, batchId)}/${fileId}.pdf`;
+}
+
+export function uploadPrefix(workspaceId: string, batchId: string): string {
+  return `uploads/${workspaceId}/${batchId}`;
+}
+
+/** A file name fit to show and to cite: no path, no control characters. */
+export function uploadFileName(name: string): string | null {
+  const base = name
+    .split(/[\\/]/)
+    .pop()!
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .trim();
+  if (base.length === 0 || base.length > 200) return null;
+  return /\.pdf$/i.test(base) ? base : `${base}.pdf`;
+}
+
+/**
+ * The manifest a create request carries, checked field by field: the shape
+ * came from a form post, so nothing about it is trusted. Every key must sit
+ * under this workspace's prefix for this batch; anything else is refused as
+ * a whole rather than filtered, because a manifest with a foreign key in it
+ * was not produced by the wizard.
+ */
+export function parseUploadManifest(
+  value: unknown,
+  workspaceId: string,
+): { batchId: string; files: UploadedFile[] } | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const { batchId, files } = value as { batchId?: unknown; files?: unknown };
+  if (typeof batchId !== 'string' || !UUID.test(batchId)) return null;
+  if (!Array.isArray(files) || files.length === 0 || files.length > UPLOAD_LIMITS.maxFiles) {
+    return null;
+  }
+  const seen = new Set<string>();
+  const parsed: UploadedFile[] = [];
+  for (const file of files as unknown[]) {
+    if (typeof file !== 'object' || file === null) return null;
+    const { id, name, size } = file as { id?: unknown; name?: unknown; size?: unknown };
+    if (typeof id !== 'string' || !UUID.test(id) || seen.has(id)) return null;
+    if (typeof name !== 'string') return null;
+    const fileName = uploadFileName(name);
+    if (!fileName) return null;
+    if (
+      typeof size !== 'number' ||
+      !Number.isInteger(size) ||
+      size <= 0 ||
+      size > UPLOAD_LIMITS.maxFileBytes
+    ) {
+      return null;
+    }
+    seen.add(id);
+    parsed.push({ id, name: fileName, size, key: uploadKey(workspaceId, batchId, id) });
+  }
+  return { batchId, files: parsed };
+}
+
+/**
+ * How long an upload may sit unreferenced before it counts as abandoned. A
+ * wizard session that is still going has objects younger than this; an upload
+ * token lives fifteen minutes, so anything a day old was never followed by a
+ * create request that succeeded.
+ */
+export const ABANDONED_UPLOAD_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Which objects under `uploads/` are nobody's: older than the grace period
+ * and listed by no `pdf` source. An object whose age the store does not
+ * report is kept -- deleting on a guess is the wrong side to err on.
+ */
+export function abandonedUploadKeys(
+  objects: readonly { key: string; uploadedAt: Date | null }[],
+  referenced: ReadonlySet<string>,
+  now: number,
+  maxAgeMs: number = ABANDONED_UPLOAD_AGE_MS,
+): string[] {
+  return objects
+    .filter(
+      (object) =>
+        object.uploadedAt !== null &&
+        now - object.uploadedAt.getTime() > maxAgeMs &&
+        !referenced.has(object.key),
+    )
+    .map((object) => object.key);
+}
+
+/** The files a `pdf` source's stored config lists, or none if it is malformed. */
+export function uploadedFilesOf(config: Record<string, unknown>): UploadedFile[] {
+  const files = config.files;
+  if (!Array.isArray(files)) return [];
+  return files.filter(
+    (file): file is UploadedFile =>
+      typeof file === 'object' &&
+      file !== null &&
+      typeof (file as UploadedFile).id === 'string' &&
+      typeof (file as UploadedFile).name === 'string' &&
+      typeof (file as UploadedFile).size === 'number' &&
+      typeof (file as UploadedFile).key === 'string',
+  );
+}
+
+/**
  * How often the ingestion side should re-check the source.
  *
  * Stored on `source.refresh_policy`, which is free-form JSON; these are the
@@ -71,20 +223,21 @@ export function isRefreshPolicy(value: unknown): value is RefreshPolicy {
  * trailing segment still can: `libraryIdCandidates` below says how the two
  * readings are told apart.
  */
-const ID_NAMESPACE: Record<PlatformSourceType, 'repository' | 'websites' | 'notion' | 'docs'> = {
+const ID_NAMESPACE: Record<ConnectedSourceType, 'repository' | 'websites' | 'notion' | 'docs'> = {
   github: 'repository',
   website: 'websites',
   llms_txt: 'websites',
   openapi: 'docs',
   notion: 'notion',
+  pdf: 'docs',
 };
 
 /** The raw id namespace a non-repository source publishes under. */
-export function idNamespace(type: PlatformSourceType): 'repository' | 'websites' | 'notion' | 'docs' {
+export function idNamespace(type: ConnectedSourceType): 'repository' | 'websites' | 'notion' | 'docs' {
   return ID_NAMESPACE[type];
 }
 
-export function namespaceFor(type: PlatformSourceType): string {
+export function namespaceFor(type: ConnectedSourceType): string {
   const namespace = ID_NAMESPACE[type];
   return namespace === 'repository' ? '/owner/repository' : `/${namespace}/slug`;
 }
@@ -160,7 +313,7 @@ const RESERVED_OWNERS = new Set(['websites', 'docs', 'notion']);
  * and the `library_public_id_uq` index only stops the duplicate if both spell
  * it the same way.
  */
-export function normalizePublicId(type: PlatformSourceType, input: string): string | null {
+export function normalizePublicId(type: ConnectedSourceType, input: string): string | null {
   const trimmed = input.trim().replace(/\/+$/, '');
   if (trimmed.length === 0 || trimmed.length > 200) return null;
   if (trimmed.includes('//') || trimmed.includes('..')) return null;
@@ -277,9 +430,15 @@ function nearestPresentAncestor(publicId: string, present: ReadonlySet<string>):
  * a library the platform publishes under its own name is a content-integrity
  * problem, not a convenience.
  */
-export function normalizeLocation(type: PlatformSourceType, input: string): string | null {
+export function normalizeLocation(type: ConnectedSourceType, input: string): string | null {
   const trimmed = input.trim();
   if (trimmed.length === 0 || trimmed.length > 500) return null;
+
+  /* An upload's location is the key prefix its files sit under; the create
+     use case builds it from ids, so this only confirms the shape. */
+  if (type === 'pdf') {
+    return /^uploads\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/.test(trimmed) ? trimmed : null;
+  }
 
   if (type === 'github') {
     const withoutHost = trimmed
@@ -591,4 +750,27 @@ export function draftPlatformSource(input: {
     throw new PlatformLibraryRefused('invalid_refresh_policy', 'unknown refresh policy');
   }
   return { type: input.type, location, refreshPolicy: input.refreshPolicy };
+}
+
+/**
+ * Whatever was typed or pasted into an id field, as the part that follows
+ * `prefix` (`/websites/`, or `/` for a repository).
+ *
+ * Only the namespace itself is stripped (`websites/` from a pasted
+ * `/websites/ethereum/whitepaper`), never the segments after it: slugs nest
+ * (requirement.md 6.1), so `ethereum/whitepaper` is a slug the operator meant
+ * and the slash in it is theirs to type. A pasted id that repeats the prefix
+ * is still folded back rather than doubled. The near miss the field exists to
+ * absorb -- `website/` for `websites/` -- is refused by `normalizePublicId`
+ * with the namespace sentence rather than silently corrected, because
+ * correcting it would mean guessing which of the typed segments was the typo.
+ */
+export function slugWithoutPrefix(value: string, prefix: string): string {
+  let rest = value.replace(/^\/+/, '');
+  if (prefix !== '/') {
+    const namespace = prefix.slice(1, -1).toLowerCase();
+    if (rest.toLowerCase().startsWith(`${namespace}/`)) rest = rest.slice(namespace.length + 1);
+    rest = rest.replace(/^\/+/, '');
+  }
+  return rest;
 }

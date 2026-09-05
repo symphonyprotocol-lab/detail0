@@ -1,0 +1,81 @@
+/**
+ * The first half of creating a PDF library: room in the bucket for the files.
+ *
+ * The wizard asks for this as soon as files are picked, redeems each ticket
+ * it gets back (a presigned PUT or a Vercel Blob client token), and then posts the manifest to `createWorkspaceLibrary`,
+ * which confirms the objects exist before a row is written. Nothing is
+ * recorded here: a batch nobody follows up on is a few objects under a
+ * prefix the bucket's lifecycle rule expires (architecture.md 7), not a row.
+ *
+ * Keys are minted from ids and rooted in the workspace, so the create step
+ * can tell a key this workspace was issued from any other by its prefix.
+ */
+import { AppError } from '@/contracts/errors';
+import { uuidv7 } from '@/lib/domain/id';
+import { uploadFileName, uploadKey, UPLOAD_LIMITS } from '@/lib/domain/library';
+import {
+  isObjectStoreConfigured,
+  objectStore,
+  type ObjectStore,
+  type UploadTicket,
+} from '@/lib/infrastructure/objects/store';
+import { canManageLibraries, type WorkspaceRole } from './delete';
+
+export interface PrepareUploadsInput {
+  workspaceId: string;
+  role: WorkspaceRole;
+  files: { name: string; size: number }[];
+  /** A batch this workspace already started, so a second pick joins it. */
+  batchId?: string;
+  store?: Pick<ObjectStore, 'uploadTicket'>;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+export interface PreparedUpload {
+  id: string;
+  name: string;
+  size: number;
+  /** How to send the bytes; valid for `UPLOAD_LIMITS.uploadUrlTtlSeconds`. */
+  ticket: UploadTicket;
+}
+
+export async function prepareUploads(
+  input: PrepareUploadsInput,
+): Promise<{ batchId: string; files: PreparedUpload[] }> {
+  if (!canManageLibraries(input.role)) {
+    throw new AppError('access_denied', 'only a workspace owner or admin can create a library');
+  }
+  if (input.files.length === 0 || input.files.length > UPLOAD_LIMITS.maxFiles) {
+    throw new AppError('invalid_request', `upload between 1 and ${UPLOAD_LIMITS.maxFiles} files`);
+  }
+  if (!input.store && !isObjectStoreConfigured()) {
+    throw new AppError('provider_unavailable', 'no object storage is configured');
+  }
+
+  if (input.batchId !== undefined && !UUID.test(input.batchId)) {
+    throw new AppError('invalid_request', 'the upload batch id is not valid');
+  }
+  const batchId = input.batchId ?? uuidv7();
+  const store = input.store ?? objectStore();
+  const files: PreparedUpload[] = [];
+  for (const file of input.files) {
+    const name = uploadFileName(file.name);
+    if (!name) throw new AppError('invalid_request', 'a file has no usable name');
+    if (!Number.isInteger(file.size) || file.size <= 0 || file.size > UPLOAD_LIMITS.maxFileBytes) {
+      throw new AppError('library_size_exceeded', `${name} is empty or over the size limit`);
+    }
+    const id = uuidv7();
+    files.push({
+      id,
+      name,
+      size: file.size,
+      ticket: await store.uploadTicket(uploadKey(input.workspaceId, batchId, id), {
+        contentType: 'application/pdf',
+        maxBytes: UPLOAD_LIMITS.maxFileBytes,
+        ttlSeconds: UPLOAD_LIMITS.uploadUrlTtlSeconds,
+      }),
+    });
+  }
+  return { batchId, files };
+}

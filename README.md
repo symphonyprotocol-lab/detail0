@@ -106,7 +106,7 @@
 `development` / `preview` / `production` **三套环境完全隔离**，各自独立拥有：
 
 - Neon Project 或分支
-- 对象存储 Bucket
+- Vercel Blob Store
 - Upstash Database 与 REST Token
 - OAuth Client、Payment Environment 和 Provider Key
 - LLM Provider Key
@@ -114,6 +114,8 @@
 - Workflow 名称与 Webhook Secret
 
 **禁止把 Production 数据复制到 Preview**——私有知识库里是用户授权的 Notion 页面与私有仓库内容，测试数据必须脱敏或由 Fixture 生成。
+
+对象存储用 Vercel Blob：在 Vercel 项目的 Storage 里为每个环境各建一个 Blob Store 并连接到项目，`BLOB_READ_WRITE_TOKEN` 会自动注入；本地用 `vercel env pull` 拉取。所有对象都以私有方式写入。Dashboard 的 PDF 导入向导由浏览器直接上传到 Blob（服务端只签发限定路径、类型和大小的 Client Token），不经过应用，也就不受请求体大小限制，不需要额外的 CORS 配置。Blob 没有生命周期规则，向导中途放弃的上传会留在 `uploads/` 前缀下，由 drain 每次收尾时清理超过 24 小时且未被引用的对象，也可以用 `npm run uploads:purge` 手动跑。未设置 `BLOB_READ_WRITE_TOKEN` 时，代码退回 `OBJECT_STORE_*` 描述的 S3 兼容 Bucket，那时 Bucket 要允许来自应用 Origin 的跨域 `PUT`。
 
 完整环境变量清单见 [architecture.md](./architecture.md) 第 19.1 节。Secret 不得进入前端 Bundle，只允许在 Server Component、Route Handler 和 Workflow 中读取。Anchor Signer 私钥不出现在任何环境变量里。
 

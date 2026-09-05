@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ImportWizard } from '@/components/dashboard/import-wizard';
-import { createWorkspaceLibraryAction } from './actions';
+import { createWorkspaceLibraryAction, prepareUploadAction } from './actions';
 import { Badge, IconTile, PANEL } from '@/components/dashboard/ui';
 import { LockIcon, ShieldCheckIcon } from '@/components/ui/icons';
 import { dashboardCopy } from '@/lib/dashboard/demo-data';
@@ -37,7 +37,7 @@ export default async function DashboardAddLibraryPage() {
         <Badge tone="neutral">{n.draftSaved}</Badge>
       </header>
 
-      <ImportWizard action={createWorkspaceLibraryAction} />
+      <ImportWizard action={createWorkspaceLibraryAction} prepare={prepareUploadAction} />
 
       {/* Review pipeline -- design source frame `ISF8H`. */}
       <aside className={`${PANEL} flex flex-col gap-4 p-6`}>

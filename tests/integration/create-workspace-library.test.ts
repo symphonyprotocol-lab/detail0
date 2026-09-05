@@ -15,8 +15,12 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
-const { createWorkspaceLibrary } = await import('@/lib/application/libraries');
-const { runOperation, memoryObjectStore } = await import('@/lib/application/ingestion');
+const { createWorkspaceLibrary, prepareUploads } = await import('@/lib/application/libraries');
+const { fetchPdfSnapshot } = await import('@/lib/infrastructure/connectors/pdf');
+const { readFile } = await import('node:fs/promises');
+const { runOperation, memoryObjectStore, purgeAbandonedUploads } = await import(
+  '@/lib/application/ingestion'
+);
 const { queryDocs } = await import('@/lib/application/retrieval/query-docs');
 const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
@@ -45,7 +49,10 @@ const noEmbeddings = {
 
 function dependencies() {
   return {
-    async fetchSnapshot() {
+    async fetchSnapshot(input: { type: string; config?: Record<string, unknown> }) {
+      /* The pdf connector is the real one, against the in-memory store: the
+         upload path is what this test exists to cover end to end. */
+      if (input.type === 'pdf') return fetchPdfSnapshot({ config: input.config ?? {}, store });
       return {
         files: [
           {
@@ -225,6 +232,100 @@ describeWithDb('workspace library creation', () => {
         noEmbeddings,
       ),
     ).rejects.toMatchObject({ code: 'library_not_found' });
+  });
+
+  it('creates a library from uploaded PDFs and builds it from the store', async () => {
+    const stamp = Date.now();
+    const workspaceId = await workspaceOnPlan(5);
+    const bytes = new Uint8Array(await readFile(new URL('../fixtures/handbook.pdf', import.meta.url)));
+
+    /* The wizard's two halves: room in the bucket, then the browser's PUT. */
+    const prepared = await prepareUploads({
+      workspaceId,
+      role: 'owner',
+      files: [{ name: 'Team Handbook.pdf', size: bytes.byteLength }],
+      store,
+    });
+    for (const file of prepared.files) {
+      if (file.ticket.kind !== 'put') throw new Error('the memory store issues PUT tickets');
+      await store.put(
+        file.ticket.url.replace(/^memory:\/\//, '').replace(/\?upload$/, ''),
+        bytes,
+        'application/pdf',
+      );
+    }
+    const manifest = {
+      batchId: prepared.batchId,
+      files: prepared.files.map(({ id, name, size }) => ({ id, name, size })),
+    };
+
+    /* A manifest whose sizes do not match what landed is refused. */
+    await expect(
+      createWorkspaceLibrary({
+        role: 'owner',
+        workspaceId,
+        title: 'Handbook PDF',
+        visibility: 'private',
+        sourceType: 'pdf',
+        location: '',
+        slug: `handbook-pdf-${stamp}`,
+        uploads: { ...manifest, files: manifest.files.map((file) => ({ ...file, size: file.size + 1 })) },
+        store,
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_request' });
+
+    const created = await createWorkspaceLibrary({
+      role: 'owner',
+      workspaceId,
+      title: 'Handbook PDF',
+      visibility: 'private',
+      sourceType: 'pdf',
+      location: '',
+      slug: `handbook-pdf-${stamp}`,
+      uploads: manifest,
+      language: 'en',
+      store,
+    });
+    libraries.push(created.libraryId);
+    expect(created.publicId).toBe(`/docs/handbook-pdf-${stamp}`);
+
+    const [source] = await db()
+      .select()
+      .from(schema.source)
+      .where(eq(schema.source.libraryId, created.libraryId));
+    expect(source?.type).toBe('pdf');
+    expect(source?.location).toBe(`uploads/${workspaceId}/${prepared.batchId}`);
+    expect((source?.config as { files: { name: string }[] }).files[0]?.name).toBe('Team Handbook.pdf');
+
+    const outcome = await runOperation({ operationId: created.operationId, dependencies: dependencies() });
+    expect(outcome.status).toBe('succeeded');
+
+    await db()
+      .update(schema.library)
+      .set({ lifecycleStatus: 'published' })
+      .where(eq(schema.library.id, created.libraryId));
+    const owner = { workspaceId, apiKeyId: null, requestId: `req_${crypto.randomUUID()}`, anonymous: false };
+    const output = await queryDocs(
+      owner,
+      { libraryId: created.publicId, query: 'quartzloft onboarding', maxTokens: 4000, format: 'json' },
+      noEmbeddings,
+    );
+    expect(output.chunks.length).toBeGreaterThan(0);
+    expect(output.chunks[0]?.citation.documentTitle).toBe('Team Handbook');
+
+    /* The sweep: an upload nobody claimed goes once it is old enough; the
+       one this library lists stays however old it is. */
+    const orphan = `uploads/${workspaceId}/${crypto.randomUUID()}/${crypto.randomUUID()}.pdf`;
+    await store.put(orphan, bytes, 'application/pdf');
+    const claimed = prepared.files[0]!;
+    const claimedKey = `uploads/${workspaceId}/${prepared.batchId}/${claimed.id}.pdf`;
+    const future = Date.now() + 2 * 24 * 60 * 60 * 1000;
+    const before = await purgeAbandonedUploads({ dependencies: dependencies() });
+    expect(before.deleted).toBe(0);
+    const after = await purgeAbandonedUploads({ now: future, dependencies: dependencies() });
+    expect(after.deleted).toBe(1);
+    expect(await store.head(orphan)).toBeNull();
+    expect(await store.head(claimedKey)).not.toBeNull();
   });
 
   it('enforces the plan limit and public-id uniqueness', async () => {

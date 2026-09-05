@@ -9,6 +9,7 @@ export { buildVersion, type BuildOutcome } from './build-version';
 export { publishVersion, type PublishResult } from './publish-version';
 export { rebuildProfile, rebuildStaleProfiles } from './rebuild-profile';
 export { purgeLibrary, type PurgeOutcome } from './purge-library';
+export { purgeAbandonedUploads, type PurgeUploadsOutcome } from './purge-uploads';
 export {
   drainOperations,
   runOperation,

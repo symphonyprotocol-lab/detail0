@@ -1,18 +1,27 @@
 'use client';
 
 import Link from 'next/link';
-import { useActionState, useState } from 'react';
+import { put as putBlob } from '@vercel/blob/client';
+import { useActionState, useRef, useState } from 'react';
 import { PANEL } from '@/components/dashboard/ui';
 import {
   ArrowRightIcon,
   BracesIcon,
   FileCodeIcon,
+  FileTextIcon,
   GitBranchIcon,
   GlobeIcon,
   HashIcon,
+  SpinnerIcon,
+  UploadIcon,
+  XIcon,
 } from '@/components/ui/icons';
-import type { CreateLibraryResult } from '@/app/dashboard/libraries/new/actions';
-import { slugFromTitle } from '@/lib/domain/library';
+import type {
+  CreateLibraryResult,
+  PrepareUploadResult,
+} from '@/app/dashboard/libraries/new/actions';
+import type { UploadTicket } from '@/lib/infrastructure/objects/store';
+import { slugFromTitle, slugWithoutPrefix, UPLOAD_LIMITS } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
 
@@ -24,7 +33,7 @@ import { fill } from '@/lib/i18n/format';
  * the queued state rather than pretending the index exists.
  */
 
-const SOURCES = ['github', 'website', 'llms_txt', 'openapi', 'notion'] as const;
+const SOURCES = ['github', 'website', 'llms_txt', 'openapi', 'notion', 'pdf'] as const;
 type SourceId = (typeof SOURCES)[number];
 
 const SOURCE_ICONS: Record<SourceId, (props: { size?: number }) => React.ReactElement> = {
@@ -33,6 +42,7 @@ const SOURCE_ICONS: Record<SourceId, (props: { size?: number }) => React.ReactEl
   llms_txt: HashIcon,
   openapi: BracesIcon,
   notion: FileCodeIcon,
+  pdf: UploadIcon,
 };
 
 /** Only github derives its id from the source; everything else needs a slug. */
@@ -42,7 +52,49 @@ const NEEDS_SLUG: Record<SourceId, string | null> = {
   llms_txt: 'websites',
   openapi: 'docs',
   notion: 'notion',
+  pdf: 'docs',
 };
+
+/**
+ * One picked PDF on its way to the store. The browser redeems the ticket the
+ * prepare action hands back -- a presigned PUT for an S3 bucket, a scoped
+ * client token for Vercel Blob -- so the file never goes through a server
+ * action; what the form finally posts is the manifest of ids, names and
+ * sizes, which the create use case confirms against the store.
+ */
+interface Upload {
+  id: string;
+  name: string;
+  size: number;
+  status: 'uploading' | 'done' | 'failed';
+}
+
+async function redeem(ticket: UploadTicket, file: File): Promise<boolean> {
+  try {
+    if (ticket.kind === 'put') {
+      const response = await fetch(ticket.url, {
+        method: 'PUT',
+        body: file,
+        headers: { 'content-type': 'application/pdf' },
+      });
+      return response.ok;
+    }
+    await putBlob(ticket.pathname, file, {
+      access: 'private',
+      token: ticket.token,
+      contentType: 'application/pdf',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function formatBytes(size: number): string {
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  if (size >= 1024) return `${Math.round(size / 1024)} KB`;
+  return `${size} B`;
+}
 
 const FIELD =
   'h-9 w-full rounded-[7px] border-2 border-line bg-card px-2.5 text-[12px] tracking-[-0.023em] text-ink placeholder:text-muted/70 focus:border-brand focus:outline-none';
@@ -59,8 +111,13 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 export function ImportWizard({
   action,
+  prepare,
 }: {
   action: (previous: CreateLibraryResult | null, form: FormData) => Promise<CreateLibraryResult>;
+  prepare: (
+    files: { name: string; size: number }[],
+    batchId?: string,
+  ) => Promise<PrepareUploadResult>;
 }) {
   const { t } = useI18n();
   const n = t.dashboard.newLibrary;
@@ -78,11 +135,74 @@ export function ImportWizard({
   const [description, setDescription] = useState('');
   const [language, setLanguage] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
+  const [uploads, setUploads] = useState<Upload[]>([]);
+  const [batchId, setBatchId] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<PrepareUploadResult['error'] | 'transfer' | null>(
+    null,
+  );
+  const picker = useRef<HTMLInputElement>(null);
   const [state, formAction, pending] = useActionState(action, null);
 
   const namespace = source ? NEEDS_SLUG[source] : null;
+  const isUpload = source === 'pdf';
+  const uploaded = uploads.filter((upload) => upload.status === 'done');
+  const uploadsSettled = uploads.length > 0 && uploads.every((upload) => upload.status !== 'uploading');
+  const sourceComplete = isUpload ? uploadsSettled && uploaded.length > 0 : location.trim().length > 0;
   const detailsComplete =
-    title.trim().length > 0 && location.trim().length > 0 && (namespace === null || slug.trim().length > 0);
+    title.trim().length > 0 && sourceComplete && (namespace === null || slug.trim().length > 0);
+
+  async function pickFiles(list: FileList | null) {
+    const files = Array.from(list ?? []).filter(
+      (file) => /\.pdf$/i.test(file.name) || file.type === 'application/pdf',
+    );
+    if (picker.current) picker.current.value = '';
+    if (files.length === 0) return;
+    setUploadError(null);
+    if (uploads.length + files.length > UPLOAD_LIMITS.maxFiles) {
+      setUploadError('invalid');
+      return;
+    }
+    if (files.some((file) => file.size > UPLOAD_LIMITS.maxFileBytes)) {
+      setUploadError('too_large');
+      return;
+    }
+
+    const prepared = await prepare(
+      files.map((file) => ({ name: file.name, size: file.size })),
+      batchId ?? undefined,
+    );
+    if (!prepared.ok || !prepared.files || !prepared.batchId) {
+      setUploadError(prepared.error ?? 'unavailable');
+      return;
+    }
+    setBatchId(prepared.batchId);
+    const slots = prepared.files;
+    setUploads((current) => [
+      ...current,
+      ...slots.map((slot) => ({ id: slot.id, name: slot.name, size: slot.size, status: 'uploading' as const })),
+    ]);
+
+    await Promise.all(
+      slots.map(async (slot, index) => {
+        const file = files[index];
+        const ok = file ? await redeem(slot.ticket, file) : false;
+        setUploads((current) =>
+          current.map((upload) =>
+            upload.id === slot.id ? { ...upload, status: ok ? 'done' : 'failed' } : upload,
+          ),
+        );
+        if (!ok) setUploadError('transfer');
+      }),
+    );
+  }
+
+  const manifest =
+    isUpload && batchId
+      ? JSON.stringify({
+          batchId,
+          files: uploaded.map(({ id, name, size }) => ({ id, name, size })),
+        })
+      : '';
   const canContinue = step === 0 ? source !== null : step === 1 ? detailsComplete : true;
 
   if (state?.ok) {
@@ -138,6 +258,7 @@ export function ImportWizard({
         <input type="hidden" name="sourceType" value={source ?? ''} />
         <input type="hidden" name="title" value={title} />
         <input type="hidden" name="slug" value={slug} />
+        <input type="hidden" name="uploads" value={manifest} />
         <input type="hidden" name="location" value={location} />
         <input type="hidden" name="description" value={description} />
         <input type="hidden" name="language" value={language} />
@@ -197,24 +318,110 @@ export function ImportWizard({
                   className={FIELD}
                 />
               </Field>
-              <Field label={w.locationLabel} hint={w.locations[source]}>
-                <input
-                  value={location}
-                  onChange={(event) => setLocation(event.target.value)}
-                  className={FIELD}
-                />
-              </Field>
-              {namespace ? (
-                <Field label={w.slugLabel} hint={fill(w.slugHint, { prefix: `/${namespace}/` })}>
+              {isUpload ? (
+                /* Not a `Field`: that is a <label>, and a click anywhere in a
+                   label -- the remove button included -- activates the file
+                   input nested in it and opens the picker. */
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">
+                    {w.filesLabel}
+                  </span>
                   <input
-                    value={slug}
-                    onChange={(event) => {
-                      setSlug(event.target.value);
-                      setSlugEdited(event.target.value.trim().length > 0);
-                    }}
-                    placeholder={w.slugPlaceholder}
+                    ref={picker}
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    multiple
+                    hidden
+                    onChange={(event) => void pickFiles(event.target.files)}
+                  />
+                  <div className="flex flex-col gap-1.5 rounded-[7px] border-2 border-dashed border-line bg-card p-2.5">
+                    {uploads.map((upload) => (
+                      <div
+                        key={upload.id}
+                        className="flex items-center gap-2 rounded-[6px] bg-subtle px-2.5 py-1.5 text-[12px] tracking-[-0.023em]"
+                      >
+                        {upload.status === 'uploading' ? (
+                          <SpinnerIcon size={14} />
+                        ) : (
+                          <FileTextIcon size={14} />
+                        )}
+                        <span className="min-w-0 flex-1 truncate text-ink">{upload.name}</span>
+                        <span className="shrink-0 text-muted">
+                          {upload.status === 'failed' ? w.fileFailed : formatBytes(upload.size)}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label={w.fileRemove}
+                          disabled={upload.status === 'uploading'}
+                          onClick={() =>
+                            setUploads((current) => current.filter((entry) => entry.id !== upload.id))
+                          }
+                          className="shrink-0 text-muted hover:text-ink disabled:opacity-40"
+                        >
+                          <XIcon size={14} />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => picker.current?.click()}
+                      disabled={uploads.length >= UPLOAD_LIMITS.maxFiles}
+                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[6px] text-[12px] text-steel transition-colors hover:bg-subtle disabled:opacity-40"
+                    >
+                      <UploadIcon size={14} />
+                      {uploads.length === 0 ? w.filesPick : w.filesPickMore}
+                    </button>
+                  </div>
+                  {uploadError ? (
+                    <span className="text-[11px] tracking-[-0.023em] text-rose">
+                      {uploadError === 'too_large'
+                        ? fill(w.errorFileTooLarge, { size: formatBytes(UPLOAD_LIMITS.maxFileBytes) })
+                        : uploadError === 'invalid'
+                          ? fill(w.errorFileCount, { max: String(UPLOAD_LIMITS.maxFiles) })
+                          : uploadError === 'access_denied'
+                            ? w.errorUploadDenied
+                            : uploadError === 'transfer'
+                              ? w.errorUploadFailed
+                              : w.errorUploadUnavailable}
+                    </span>
+                  ) : null}
+                  <span className="text-[10px] tracking-[-0.023em] text-muted">
+                    {fill(w.filesHint, {
+                      max: String(UPLOAD_LIMITS.maxFiles),
+                      size: formatBytes(UPLOAD_LIMITS.maxFileBytes),
+                    })}
+                  </span>
+                </div>
+              ) : (
+                <Field label={w.locationLabel} hint={w.locations[source]}>
+                  <input
+                    value={location}
+                    onChange={(event) => setLocation(event.target.value)}
                     className={FIELD}
                   />
+                </Field>
+              )}
+              {namespace ? (
+                <Field label={w.slugLabel} hint={fill(w.slugHint, { prefix: `/${namespace}/` })}>
+                  {/* The prefix sits inside the field so the id reads the way
+                      the catalogue shows it, /websites/ethereum/whitepaper; the
+                      operator types only the slug, nested with / if they like. */}
+                  <span className="flex h-9 w-full items-center rounded-[7px] border-2 border-line bg-card pl-2.5 focus-within:border-brand">
+                    <span className="shrink-0 select-none text-[12px] tracking-[-0.023em] text-muted">
+                      /{namespace}/
+                    </span>
+                    <input
+                      value={slug}
+                      onChange={(event) => {
+                        const next = slugWithoutPrefix(event.target.value, `/${namespace}/`);
+                        setSlug(next);
+                        setSlugEdited(next.trim().length > 0);
+                      }}
+                      maxLength={200 - namespace.length - 2}
+                      placeholder={w.slugPlaceholder}
+                      className="h-full min-w-0 flex-1 bg-transparent pr-2.5 text-[12px] tracking-[-0.023em] text-ink placeholder:text-muted/70 focus:outline-none"
+                    />
+                  </span>
                 </Field>
               ) : (
                 <p className="text-[11px] tracking-[-0.023em] text-muted">{w.githubIdNote}</p>
@@ -268,7 +475,9 @@ export function ImportWizard({
               {[
                 [w.stepSource, w.sources[source].name],
                 [w.titleLabel, title],
-                [w.locationLabel, location],
+                isUpload
+                  ? [w.filesLabel, fill(w.filesCount, { n: String(uploaded.length) })]
+                  : [w.locationLabel, location],
                 ...(namespace ? [[w.slugLabel, `/${namespace}/${slug.trim().toLowerCase()}`]] : []),
                 [
                   w.stepVisibility,

@@ -21,6 +21,7 @@
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { IngestionFailure } from '@/lib/domain/ingestion';
 import { retrievalCache } from '@/lib/infrastructure/cache/redis';
+import { uploadedFilesOf } from '@/lib/domain/library';
 import { objectKeys } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { defaultDependencies, type IngestionDependencies } from './dependencies';
@@ -57,7 +58,7 @@ export async function purgeLibrary(input: {
 
   /* --------------------------------------------------------------- objects */
 
-  const [documents, versions, operations] = await Promise.all([
+  const [documents, versions, operations, sources] = await Promise.all([
     database
       .select({ objectKey: schema.document.objectKey })
       .from(schema.document)
@@ -75,6 +76,12 @@ export async function purgeLibrary(input: {
           inArray(schema.workflowOperation.operationType, [...SNAPSHOT_OPERATIONS]),
         ),
       ),
+    /* Uploaded files are the one kind of object that exists before any
+       build; a deleted library's are unreferenced from here on. */
+    database
+      .select({ config: schema.source.config })
+      .from(schema.source)
+      .where(and(eq(schema.source.libraryId, library.id), eq(schema.source.type, 'pdf'))),
   ]);
 
   const keys = [
@@ -84,6 +91,7 @@ export async function purgeLibrary(input: {
       objectKeys.vectorManifest(library.id, version.id),
     ]),
     ...operations.map((operation) => objectKeys.snapshot(library.id, operation.id, 'json')),
+    ...sources.flatMap((source) => uploadedFilesOf(source.config).map((file) => file.key)),
   ];
 
   if (keys.length > 0) {
