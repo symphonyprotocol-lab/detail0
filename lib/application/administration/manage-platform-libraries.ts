@@ -48,6 +48,8 @@ import {
   type PlatformLifecycleState,
   type PlatformSourceType,
   type RefreshPolicy,
+  indexDepthOf,
+  type IndexDepth,
 } from '@/lib/domain/library';
 import { PROFILE_VERSION } from '@/lib/domain/profile';
 import { rebuildProfile } from '@/lib/application/ingestion/rebuild-profile';
@@ -272,6 +274,8 @@ export interface PlatformSourceView {
   type: string;
   location: string;
   refreshPolicy: RefreshPolicy | 'unknown';
+  /** `llms_txt` only: nested indexes followed; 0 for every other type. */
+  indexDepth: IndexDepth;
 }
 
 export interface PlatformVersionView {
@@ -423,6 +427,7 @@ export async function getPlatformLibrary(libraryId: string): Promise<PlatformLib
         type: schema.source.type,
         location: schema.source.location,
         refreshPolicy: schema.source.refreshPolicy,
+        config: schema.source.config,
       })
       .from(schema.source)
       .where(eq(schema.source.libraryId, libraryId))
@@ -546,6 +551,7 @@ export async function getPlatformLibrary(libraryId: string): Promise<PlatformLib
       type: source.type,
       location: source.location,
       refreshPolicy: readRefreshPolicy(source.refreshPolicy),
+      indexDepth: indexDepthOf(source.config),
     })),
     versions: versions.map((version) => ({
       ...version,
@@ -1110,6 +1116,7 @@ export async function addPlatformLibrarySource(input: {
   type: string;
   location: string;
   refreshPolicy: string;
+  indexDepth?: unknown;
   reason: string;
 }): Promise<{ sourceId: string }> {
   const reason = normalizeReason(input.reason);
@@ -1127,7 +1134,7 @@ export async function addPlatformLibrarySource(input: {
     libraryId: target.id,
     type: draft.type,
     location: draft.location,
-    config: {},
+    config: { indexDepth: draft.indexDepth },
     refreshPolicy: { cadence: draft.refreshPolicy },
   });
 
@@ -1165,6 +1172,7 @@ export async function updatePlatformLibrarySource(input: {
   sourceId: string;
   location: string;
   refreshPolicy: string;
+  indexDepth?: unknown;
   reason: string;
 }): Promise<void> {
   const reason = normalizeReason(input.reason);
@@ -1180,6 +1188,7 @@ export async function updatePlatformLibrarySource(input: {
     type: before.type,
     location: input.location,
     refreshPolicy: input.refreshPolicy,
+    indexDepth: input.indexDepth,
   });
 
   await database
@@ -1187,6 +1196,7 @@ export async function updatePlatformLibrarySource(input: {
     .set({
       location: draft.location,
       refreshPolicy: { cadence: draft.refreshPolicy },
+      config: { ...before.config, indexDepth: draft.indexDepth },
     })
     .where(and(eq(schema.source.id, before.id), eq(schema.source.libraryId, target.id)));
 
@@ -1396,6 +1406,8 @@ async function loadSource(
   type: string;
   location: string;
   refreshPolicy: RefreshPolicy | 'unknown';
+  indexDepth: IndexDepth;
+  config: Record<string, unknown>;
 }> {
   if (!isUuid(sourceId)) throw new PlatformLibraryRefused('source_not_found', 'no such source');
 
@@ -1405,6 +1417,7 @@ async function loadSource(
       type: schema.source.type,
       location: schema.source.location,
       refreshPolicy: schema.source.refreshPolicy,
+      config: schema.source.config,
     })
     .from(schema.source)
     .where(and(eq(schema.source.id, sourceId), eq(schema.source.libraryId, libraryId)))
@@ -1416,6 +1429,8 @@ async function loadSource(
     type: row.type,
     location: row.location,
     refreshPolicy: readRefreshPolicy(row.refreshPolicy),
+    indexDepth: indexDepthOf(row.config),
+    config: row.config,
   };
 }
 

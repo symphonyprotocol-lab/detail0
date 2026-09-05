@@ -14,7 +14,13 @@ import {
   RefreshIcon,
   ShieldCheckIcon,
 } from '@/components/ui/icons';
-import { canManageLibraries, listVersionDocuments, workspaceLibraryDetail } from '@/lib/application/libraries';
+import {
+  canManageLibraries,
+  documentsPage,
+  DOCUMENTS_PAGE_SIZE,
+  listVersionDocuments,
+  workspaceLibraryDetail,
+} from '@/lib/application/libraries';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
@@ -23,6 +29,9 @@ import { rebuildLibraryAction } from './actions';
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).dashboard.libraryDetail.metaTitle };
 }
+
+const PAGER =
+  'inline-flex h-[29px] items-center rounded-[6px] border-2 border-line bg-card px-2.5 text-[11px] font-medium text-ink hover:bg-subtle';
 
 function label(dictionary: Record<string, string>, value: string | null): string {
   return (value && dictionary[value]) || value || '—';
@@ -36,10 +45,12 @@ function label(dictionary: Record<string, string>, value: string | null): string
  */
 export default async function DashboardLibraryPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ libraryId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { libraryId } = await params;
+  const [{ libraryId }, query] = await Promise.all([params, searchParams]);
   const [session, { locale, t }] = await Promise.all([
     requireSession(`/dashboard/libraries/${libraryId}`),
     translations(),
@@ -47,9 +58,17 @@ export default async function DashboardLibraryPage({
   const library = await workspaceLibraryDetail({ workspaceId: session.workspace.id, libraryId });
   if (!library) notFound();
   const currentVersionId = library.versions.find((version) => version.isCurrent)?.id ?? null;
+  const docsPage = documentsPage(query.docs);
   const documents = currentVersionId
-    ? await listVersionDocuments({ libraryId: library.id, versionId: currentVersionId, limit: 200 })
+    ? await listVersionDocuments({
+        libraryId: library.id,
+        versionId: currentVersionId,
+        limit: DOCUMENTS_PAGE_SIZE,
+        offset: (docsPage - 1) * DOCUMENTS_PAGE_SIZE,
+      })
     : { documents: [], total: 0 };
+  const docsPages = Math.max(1, Math.ceil(documents.total / DOCUMENTS_PAGE_SIZE));
+  const docsHref = (page: number) => `/dashboard/libraries/${library.id}?docs=${page}#documents`;
 
   const d = t.dashboard.libraryDetail;
   const l = t.dashboard.libraries;
@@ -233,7 +252,7 @@ export default async function DashboardLibraryPage({
         />
       </section>
 
-      <section className={`${PANEL} p-0.5`}>
+      <section id="documents" className={`${PANEL} scroll-mt-4 p-0.5`}>
         <div className="px-6 py-4">
           <h2 className="text-[15px] font-semibold tracking-[-0.025em] text-ink">{d.documents.title}</h2>
           <p className="mt-0.5 text-[11px] tracking-[-0.023em] text-muted">{d.documents.description}</p>
@@ -262,9 +281,24 @@ export default async function DashboardLibraryPage({
           ])}
         />
         {documents.total > 0 ? (
-          <p className="border-t-2 border-line px-6 py-3 text-[11px] tracking-[-0.023em] text-muted">
-            {fill(d.documents.showing, { shown: documents.documents.length, total: documents.total })}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-line px-6 py-3">
+            <p className="text-[11px] tracking-[-0.023em] text-muted">
+              {fill(d.documents.page, { page: docsPage, pages: docsPages })} ·{' '}
+              {fill(d.documents.showing, { shown: documents.documents.length, total: documents.total })}
+            </p>
+            <span className="flex items-center gap-2">
+              {docsPage > 1 ? (
+                <Link href={docsHref(docsPage - 1)} className={PAGER}>
+                  {d.documents.prev}
+                </Link>
+              ) : null}
+              {docsPage < docsPages ? (
+                <Link href={docsHref(docsPage + 1)} className={PAGER}>
+                  {d.documents.next}
+                </Link>
+              ) : null}
+            </span>
+          </div>
         ) : null}
       </section>
 

@@ -89,6 +89,16 @@ describe('term extraction', () => {
     expect(terms).not.toContain('主要内容');
   });
 
+  it('does not count the addresses a page links to', () => {
+    const terms = extractTerms([
+      'Validators secure the network. ![emoji](https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f600.svg) See www.example.org/docs/staking and mail ops@example.com. Validators earn rewards.',
+    ]);
+    expect(terms).toContain('validators');
+    for (const noise of ['https', 'cdnjs', 'ajax', 'libs', 'twemoji', 'svg', 'com', 'org', 'example', 'ops']) {
+      expect(terms).not.toContain(noise);
+    }
+  });
+
   it('leaves discourse and ordinal words out too', () => {
     const terms = extractTerms([
       'First, because the validator is important, however the number of validators provides another.',

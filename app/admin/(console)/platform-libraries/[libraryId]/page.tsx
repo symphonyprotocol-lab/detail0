@@ -30,7 +30,7 @@ import {
 import { ChevronLeftIcon, GlobeIcon } from '@/components/ui/icons';
 import Link from 'next/link';
 import { getPlatformLibrary } from '@/lib/application/administration';
-import { listVersionDocuments } from '@/lib/application/libraries';
+import { documentsPage, DOCUMENTS_PAGE_SIZE, listVersionDocuments } from '@/lib/application/libraries';
 import { isIngestionConfigured } from '@/lib/application/ingestion';
 import type { FetchSummary } from '@/lib/domain/ingestion';
 import { isPlatformSourceType, type PlatformSourceType } from '@/lib/domain/library';
@@ -102,21 +102,32 @@ export async function generateMetadata({
  */
 export default async function AdminPlatformLibraryPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ libraryId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [, { libraryId }, t] = await Promise.all([
+  const [, { libraryId }, query, t] = await Promise.all([
     requireAdminCapability('platformLibraries'),
     params,
+    searchParams,
     getMessages(),
   ]);
 
   const record = await loadLibrary(libraryId);
   if (!record) notFound();
 
+  const docsPage = documentsPage(query.docs);
   const documents = record.currentVersionId
-    ? await listVersionDocuments({ libraryId: record.id, versionId: record.currentVersionId, limit: 200 })
+    ? await listVersionDocuments({
+        libraryId: record.id,
+        versionId: record.currentVersionId,
+        limit: DOCUMENTS_PAGE_SIZE,
+        offset: (docsPage - 1) * DOCUMENTS_PAGE_SIZE,
+      })
     : { documents: [], total: 0 };
+  const docsPages = Math.max(1, Math.ceil(documents.total / DOCUMENTS_PAGE_SIZE));
+  const docsHref = (page: number) => `/admin/platform-libraries/${record.id}?docs=${page}#documents`;
 
   const p = t.admin.platformLibraries;
   const d = t.admin.platformLibraryDetail;
@@ -292,7 +303,12 @@ export default async function AdminPlatformLibraryPage({
                     <Pill tone="info">{label(p.sourceTypes, source.type)}</Pill>
                   </td>
                   <td className={`${TD} break-all`}>{source.location}</td>
-                  <td className={TD}>{p.refreshPolicies[source.refreshPolicy]}</td>
+                  <td className={TD}>
+                    {p.refreshPolicies[source.refreshPolicy]}
+                    {source.type === 'llms_txt' && source.indexDepth > 0
+                      ? ` · ${d.sourceDialog.indexDepths[source.indexDepth]}`
+                      : ''}
+                  </td>
                   <td className={TD}>
                     {/*
                       * Both controls are offered on every row, including the
@@ -328,6 +344,7 @@ export default async function AdminPlatformLibraryPage({
         t={d}
       />
 
+      <div id="documents" className="scroll-mt-4" />
       <Panel>
         <PanelHead title={d.documents.title} description={d.documents.description} />
         <TableScroller>
@@ -374,10 +391,19 @@ export default async function AdminPlatformLibraryPage({
           </table>
         </TableScroller>
         {documents.total > 0 ? (
-          <div className="border-t-2 border-line px-4 py-[11px]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-line px-4 py-[11px]">
             <p className="text-[12px] tracking-[-0.023em] text-muted">
+              {fill(d.documents.page, { page: docsPage, pages: docsPages })} ·{' '}
               {fill(d.documents.showing, { shown: documents.documents.length, total: documents.total })}
             </p>
+            <span className="flex items-center gap-2">
+              {docsPage > 1 ? (
+                <ConsoleButton href={docsHref(docsPage - 1)}>{t.admin.actions.prev}</ConsoleButton>
+              ) : null}
+              {docsPage < docsPages ? (
+                <ConsoleButton href={docsHref(docsPage + 1)}>{t.admin.actions.next}</ConsoleButton>
+              ) : null}
+            </span>
           </div>
         ) : null}
       </Panel>

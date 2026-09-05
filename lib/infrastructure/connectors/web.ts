@@ -26,13 +26,15 @@ const MAX_SITEMAPS = 10;
 export async function fetchWebSnapshot(input: {
   type: WebSourceType;
   location: string;
+  /** `llms_txt` only: how many levels of nested indexes to follow. */
+  indexDepth?: number;
 }): Promise<SourceSnapshot> {
   const entry = new URL(input.location);
   const files =
     input.type === 'openapi'
       ? [await fetchOne(entry.toString(), entry)]
       : input.type === 'llms_txt'
-        ? await fetchIndex(entry)
+        ? await fetchIndex(entry, input.indexDepth ?? 0)
         : await crawl(entry);
 
   if (files.length === 0) {
@@ -130,47 +132,45 @@ function toFile(resource: FetchedResource, entry: URL): FetchedFile {
  *
  * An index may point at further indexes -- ethereum.org's top-level file
  * names `/developers/docs/llms.txt` for the developer documentation, in prose
- * rather than as a link. Those are followed one level deep, same host, a
- * bounded number of them, and the documents they list join the set. Pages
- * are never crawled from: an index is the site saying what its documentation
+ * rather than as a link. Whether those are followed, and how deep, is the
+ * source's own setting (`indexDepth`, default none): same host, a bounded
+ * number of indexes, and the documents they list join the set. Pages are
+ * never crawled from: an index is the site saying what its documentation
  * is, and following links out of the listed pages would replace that
  * statement with a walk.
  */
-async function fetchIndex(entry: URL): Promise<FetchedFile[]> {
+async function fetchIndex(entry: URL, depth: number): Promise<FetchedFile[]> {
   const index = await fetchPage(entry.toString());
 
   const files: FetchedFile[] = [toFile(index, entry)];
   const seen = new Set<string>([normalizeUrl(entry)]);
   const targets: URL[] = [];
-  const nested: URL[] = [];
+  /* Indexes still to expand, each with the level it sits at. */
+  const indexes: { url: URL; level: number; body: string }[] = [{ url: entry, level: 0, body: index.body }];
+  let followed = 0;
 
-  const collect = (body: string, base: URL) => {
-    for (const url of indexLinks(body, base)) {
+  while (indexes.length > 0) {
+    const current = indexes.shift()!;
+    for (const url of indexLinks(current.body, current.url)) {
       if (url.hostname !== entry.hostname) continue;
       const key = normalizeUrl(url);
       if (seen.has(key)) continue;
       seen.add(key);
-      (isIndexUrl(url) ? nested : targets).push(url);
-    }
-  };
-  collect(index.body, entry);
-
-  for (const sub of nested.slice(0, INGESTION_LIMITS.maxNestedIndexes)) {
-    let page: FetchedResource;
-    try {
-      page = await fetchPage(sub.toString());
-    } catch (error) {
-      if (error instanceof IngestionFailure) continue;
-      throw error;
-    }
-    files.push(toFile(page, entry));
-    /* One level only: a nested index's own nested indexes are not followed. */
-    for (const url of indexLinks(page.body, sub)) {
-      if (url.hostname !== entry.hostname || isIndexUrl(url)) continue;
-      const key = normalizeUrl(url);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      targets.push(url);
+      if (!isIndexUrl(url)) {
+        targets.push(url);
+        continue;
+      }
+      if (current.level >= depth || followed >= INGESTION_LIMITS.maxNestedIndexes) continue;
+      followed += 1;
+      let page: FetchedResource;
+      try {
+        page = await fetchPage(url.toString());
+      } catch (error) {
+        if (error instanceof IngestionFailure) continue;
+        throw error;
+      }
+      files.push(toFile(page, entry));
+      indexes.push({ url, level: current.level + 1, body: page.body });
     }
   }
 

@@ -788,7 +788,10 @@ export const zh = {
         description: '当前版本抓取并索引的文档；点标题预览正文，点链接打开来源',
         columns: ['文档', '来源链接', 'Chunk'],
         empty: '当前版本没有文档。',
-        showing: '显示前 {shown} 个，共 {total} 个文档',
+        showing: '本页 {shown} 个，共 {total} 个文档',
+        page: '第 {page} / {pages} 页',
+        prev: '上一页',
+        next: '下一页',
       },
       documentPreview: {
         metaTitle: '文档预览',
@@ -859,6 +862,9 @@ export const zh = {
         },
         titleLabel: '知识库名称',
         locationLabel: '来源位置',
+        indexDepthLabel: '嵌套索引',
+        indexDepthHint: '索引正文里提到的同域 llms.txt 是否继续跟进；默认只抓索引本身列出的文档。',
+        indexDepths: { 0: '不跟进（默认）', 1: '跟进 1 层', 2: '跟进 2 层', 3: '跟进 3 层' },
         locations: {
           github: 'owner/repo 或仓库 URL',
           website: 'https://docs.example.com',
@@ -2011,7 +2017,8 @@ export const zh = {
         description: '当前版本索引的文档；点标题预览抓取到的正文，点链接打开来源',
         columns: ['文档', '来源链接', 'Chunk'],
         empty: '当前版本没有文档。',
-        showing: '显示前 {shown} 个，共 {total} 个文档',
+        showing: '本页 {shown} 个，共 {total} 个文档',
+        page: '第 {page} / {pages} 页',
         preview: '预览正文',
         open: '打开来源',
       },
@@ -2077,7 +2084,6 @@ export const zh = {
         termsHead: '权重最高的 {shown} 个词',
         termsNote:
           '按抽取权重排序。如果前排是「new / opens / tab」这类导航文案，或是其他章节的词汇，说明画像被噪音或越界抓取污染，路由会受影响。',
-        titlesHead: '前 {shown} 个文档标题',
       },
       profileDialog: {
         title: '重建画像',
@@ -2160,6 +2166,9 @@ export const zh = {
         fieldRefresh: '刷新策略',
         fieldLocation: '位置',
         hintLocation: '网页与文档来源必须是 https 地址，GitHub 填 owner/repository。',
+        fieldIndexDepth: '嵌套索引',
+        hintIndexDepth: '仅 llms.txt 来源。索引正文里提到的同域 llms.txt 是否继续跟进；默认只抓索引本身列出的文档。',
+        indexDepths: { 0: '不跟进（默认）', 1: '跟进 1 层', 2: '跟进 2 层', 3: '跟进 3 层' },
         typeLocked: '类型不可修改：已构建的版本记录了它，改动会让那些版本声称来自另一种来源。',
       },
       removeSourceDialog: {

@@ -7,7 +7,7 @@
  * `lib/infrastructure`.
  */
 import { IngestionFailure } from '@/lib/domain/ingestion';
-import type { ConnectedSourceType } from '@/lib/domain/library';
+import { indexDepthOf, type ConnectedSourceType } from '@/lib/domain/library';
 import { objectStore } from '@/lib/infrastructure/objects/store';
 import { fetchGithubSnapshot } from './github';
 import { fetchNotionSnapshot } from './notion';
@@ -31,7 +31,11 @@ export async function fetchSnapshot(input: FetchSnapshotInput): Promise<SourceSn
     case 'website':
     case 'llms_txt':
     case 'openapi':
-      return fetchWebSnapshot({ type: input.type, location: input.location });
+      return fetchWebSnapshot({
+        type: input.type,
+        location: input.location,
+        indexDepth: indexDepthOf(input.config ?? {}),
+      });
     case 'notion':
       return fetchNotionSnapshot({ location: input.location });
     case 'pdf':

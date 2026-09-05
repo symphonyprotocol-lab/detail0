@@ -461,7 +461,7 @@ stateDiagram-v2
 每一步由 Vercel Workflows 的持久化 Step 包装，并在 Postgres 写入状态：
 
 1. `validate-source`：套餐、容量、URL、授权和配置 Schema；
-2. `fetch-snapshot`：抓取后计算 Source Digest 并写对象存储。网站来源先直接抓取（浏览器样 UA、`Accept: text/markdown` 协商、sitemap 发现），只有被拒（403）或页面是 JS 空壳时才调用远程渲染服务（`RENDER_PROVIDER`，Firecrawl 或 Jina Reader，可替换）取 Markdown；渲染目标同样经过 §15.1 的地址校验，渲染结果同样受单文档大小上限约束。未配置渲染服务时入口页为空壳以 `source_unrendered` 失败，这个独立错误码让后台能统计需要渲染的来源比例。`llms.txt` 来源只抓索引列出的文档，不从这些页面继续爬；索引正文里提到的同域嵌套索引（如 ethereum.org 的 `/developers/docs/llms.txt`，无论是 Markdown 链接还是裸 URL）会再跟进一层，最多 `maxNestedIndexes` 个，文档总数上限 `maxIndexPages`。PDF 来源从对象存储读回向导上传的文件（单文件 30 MB 以内），用 pdf.js（unpdf）就地抽取文本层；只有当至多一半页面有文本层时（扫描件）才把整个文件交给 OCR 服务（`OCR_PROVIDER`，目前为 ocr.space，可替换）识别，未配置 OCR 时扫描件解析为空文档，由 `discover-parse` 报 `parse_failed`。文件以 multipart 直接上传给 OCR 厂商，不签发对象存储的临时 URL；页数与大小上限由厂商套餐决定，超出时厂商的拒绝原样以 `parse_failed` 上报；
+2. `fetch-snapshot`：抓取后计算 Source Digest 并写对象存储。网站来源先直接抓取（浏览器样 UA、`Accept: text/markdown` 协商、sitemap 发现），只有被拒（403）或页面是 JS 空壳时才调用远程渲染服务（`RENDER_PROVIDER`，Firecrawl 或 Jina Reader，可替换）取 Markdown；渲染目标同样经过 §15.1 的地址校验，渲染结果同样受单文档大小上限约束。未配置渲染服务时入口页为空壳以 `source_unrendered` 失败，这个独立错误码让后台能统计需要渲染的来源比例。`llms.txt` 来源只抓索引列出的文档，不从这些页面继续爬；索引正文里提到的同域嵌套索引（如 ethereum.org 的 `/developers/docs/llms.txt`，无论是 Markdown 链接还是裸 URL）是否跟进由来源自己设定（`source.config.indexDepth`，0–3 层，默认 0 即不跟进），最多 `maxNestedIndexes` 个，文档总数上限 `maxIndexPages`。PDF 来源从对象存储读回向导上传的文件（单文件 30 MB 以内），用 pdf.js（unpdf）就地抽取文本层；只有当至多一半页面有文本层时（扫描件）才把整个文件交给 OCR 服务（`OCR_PROVIDER`，目前为 ocr.space，可替换）识别，未配置 OCR 时扫描件解析为空文档，由 `discover-parse` 报 `parse_failed`。文件以 multipart 直接上传给 OCR 厂商，不签发对象存储的临时 URL；页数与大小上限由厂商套餐决定，超出时厂商的拒绝原样以 `parse_failed` 上报；
 3. `scan`：恶意文件、Secrets、PII、Prompt Injection 和链接安全；
 4. `discover-parse`：只解析允许的文件和页面；
 5. `normalize-cite`：产生统一文档格式和 Citation；

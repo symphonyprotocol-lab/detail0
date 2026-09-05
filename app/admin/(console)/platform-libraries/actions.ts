@@ -240,6 +240,7 @@ export async function addPlatformSourceAction(
       type: text(form, 'sourceType'),
       location: text(form, 'location'),
       refreshPolicy: text(form, 'refreshPolicy'),
+      indexDepth: text(form, 'indexDepth'),
       reason: text(form, 'reason'),
     });
     revalidatePath('/admin/platform-libraries');
@@ -263,6 +264,7 @@ export async function updatePlatformSourceAction(
       sourceId: text(form, 'sourceId'),
       location: text(form, 'location'),
       refreshPolicy: text(form, 'refreshPolicy'),
+      indexDepth: text(form, 'indexDepth'),
       reason: text(form, 'reason'),
     });
     revalidatePath(`/admin/platform-libraries/${libraryId}`);

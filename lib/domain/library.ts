@@ -837,11 +837,36 @@ export function editPlatformLibrary(input: PlatformLibraryEditInput): PlatformLi
 
 /* ----------------------------------------------------------------- sources */
 
+/**
+ * How many levels of nested `llms.txt` indexes an index source follows.
+ * Zero -- the default -- fetches only what the index itself lists; each
+ * further level follows the same-host indexes the previous level named.
+ * Stored on `source.config.indexDepth`; meaningless for other source types.
+ */
+export const INDEX_DEPTHS = [0, 1, 2, 3] as const;
+
+export type IndexDepth = (typeof INDEX_DEPTHS)[number];
+
+export const DEFAULT_INDEX_DEPTH: IndexDepth = 0;
+
+/** A form value or a stored config value as a depth; anything else is the default. */
+export function parseIndexDepth(value: unknown): IndexDepth {
+  const n = typeof value === 'string' ? Number(value) : value;
+  return (INDEX_DEPTHS as readonly number[]).includes(n as number)
+    ? (n as IndexDepth)
+    : DEFAULT_INDEX_DEPTH;
+}
+
+export function indexDepthOf(config: Record<string, unknown>): IndexDepth {
+  return parseIndexDepth(config.indexDepth);
+}
+
 /** A validated source, ready to insert or update. */
 export interface PlatformSourceDraft {
   type: PlatformSourceType;
   location: string;
   refreshPolicy: RefreshPolicy;
+  indexDepth: IndexDepth;
 }
 
 /**
@@ -856,6 +881,8 @@ export function draftPlatformSource(input: {
   type: string;
   location: string;
   refreshPolicy: string;
+  /** Only read for `llms_txt`; every other type stores the default. */
+  indexDepth?: unknown;
 }): PlatformSourceDraft {
   if (!isPlatformSourceType(input.type)) {
     throw new PlatformLibraryRefused('unsupported_source', 'unsupported source type');
@@ -867,7 +894,12 @@ export function draftPlatformSource(input: {
   if (!isRefreshPolicy(input.refreshPolicy)) {
     throw new PlatformLibraryRefused('invalid_refresh_policy', 'unknown refresh policy');
   }
-  return { type: input.type, location, refreshPolicy: input.refreshPolicy };
+  return {
+    type: input.type,
+    location,
+    refreshPolicy: input.refreshPolicy,
+    indexDepth: input.type === 'llms_txt' ? parseIndexDepth(input.indexDepth) : DEFAULT_INDEX_DEPTH,
+  };
 }
 
 /**

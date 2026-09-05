@@ -98,24 +98,6 @@ export function PlatformProfilePanel({
             </ul>
           </div>
 
-          <div className="flex flex-col gap-1.5 border-t-2 border-line px-[19px] py-3">
-            <p className="text-[11px] font-bold tracking-[0.02em] text-faint">
-              {fill(p.titlesHead, {
-                shown: number(profile.sampleTitles.length),
-              })}
-            </p>
-            <ul className="flex flex-col gap-1">
-              {profile.sampleTitles.map((title, at) => (
-                <li
-                  key={`${at}-${title}`}
-                  className="truncate text-[12px] tracking-[-0.023em] text-steel"
-                  title={title}
-                >
-                  {title}
-                </li>
-              ))}
-            </ul>
-          </div>
         </>
       )}
     </Panel>

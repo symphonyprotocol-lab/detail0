@@ -18,6 +18,7 @@ import {
   isConnectedSourceType,
   normalizeLocation,
   normalizePublicId,
+  parseIndexDepth,
   parseUploadManifest,
   uploadPrefix,
   type ConnectedSourceType,
@@ -47,6 +48,8 @@ export interface CreateWorkspaceLibraryInput {
    * they do.
    */
   uploads?: unknown;
+  /** For llms_txt only: how many levels of nested indexes to follow. */
+  indexDepth?: unknown;
   description?: string | null;
   language?: string | null;
   /** The store the uploads are confirmed in; the configured one by default. */
@@ -172,7 +175,12 @@ export async function createWorkspaceLibrary(
         libraryId,
         type: input.sourceType,
         location,
-        config: input.sourceType === 'pdf' ? { files: uploaded } : {},
+        config:
+          input.sourceType === 'pdf'
+            ? { files: uploaded }
+            : input.sourceType === 'llms_txt'
+              ? { indexDepth: parseIndexDepth(input.indexDepth) }
+              : {},
       });
       if (operationId) {
         await tx.insert(schema.workflowOperation).values({

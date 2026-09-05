@@ -14,6 +14,14 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+export const DOCUMENTS_PAGE_SIZE = 50;
+
+/** Which page of documents `?docs=` asks for: a positive integer, else the first. */
+export function documentsPage(value: string | string[] | undefined): number {
+  const n = Number(Array.isArray(value) ? value[0] : value);
+  return Number.isInteger(n) && n > 0 ? n : 1;
+}
+
 export interface VersionDocument {
   id: string;
   title: string;
@@ -25,6 +33,7 @@ export async function listVersionDocuments(input: {
   libraryId: string;
   versionId: string;
   limit?: number;
+  offset?: number;
 }): Promise<{ documents: VersionDocument[]; total: number }> {
   if (!UUID.test(input.libraryId) || !UUID.test(input.versionId)) return { documents: [], total: 0 };
   const database = db();
@@ -45,7 +54,8 @@ export async function listVersionDocuments(input: {
       .where(scope)
       .groupBy(schema.document.id)
       .orderBy(asc(schema.document.sourceUrl))
-      .limit(input.limit ?? 200),
+      .limit(input.limit ?? 50)
+      .offset(input.offset ?? 0),
     database.select({ n: count() }).from(schema.document).where(scope),
   ]);
   return { documents: rows, total: totalRow?.n ?? 0 };

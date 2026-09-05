@@ -834,7 +834,10 @@ export const en: Dictionary = {
         description: 'Documents fetched and indexed in the current version; a title previews the text, the link opens the source',
         columns: ['Document', 'Source', 'Chunks'],
         empty: 'The current version has no documents.',
-        showing: 'Showing the first {shown} of {total} documents',
+        showing: '{shown} on this page of {total} documents',
+        page: 'Page {page} of {pages}',
+        prev: 'Previous',
+        next: 'Next',
       },
       documentPreview: {
         metaTitle: 'Document preview',
@@ -908,6 +911,9 @@ export const en: Dictionary = {
         },
         titleLabel: 'Library title',
         locationLabel: 'Source location',
+        indexDepthLabel: 'Nested indexes',
+        indexDepthHint: 'Whether same-host llms.txt files the index mentions are followed; by default only what the index lists is fetched.',
+        indexDepths: { 0: 'Do not follow (default)', 1: 'Follow 1 level', 2: 'Follow 2 levels', 3: 'Follow 3 levels' },
         locations: {
           github: 'owner/repo, or the repository URL',
           website: 'https://docs.example.com',
@@ -2139,7 +2145,8 @@ export const en: Dictionary = {
         description: 'Documents indexed in the current version; a title previews the fetched text, the link opens the source',
         columns: ['Document', 'Source', 'Chunks'],
         empty: 'The current version has no documents.',
-        showing: 'Showing the first {shown} of {total} documents',
+        showing: '{shown} on this page of {total} documents',
+        page: 'Page {page} of {pages}',
         preview: 'Preview text',
         open: 'Open source',
       },
@@ -2205,7 +2212,6 @@ export const en: Dictionary = {
         termsHead: 'Top {shown} terms',
         termsNote:
           'In extraction-weight order. Navigation text ("new / opens / tab") or another section\'s vocabulary at the head means the profile is polluted by noise or by a crawl that escaped its section, and routing suffers for it.',
-        titlesHead: 'First {shown} document titles',
       },
       profileDialog: {
         title: 'Rebuild profile',
@@ -2289,6 +2295,9 @@ export const en: Dictionary = {
         fieldRefresh: 'Refresh policy',
         fieldLocation: 'Location',
         hintLocation: 'Web and document sources must be https; GitHub takes owner/repository.',
+        fieldIndexDepth: 'Nested indexes',
+        hintIndexDepth: 'llms.txt sources only. Whether same-host llms.txt files the index mentions are followed; by default only what the index itself lists is fetched.',
+        indexDepths: { 0: 'Do not follow (default)', 1: 'Follow 1 level', 2: 'Follow 2 levels', 3: 'Follow 3 levels' },
         typeLocked: 'The type is fixed: versions already built name it, and changing it would make them claim a source they did not come from.',
       },
       removeSourceDialog: {

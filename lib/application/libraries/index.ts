@@ -45,6 +45,8 @@ export { workspaceLibraryDetail, type WorkspaceLibraryDetail } from './detail';
 export { requestLibraryRebuild, type RebuildResult } from './rebuild';
 export {
   documentPreview,
+  documentsPage,
+  DOCUMENTS_PAGE_SIZE,
   listVersionDocuments,
   type DocumentPreview,
   type VersionDocument,

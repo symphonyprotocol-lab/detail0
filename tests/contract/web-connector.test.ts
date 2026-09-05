@@ -354,6 +354,18 @@ describe('pages that need a browser', () => {
 describe('an llms.txt index', () => {
   const md = (lines: string[]) => ({ body: lines.join('\n'), type: 'text/markdown' });
 
+  it('fetches only what the index lists unless told to follow nested indexes', async () => {
+    const requests = serve({
+      '/llms.txt': md(['See https://docs.example.test/dev/llms.txt', '- [Intro](https://docs.example.test/intro/)']),
+      '/dev/llms.txt': md(['- [API](https://docs.example.test/dev/api/)']),
+      '/intro/': { body: '<html><body><h1>Intro</h1></body></html>' },
+      '/dev/api/': { body: '<html><body><h1>API</h1></body></html>' },
+    });
+    const snapshot = await fetchWebSnapshot({ type: 'llms_txt', location: `${HOST}/llms.txt` });
+    expect(requests.map((request) => request.url.replace(HOST, '')).sort()).toEqual(['/intro/', '/llms.txt']);
+    expect(snapshot.files).toHaveLength(2);
+  });
+
   it('fetches the listed documents and the ones a nested index lists, same host only', async () => {
     const requests = serve({
       '/llms.txt': md([
@@ -374,7 +386,7 @@ describe('an llms.txt index', () => {
       '/dev/deep/page/': { body: '<html><body><h1>Too deep</h1></body></html>' },
       '/not-listed/': { body: '<html><body><h1>Unlisted</h1></body></html>' },
     });
-    const snapshot = await fetchWebSnapshot({ type: 'llms_txt', location: `${HOST}/llms.txt` });
+    const snapshot = await fetchWebSnapshot({ type: 'llms_txt', location: `${HOST}/llms.txt`, indexDepth: 1 });
     const fetched = requests.map((request) => request.url.replace(HOST, '')).sort();
     expect(fetched).toEqual(['/dev/api/', '/dev/llms.txt', '/intro/', '/llms.txt']);
     expect(fetched).not.toContain('/not-listed/');
@@ -393,7 +405,7 @@ describe('an llms.txt index', () => {
       ]),
       '/here/': { body: '<html><body><h1>Here</h1></body></html>' },
     });
-    const snapshot = await fetchWebSnapshot({ type: 'llms_txt', location: `${HOST}/llms.txt` });
+    const snapshot = await fetchWebSnapshot({ type: 'llms_txt', location: `${HOST}/llms.txt`, indexDepth: 2 });
     expect(snapshot.files.map((file) => file.path).sort()).toEqual(['here.html', 'llms.txt']);
   });
 });

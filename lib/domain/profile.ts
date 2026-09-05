@@ -110,9 +110,23 @@ const BOILERPLATE: readonly RegExp[] = [
   /本页(?:目录|内容)/gu,
 ];
 
-/** The text with site furniture removed; what the extractor counts. */
+/**
+ * Addresses inside the text: URLs, e-mail addresses, and bare hostnames or
+ * file paths (`cdnjs.cloudflare.com/ajax/libs/twemoji/...svg`). Measured on
+ * ethereum.org: image and link targets that survived Markdown conversion put
+ * `https`, `svg`, `com`, `cdnjs` and `ajax` in the profile's top ten. An
+ * address is where a page points, not what it is about.
+ */
+const ADDRESSES: readonly RegExp[] = [
+  /\bhttps?:\/\/[^\s<>()"']+/giu,
+  /\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b/giu,
+  /\b(?:[\w-]+\.)+(?:com|org|net|io|dev|app|xyz|ai|co|edu|gov)\b(?:\/[^\s<>()"']*)?/giu,
+];
+
+/** The text with site furniture and addresses removed; what the extractor counts. */
 export function stripBoilerplate(text: string): string {
   let out = text;
+  for (const pattern of ADDRESSES) out = out.replace(pattern, ' ');
   for (const pattern of BOILERPLATE) out = out.replace(pattern, ' ');
   return out;
 }

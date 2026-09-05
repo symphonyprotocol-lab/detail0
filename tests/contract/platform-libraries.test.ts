@@ -328,7 +328,20 @@ describe('sources', () => {
       location: 'https://github.com/vercel/next.js.git',
       refreshPolicy: 'weekly',
     });
-    expect(draft).toEqual({ type: 'github', location: 'vercel/next.js', refreshPolicy: 'weekly' });
+    expect(draft).toEqual({ type: 'github', location: 'vercel/next.js', refreshPolicy: 'weekly', indexDepth: 0 });
+  });
+
+  it('keeps the nested-index depth only for an llms.txt source, defaulting to none', () => {
+    const index = draftPlatformSource({
+      type: 'llms_txt',
+      location: 'https://docs.example.test/llms.txt',
+      refreshPolicy: 'daily',
+      indexDepth: '2',
+    });
+    expect(index.indexDepth).toBe(2);
+    expect(draftPlatformSource({ type: 'llms_txt', location: 'https://docs.example.test/llms.txt', refreshPolicy: 'daily' }).indexDepth).toBe(0);
+    expect(draftPlatformSource({ type: 'llms_txt', location: 'https://docs.example.test/llms.txt', refreshPolicy: 'daily', indexDepth: '9' }).indexDepth).toBe(0);
+    expect(draftPlatformSource({ type: 'website', location: 'https://docs.example.test/', refreshPolicy: 'daily', indexDepth: '2' }).indexDepth).toBe(0);
   });
 
   it('refuses an unusable location, an unknown type and an unknown cadence', () => {

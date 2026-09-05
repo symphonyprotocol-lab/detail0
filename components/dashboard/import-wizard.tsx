@@ -19,7 +19,14 @@ import {
   UploadIcon,
 } from '@/components/ui/icons';
 import type { CreateLibraryResult } from '@/app/dashboard/libraries/new/actions';
-import { slugFromTitle, slugWithoutPrefix, UPLOAD_LIMITS } from '@/lib/domain/library';
+import {
+  INDEX_DEPTHS,
+  parseIndexDepth,
+  slugFromTitle,
+  slugWithoutPrefix,
+  UPLOAD_LIMITS,
+  type IndexDepth,
+} from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
 
@@ -89,6 +96,7 @@ export function ImportWizard({
   const [description, setDescription] = useState('');
   const [language, setLanguage] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
+  const [indexDepth, setIndexDepth] = useState<IndexDepth>(0);
   /* The last step is a real confirmation: nothing submits until this is
      ticked, so a stray Enter cannot create a library. */
   const [confirmed, setConfirmed] = useState(false);
@@ -167,6 +175,7 @@ export function ImportWizard({
         <input type="hidden" name="description" value={description} />
         <input type="hidden" name="language" value={language} />
         <input type="hidden" name="visibility" value={visibility} />
+        <input type="hidden" name="indexDepth" value={String(indexDepth)} />
 
         <div className="px-6 py-6">
           <p className="text-[12px] tracking-[-0.023em] text-muted">
@@ -240,6 +249,21 @@ export function ImportWizard({
                   />
                 </Field>
               )}
+              {source === 'llms_txt' ? (
+                <Field label={w.indexDepthLabel} hint={w.indexDepthHint}>
+                  <select
+                    value={indexDepth}
+                    onChange={(event) => setIndexDepth(parseIndexDepth(event.target.value))}
+                    className={FIELD}
+                  >
+                    {INDEX_DEPTHS.map((depth) => (
+                      <option key={depth} value={depth}>
+                        {w.indexDepths[depth]}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              ) : null}
               {namespace ? (
                 <Field label={w.slugLabel} hint={fill(w.slugHint, { prefix: `/${namespace}/` })}>
                   {/* The prefix sits inside the field so the id reads the way

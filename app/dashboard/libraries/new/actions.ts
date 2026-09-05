@@ -51,6 +51,7 @@ export async function createWorkspaceLibraryAction(
       location: String(form.get('location') ?? ''),
       slug: String(form.get('slug') ?? ''),
       uploads,
+      indexDepth: String(form.get('indexDepth') ?? ''),
       description: String(form.get('description') ?? '') || null,
       language: String(form.get('language') ?? '') || null,
     });

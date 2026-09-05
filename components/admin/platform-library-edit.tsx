@@ -9,6 +9,8 @@ import {
   REFRESH_POLICIES,
   type PlatformSourceType,
   type RefreshPolicy,
+  INDEX_DEPTHS,
+  type IndexDepth,
 } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
@@ -212,6 +214,7 @@ export interface PlatformSourceRow {
   type: string;
   location: string;
   refreshPolicy: RefreshPolicy | 'unknown';
+  indexDepth: IndexDepth;
 }
 
 export function AddPlatformSourceControl({
@@ -383,6 +386,18 @@ function SourceDialog({
             </select>
           </Field>
         </div>
+
+        {sourceType === 'llms_txt' ? (
+          <Field label={d.sourceDialog.fieldIndexDepth} hint={d.sourceDialog.hintIndexDepth}>
+            <select name="indexDepth" defaultValue={String(source?.indexDepth ?? 0)} className={FIELD}>
+              {INDEX_DEPTHS.map((depth) => (
+                <option key={depth} value={depth}>
+                  {d.sourceDialog.indexDepths[depth]}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
 
         <Field label={d.sourceDialog.fieldLocation} hint={d.sourceDialog.hintLocation}>
           <input
