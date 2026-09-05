@@ -1,6 +1,7 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useActionState, useEffect } from 'react';
 import { RefreshIcon, SpinnerIcon } from '@/components/ui/icons';
 import type { RebuildLibraryActionResult } from '@/app/dashboard/libraries/[libraryId]/actions';
 import { useI18n } from '@/lib/i18n/client';
@@ -21,6 +22,13 @@ export function RebuildLibraryButton({
   const { t } = useI18n();
   const a = t.dashboard.libraryDetail.actions;
   const [state, formAction, pending] = useActionState(action, null);
+  const router = useRouter();
+
+  /* The run starts after the response; pull the page again so the banner
+     and the queue show it running rather than the state before the click. */
+  useEffect(() => {
+    if (state?.ok) router.refresh();
+  }, [state, router]);
 
   return (
     <form action={formAction} className="flex flex-col items-end gap-1.5">
@@ -34,8 +42,13 @@ export function RebuildLibraryButton({
         {pending ? a.rebuilding : a.rebuild}
       </button>
       {state ? (
-        <span className={`text-[11px] tracking-[-0.023em] ${state.ok ? 'text-brandink' : 'text-rose'}`}>
-          {state.ok ? (state.created ? a.rebuildQueued : a.rebuildAlready) : a.rebuildFailed}
+        <span
+          role="status"
+          className={`max-w-[260px] text-right text-[11px] leading-[1.5] tracking-[-0.023em] ${
+            state.ok ? 'text-brandink' : 'text-rose'
+          }`}
+        >
+          {state.ok ? a.rebuildQueued : a.rebuildFailed}
         </span>
       ) : null}
     </form>

@@ -753,7 +753,7 @@ export const en: Dictionary = {
         body: 'Version {label} is indexed; agents can retrieve this library now.',
         buildingTitle: 'Building',
         buildingBody:
-          'A build is queued or running. Indexing happens in the background and this page updates when it finishes, usually within a few minutes.',
+          'A build is running. Indexing happens in the background, usually within a few minutes. This page refreshes itself; progress and the outcome are in the build queue below.',
         failedTitle: 'The last build failed',
         failedBody:
           'Reason: {error}. Fix the source and press Rebuild; a version that was already published keeps serving.',
@@ -796,8 +796,8 @@ export const en: Dictionary = {
       actions: {
         rebuild: 'Rebuild',
         rebuilding: 'Queuing…',
-        rebuildQueued: 'Queued and started; reload to follow progress.',
-        rebuildAlready: 'A build was already waiting in the queue, so nothing was added.',
+        rebuildQueued: 'Build started; this page refreshes itself. Progress is in the build queue below.',
+        rebuildAlready: 'A build was already waiting in the queue; it has been started.',
         rebuildFailed: 'Could not queue the build. Try again later.',
         files: 'Manage PDF files',
         publicPage: 'View public page',

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { LiveRefresh } from '@/components/dashboard/live-refresh';
 import { RebuildLibraryButton } from '@/components/dashboard/library-rebuild';
 import { Badge, IconTile, PANEL, StatTile, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
 import {
@@ -80,6 +81,7 @@ export default async function DashboardLibraryPage({
 
   return (
     <div className="flex flex-col gap-4">
+      <LiveRefresh active={library.building} />
       <header className="flex flex-wrap items-start justify-between gap-5">
         <div className="flex min-w-0 flex-col gap-[5px]">
           <Link
@@ -99,7 +101,7 @@ export default async function DashboardLibraryPage({
             <Badge tone="neutral">{label(d.lifecycle, library.lifecycleStatus)}</Badge>
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-start gap-2">
           {routable ? (
             <Link
               href={`/libraries${library.publicId}`}
