@@ -183,6 +183,13 @@
       "when": 1787629291559,
       "tag": "0025_operation_fetch_summary",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1788700000000,
+      "tag": "0026_per_source_snapshots",
+      "breakpoints": true
     }
   ]
 }

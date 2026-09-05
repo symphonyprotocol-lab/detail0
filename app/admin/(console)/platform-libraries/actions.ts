@@ -138,6 +138,7 @@ export async function refreshPlatformLibraryAction(
     const { created, operationId } = await requestPlatformLibraryRefresh({
       actor: await actor(session),
       libraryId,
+      sourceId: text(form, 'sourceId') || null,
       reason: text(form, 'reason'),
     });
     /*

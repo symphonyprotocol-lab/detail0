@@ -487,6 +487,20 @@ export const libraryVersion = pgTable(
     libraryId: uuid('library_id').notNull().references(() => library.id),
     label: text('label').notNull(),
     sourceDigest: text('source_digest').notNull(),
+    /**
+     * What each source contributed to this version, keyed by source id: its
+     * own snapshot digest, content bytes and the facts scoring reads. The
+     * next build compares a source's fresh digest against this and, when
+     * equal, copies the source's documents and chunks forward instead of
+     * parsing and embedding them again (`build-version.ts`). Null on versions
+     * built before this existed, which the next build treats as "rebuild all".
+     */
+    sourceDigests: jsonb('source_digests').$type<
+      Record<
+        string,
+        { digest: string; bytes: number; lastModifiedAt: string | null; hasLicense: boolean }
+      >
+    >(),
     parserVersion: text('parser_version').notNull(),
     chunkerVersion: text('chunker_version').notNull(),
     embeddingModel: text('embedding_model').notNull(),
@@ -581,6 +595,12 @@ export const document = pgTable(
     title: text('title').notNull(),
     sourceUrl: text('source_url').notNull(),
     objectKey: text('object_key'),
+    /**
+     * Which source this document came from. No foreign key: a source may be
+     * removed while the versions it fed stay immutable. Null on documents
+     * written before this existed.
+     */
+    sourceId: uuid('source_id'),
   },
   /** Documents are counted per version -- versions are immutable, so a count by
       library would include every superseded build. */
@@ -1087,6 +1107,12 @@ export const workflowOperation = pgTable(
     libraryId: uuid('library_id').references(() => library.id),
     operationType: text('operation_type').notNull(),
     sourceDigest: text('source_digest'),
+    /**
+     * A refresh asked for one source only: that source is fetched, the
+     * others are carried forward from the current version unfetched. Null
+     * means every source.
+     */
+    sourceId: uuid('source_id'),
     status: text('status').notNull(),
     attempts: integer('attempts').notNull().default(0),
     error: text('error'),

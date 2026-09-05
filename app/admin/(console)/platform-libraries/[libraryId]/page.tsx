@@ -279,7 +279,7 @@ export default async function AdminPlatformLibraryPage({
       <Panel>
         <PanelHead
           title={d.sources.title}
-          description={d.sources.description}
+          description={d.sources.namespaceNote}
           action={
             record.lifecycleStatus === 'archived' ? undefined : (
               <AddPlatformSourceControl action={addPlatformSourceAction} target={target} />
@@ -295,7 +295,7 @@ export default async function AdminPlatformLibraryPage({
                     {column}
                   </th>
                 ))}
-                <th scope="col" className={`${TH} w-[86px]`}>
+                <th scope="col" className={`${TH} w-[120px]`}>
                   <span className="sr-only">{d.sources.actions}</span>
                 </th>
               </tr>
@@ -324,6 +324,12 @@ export default async function AdminPlatformLibraryPage({
                       * silently disappears explains nothing.
                       */}
                     <span className="flex items-center gap-1.5">
+                      <PlatformRefreshControl
+                        action={refreshPlatformLibraryAction}
+                        target={target}
+                        source={{ id: source.id, location: source.location }}
+                        disabled={record.lifecycleStatus === 'archived'}
+                      />
                       <EditPlatformSourceControl
                         action={updatePlatformSourceAction}
                         target={target}

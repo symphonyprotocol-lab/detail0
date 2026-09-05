@@ -911,7 +911,7 @@ export const zh = {
         errorUnavailable: '创建失败,请稍后重试。',
       },
       sourceQuestion: '从哪里导入知识？',
-      sourceHint: '选择一种来源。创建后仍可继续添加其他来源。',
+      sourceHint: '选择一种来源。一个知识库只有一个来源；需要接入第二个来源时，请另建一个知识库。',
       unbuilt: '「{step}」还没有设计稿，暂未实现。',
       back2: '上一步',
       continue: '继续',
@@ -2006,6 +2006,7 @@ export const zh = {
       sources: {
         title: '来源',
         description: '抓取位置与刷新策略',
+        namespaceNote: '抓取位置与刷新策略。Library ID 的命名空间由第一个来源决定，后加的来源只补充内容，不改变 ID；刷新时未变化的来源直接沿用当前版本，只有变化的来源重新解析和向量化。',
         columns: ['类型', '位置', '刷新策略'],
         empty: '这个知识库还没有来源。',
         add: '添加来源',
@@ -2065,6 +2066,7 @@ export const zh = {
       },
       actions: {
         refresh: '立即刷新',
+        refreshSource: '只刷新此来源',
         edit: '编辑',
         publish: '发布',
         republish: '恢复发布',
@@ -2100,6 +2102,8 @@ export const zh = {
       refreshDialog: {
         title: '排队刷新',
         description: '刷新只创建一个 Refresh Operation，不等待执行；来源摘要没有变化时只会更新检查时间。',
+        sourceTitle: '只刷新一个来源',
+        sourceDescription: '只抓取 {location}，其他来源不抓取、直接沿用当前版本的内容。摘要没有变化时只更新检查时间。',
         reason: '刷新原因（写入审计日志）',
         reasonPlaceholder: '例：上游发布了新版本',
         submit: '排队刷新',

@@ -885,6 +885,8 @@ export interface RefreshRequestResult {
 export async function requestPlatformLibraryRefresh(input: {
   actor: PlatformActor;
   libraryId: string;
+  /** Refresh this one source only; the others are carried forward unfetched. */
+  sourceId?: string | null;
   reason: string;
 }): Promise<RefreshRequestResult> {
   const reason = normalizeReason(input.reason);
@@ -894,9 +896,15 @@ export async function requestPlatformLibraryRefresh(input: {
   if (target.lifecycleStatus === 'archived') {
     throw new PlatformLibraryRefused('archived', 'an archived library is not refreshed');
   }
+  const sourceId = input.sourceId ? (await loadSource(database, target.id, input.sourceId)).id : null;
 
-  const [open] = await database
-    .select({ id: schema.workflowOperation.id })
+  /*
+   * An open refresh of the whole library covers a request for one source; an
+   * open refresh of the same source covers a repeat. One of another source
+   * does not -- it will not fetch this one -- so a new row is queued behind.
+   */
+  const open = await database
+    .select({ id: schema.workflowOperation.id, sourceId: schema.workflowOperation.sourceId })
     .from(schema.workflowOperation)
     .where(
       and(
@@ -905,10 +913,9 @@ export async function requestPlatformLibraryRefresh(input: {
         inArray(schema.workflowOperation.status, [...OPEN_OPERATION_STATUSES]),
       ),
     )
-    .orderBy(desc(schema.workflowOperation.createdAt))
-    .limit(1);
-
-  if (open) return { operationId: open.id, created: false };
+    .orderBy(desc(schema.workflowOperation.createdAt));
+  const covering = open.find((row) => row.sourceId === null || row.sourceId === sourceId);
+  if (covering) return { operationId: covering.id, created: false };
 
   const operationId = uuidv7();
   await database.insert(schema.workflowOperation).values({
@@ -916,6 +923,7 @@ export async function requestPlatformLibraryRefresh(input: {
     libraryId: target.id,
     operationType: REFRESH_OPERATION,
     sourceDigest: null,
+    sourceId,
     status: 'pending',
   });
 
@@ -929,7 +937,7 @@ export async function requestPlatformLibraryRefresh(input: {
       publicId: target.publicId,
       lastCheckedAt: target.lastCheckedAt,
     },
-    afterValue: { publicId: target.publicId, operationId, status: 'pending' },
+    afterValue: { publicId: target.publicId, operationId, sourceId, status: 'pending' },
     clientAddress: input.actor.clientAddress ?? null,
     result: 'success',
   });

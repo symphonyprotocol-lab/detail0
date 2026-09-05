@@ -43,17 +43,22 @@ export type { PlatformLibraryTarget } from './platform-library-shared';
 export function PlatformRefreshControl({
   action,
   target,
+  source,
   variant = 'icon',
   disabled = false,
 }: {
   action: Action;
   target: PlatformLibraryTarget;
+  /** Refresh this one source only; absent means the whole library. */
+  source?: { id: string; location: string };
   variant?: 'icon' | 'button';
   /** Archived libraries are not refreshed; the control says so rather than failing. */
   disabled?: boolean;
 }) {
   const { t } = useI18n();
-  const label = t.admin.platformLibraryDetail.actions.refresh;
+  const label = source
+    ? t.admin.platformLibraryDetail.actions.refreshSource
+    : t.admin.platformLibraryDetail.actions.refresh;
   const [open, setOpen] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
@@ -75,6 +80,7 @@ export function PlatformRefreshControl({
           key={attempt}
           action={action}
           target={target}
+          source={source}
           onClose={() => {
             setOpen(false);
             setAttempt((value) => value + 1);
@@ -88,10 +94,12 @@ export function PlatformRefreshControl({
 function RefreshDialog({
   action,
   target,
+  source,
   onClose,
 }: {
   action: Action;
   target: PlatformLibraryTarget;
+  source?: { id: string; location: string };
   onClose: () => void;
 }) {
   const { t } = useI18n();
@@ -106,8 +114,8 @@ function RefreshDialog({
       onClose={onClose}
       busy={pending}
       closeLabel={d.close}
-      title={done ? r.doneTitle : r.title}
-      description={done ? undefined : r.description}
+      title={done ? r.doneTitle : source ? r.sourceTitle : r.title}
+      description={done ? undefined : source ? fill(r.sourceDescription, { location: source.location }) : r.description}
       footer={(dismissBlocked) =>
         done ? (
           <ConsoleButton onClick={onClose}>{d.close}</ConsoleButton>
@@ -144,6 +152,7 @@ function RefreshDialog({
       ) : (
         <form id={formId} onSubmit={submitOn(submit)} className="flex flex-col gap-3">
           <input type="hidden" name="libraryId" value={target.id} />
+        {source ? <input type="hidden" name="sourceId" value={source.id} /> : null}
           <Refusal state={state} />
           <TargetCard target={target} />
           <ReasonField

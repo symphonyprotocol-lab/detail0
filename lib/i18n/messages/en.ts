@@ -964,7 +964,7 @@ export const en: Dictionary = {
         errorUnavailable: 'The library could not be created. Try again shortly.',
       },
       sourceQuestion: 'Where is the knowledge coming from?',
-      sourceHint: 'Choose one source. You can add more after it is created.',
+      sourceHint: 'Choose one source. A library has exactly one; for a second source, create another library.',
       unbuilt: '“{step}” has no design yet and is not implemented.',
       back2: 'Back',
       continue: 'Continue',
@@ -2134,6 +2134,7 @@ export const en: Dictionary = {
       sources: {
         title: 'Sources',
         description: 'Where it is fetched from, and how often',
+        namespaceNote: 'Fetch locations and refresh policies. The Library ID’s namespace comes from the first source; later sources add content and never change the ID. On a refresh, unchanged sources are carried forward from the current version and only changed ones are parsed and embedded again.',
         columns: ['Type', 'Location', 'Refresh'],
         empty: 'This library has no source.',
         add: 'Add source',
@@ -2193,6 +2194,7 @@ export const en: Dictionary = {
       },
       actions: {
         refresh: 'Refresh now',
+        refreshSource: 'Refresh this source only',
         edit: 'Edit',
         publish: 'Publish',
         republish: 'Publish again',
@@ -2228,6 +2230,8 @@ export const en: Dictionary = {
       refreshDialog: {
         title: 'Queue a refresh',
         description: 'A refresh creates a Refresh Operation and returns; if the source digest has not changed, only the checked-at time moves.',
+        sourceTitle: 'Refresh one source',
+        sourceDescription: 'Only {location} is fetched; the other sources are carried forward from the current version unfetched. If its digest has not changed, only the checked-at time moves.',
         reason: 'Reason (written to the audit log)',
         reasonPlaceholder: 'e.g. upstream shipped a new release',
         submit: 'Queue refresh',
