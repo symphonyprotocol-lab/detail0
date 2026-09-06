@@ -41,7 +41,6 @@ export type SourceType =
 export const SELF_OWNED_SOURCE_TYPES: readonly SourceType[] = [
   'markdown',
   'pdf',
-  'openapi',
   'notion',
 ];
 
@@ -49,8 +48,11 @@ export function claimMethodsFor(type: SourceType): readonly ClaimMethod[] {
   switch (type) {
     case 'github':
       return ['github_permission', 'dns_txt', 'well_known'];
+    /* An OpenAPI document is fetched from a host like a website is, and its
+       creation is gated on the same domain challenge (lib/domain/domain-verification.ts). */
     case 'website':
     case 'llms_txt':
+    case 'openapi':
       return ['dns_txt', 'well_known'];
     default:
       return [];

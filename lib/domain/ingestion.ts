@@ -53,6 +53,20 @@ export const OPERATION_STATES = [
 export type OperationState = (typeof OPERATION_STATES)[number];
 
 /**
+ * Who asked for an operation: an operator pressing a button, or the scheduled
+ * drain acting on a source's refresh policy. Kept on the row so the queue can
+ * say which, and so an audit reader is not left looking for an administrator
+ * behind a refresh nobody requested.
+ */
+export const OPERATION_TRIGGERS = ['manual', 'scheduled'] as const;
+
+export type OperationTrigger = (typeof OPERATION_TRIGGERS)[number];
+
+export function isOperationTrigger(value: unknown): value is OperationTrigger {
+  return typeof value === 'string' && (OPERATION_TRIGGERS as readonly string[]).includes(value);
+}
+
+/**
  * The steps of architecture.md 8.2, in the order they run -- plus `purge`,
  * the Delete Workflow's single step (architecture.md 8.4), which runs on its
  * own operation rather than as part of a build.

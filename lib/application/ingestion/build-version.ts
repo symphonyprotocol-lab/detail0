@@ -57,6 +57,8 @@ import {
   profileSearchText,
 } from '@/lib/domain/profile';
 import { isConnectedSourceType, type ConnectedSourceType } from '@/lib/domain/library';
+import { notionSourceUserId } from '@/lib/domain/notion';
+import { notionTokenFor } from '@/lib/application/auth/notion-connection';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { objectKeys } from '@/lib/infrastructure/objects/store';
 import { platformTermWeight } from './term-weights';
@@ -251,6 +253,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       type: source.type as ConnectedSourceType,
       location: source.location,
       config: source.config,
+      credential: await sourceCredential(source.type, source.config),
     });
     const files: SourceFile[] = snapshot.files.map((file) => ({
       ...file,
@@ -944,4 +947,33 @@ function encode(value: unknown): Uint8Array {
 
 function short(id: string): string {
   return id.replace(/-/g, '').slice(0, 8);
+}
+
+/**
+ * The credential one source is fetched with, when it has one.
+ *
+ * A Notion source imported through a person's connection names that person
+ * on its config (lib/domain/notion.ts); their grant is the only thing that
+ * can read the page, so a grant that is gone -- disconnected, revoked and
+ * forgotten -- fails the build as `source_forbidden` rather than falling
+ * back to the platform's own token and reading with someone else's
+ * credential. A platform library names nobody and keeps using the
+ * environment's token.
+ */
+async function sourceCredential(
+  type: string,
+  config: Record<string, unknown> | null | undefined,
+): Promise<string | undefined> {
+  if (type !== 'notion') return undefined;
+  const userId = notionSourceUserId(config);
+  if (!userId) return undefined;
+  const token = await notionTokenFor(userId);
+  if (!token) {
+    throw new IngestionFailure(
+      'source_forbidden',
+      'validate-source',
+      'the Notion connection this library was imported with is gone',
+    );
+  }
+  return token;
 }

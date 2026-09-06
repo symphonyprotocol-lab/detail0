@@ -26,6 +26,7 @@ const { PlatformLibraryRefused } = await import('@/lib/domain/library');
 const { AdminChangeRefused } = await import('@/lib/domain/admin');
 const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
+const { verifiedDomain } = await import('@/tests/fixtures/verified-domain');
 const { uuidv7 } = await import('@/lib/domain/id');
 
 const workspaces: string[] = [];
@@ -143,6 +144,9 @@ describeWithDb('user library review', () => {
       await database.delete(schema.document).where(inArray(schema.document.libraryId, libraries));
       await database.delete(schema.libraryVersion).where(inArray(schema.libraryVersion.libraryId, libraries));
       await database.delete(schema.libraryScore).where(inArray(schema.libraryScore.libraryId, libraries));
+      await database
+        .delete(schema.libraryClaim)
+        .where(inArray(schema.libraryClaim.libraryId, libraries));
       await database.delete(schema.source).where(inArray(schema.source.libraryId, libraries));
       await database.delete(schema.library).where(inArray(schema.library.id, libraries));
       await database
@@ -151,6 +155,9 @@ describeWithDb('user library review', () => {
     }
     if (workspaces.length > 0) {
       await database.delete(schema.subscription).where(inArray(schema.subscription.workspaceId, workspaces));
+      await database
+        .delete(schema.domainVerification)
+        .where(inArray(schema.domainVerification.workspaceId, workspaces));
       await database.delete(schema.workspace).where(inArray(schema.workspace.id, workspaces));
     }
     if (planVersions.length > 0) {
@@ -167,6 +174,7 @@ describeWithDb('user library review', () => {
       visibility: 'private',
       sourceType: 'website',
       location: 'https://docs.example.test/private',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://docs.example.test/private'),
       slug: `private-guide-${Date.now()}`,
     });
     libraries.push(created.libraryId);
@@ -203,6 +211,7 @@ describeWithDb('user library review', () => {
       visibility: 'public',
       sourceType: 'website',
       location: 'https://docs.example.test/public',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://docs.example.test/public'),
       slug: `public-guide-${Date.now()}`,
     });
     libraries.push(created.libraryId);

@@ -22,6 +22,13 @@ export interface FetchSnapshotInput {
   location: string;
   /** `source.config`: what the source row carries beyond a location. */
   config?: Record<string, unknown>;
+  /**
+   * A credential resolved by the caller for this one fetch -- a person's
+   * Notion grant, for a source imported under their connection. Never
+   * stored here and never logged; absent, a connector that needs one falls
+   * back to the platform's own configuration.
+   */
+  credential?: string;
 }
 
 export async function fetchSnapshot(input: FetchSnapshotInput): Promise<SourceSnapshot> {
@@ -37,7 +44,7 @@ export async function fetchSnapshot(input: FetchSnapshotInput): Promise<SourceSn
         indexDepth: indexDepthOf(input.config ?? {}),
       });
     case 'notion':
-      return fetchNotionSnapshot({ location: input.location });
+      return fetchNotionSnapshot({ location: input.location, token: input.credential });
     case 'pdf':
       return fetchPdfSnapshot({ config: input.config ?? {}, store: objectStore() });
     default:

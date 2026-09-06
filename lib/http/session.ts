@@ -13,9 +13,21 @@ import { resolveSession, type UserSession } from '@/lib/application/auth';
    the Edge middleware slides these same cookies and cannot import this file --
    it used to restate them from memory instead. Re-exported here so every
    existing importer keeps its one obvious source. */
-import { HANDSHAKE_COOKIE, isSecureDeployment, SESSION_COOKIE } from '@/lib/http/cookie-names';
+import {
+  GITHUB_CONNECT_COOKIE,
+  HANDSHAKE_COOKIE,
+  isSecureDeployment,
+  NOTION_CONNECT_COOKIE,
+  SESSION_COOKIE,
+} from '@/lib/http/cookie-names';
 
-export { HANDSHAKE_COOKIE, isSecureDeployment, SESSION_COOKIE };
+export {
+  GITHUB_CONNECT_COOKIE,
+  HANDSHAKE_COOKIE,
+  isSecureDeployment,
+  NOTION_CONNECT_COOKIE,
+  SESSION_COOKIE,
+};
 
 export function appBaseUrl(): string {
   const url = process.env.APP_BASE_URL;
@@ -25,6 +37,24 @@ export function appBaseUrl(): string {
 
 export function callbackUrl(provider: string): string {
   return `${appBaseUrl()}/api/auth/${provider}/callback`;
+}
+
+/**
+ * Where GitHub sends the browser after the repository-import consent. A
+ * sub-path of the login callback, which is the one URL registered on the
+ * OAuth app: GitHub accepts any redirect under the registered path.
+ */
+export function githubConnectCallbackUrl(): string {
+  return `${callbackUrl('github')}/connect`;
+}
+
+/**
+ * Where Notion sends the browser after the page-import consent. Notion is
+ * not a login provider, so this is the one URL registered on the public
+ * integration.
+ */
+export function notionConnectCallbackUrl(): string {
+  return `${callbackUrl('notion')}/connect`;
 }
 
 interface CookieOptions {
@@ -57,6 +87,28 @@ export function setHandshakeCookie(response: NextResponse, value: string, expire
 
 export function clearHandshakeCookie(response: NextResponse): void {
   response.cookies.set(HANDSHAKE_COOKIE, '', { ...baseCookieOptions(), maxAge: 0 });
+}
+
+export function setGithubConnectCookie(response: NextResponse, value: string, expiresAt: number): void {
+  response.cookies.set(GITHUB_CONNECT_COOKIE, value, {
+    ...baseCookieOptions(),
+    expires: new Date(expiresAt),
+  });
+}
+
+export function clearGithubConnectCookie(response: NextResponse): void {
+  response.cookies.set(GITHUB_CONNECT_COOKIE, '', { ...baseCookieOptions(), maxAge: 0 });
+}
+
+export function setNotionConnectCookie(response: NextResponse, value: string, expiresAt: number): void {
+  response.cookies.set(NOTION_CONNECT_COOKIE, value, {
+    ...baseCookieOptions(),
+    expires: new Date(expiresAt),
+  });
+}
+
+export function clearNotionConnectCookie(response: NextResponse): void {
+  response.cookies.set(NOTION_CONNECT_COOKIE, '', { ...baseCookieOptions(), maxAge: 0 });
 }
 
 /**

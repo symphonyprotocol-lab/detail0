@@ -298,6 +298,8 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 
 完整 Key 只在创建响应中出现一次。
 
+**GitHub 仓库导入授权。** 登录只回答「你是谁」，登录换到的 Provider Token 用完即弃（requirement.md 12）。用户知识库导入 GitHub 仓库时，规则是「只能导入自己名下、公开且非 Fork 的仓库」（`lib/domain/github.ts`），因此向导先要求一次独立的 GitHub 授权（`POST /api/auth/github/connect`，回调 `/api/auth/github/callback/connect`，是登录回调的子路径，GitHub 允许不另行登记），只申请 `read:user`，不申请任何 `repo` 写权限——公开仓库的内容本就无需授权即可读取，这次授权买到的不是内容访问权，而是「列出的是谁的仓库」的证明。换到的 Token 用 Cookie 密封密钥加密后单独存入 `github_connection`（每用户一行，重连即替换），向导用它列出 `affiliation=owner&visibility=public` 的仓库并在应用层剔除 Fork；提交时 `createWorkspaceLibrary` 不信任向导列表，用同一 Token 重读所选仓库，比对 GitHub 返回的 owner id 与授权账号 id，并把仓库 id 写入 `source.config.repositoryId` 供 §5.4 的认领比对。GitHub 回应 401 即视为用户已在 GitHub 侧撤销，连接记录随即删除。
+
 ### 5.2 工作空间授权
 
 所有普通资源绑定 `workspace_id`。授权顺序：
@@ -327,6 +329,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 - **唯一写入口**：`owner_workspace_id` 只能由「`verified` 的认领」或「管理员争议裁定」写入，不存在第三条路径；Ingestion、审核和刷新都不得触碰该字段；
 - **登录身份不是证据**：OAuth Subject 只回答「你是谁」。GitHub 权限校验必须用用户自己的 Token 向 GitHub 查询其对目标仓库的权限级别，并核对返回的仓库 ID 与 `source` 记录一致，不能只比对仓库名字符串；
 - **挑战 Token**：高熵随机值，只保存 Hash；与 `(申请人, library_id, 验证方式)` 绑定并带 7 天过期；校验时按 Hash 比对，明文只在生成时返回一次；
+- **创建前的域名验证**：Website、`llms.txt`、OpenAPI 三类来源在库存在之前就要证明域名控制权（`lib/domain/domain-verification.ts`、`lib/application/libraries/domain-verification.ts`）。挑战记录在 `domain_verification`，与 `(workspace, host, 验证方式)` 绑定；明文 Token 只返回给发起方，之后每次校验都由客户端带回并按 Hash 比对，错误 Token 与不存在的挑战返回相同结果。`createWorkspaceLibrary` 在写库的同一事务里锁定并消费该挑战（`consumed_library_id`），要求状态为 `verified`、域名与来源 host 完全一致（子域不继承）、验证时间在 1 小时以内，并同事务写入一条 `verified` 的 `library_claim`；任一条件不满足则整个创建回滚；
 - **DNS 与 well-known 校验走同一条出网安全通道**：复用 §15.1 的解析与抓取约束（禁止私网、Metadata Endpoint、Loopback、重定向绕过），验证请求不因用途特殊而放宽；DNS 查询使用受控解析器，不接受用户指定的 nameserver；
 - **并发**：同一 `library_id` 的 `pending` 认领由部分唯一索引保证只有一个；校验通过时在单事务内完成「认领置 verified + 写 owner + 追加审计事件」，失败则整体回滚，避免出现有 owner 却无认领记录的状态；
 - **限流与冷却**：发起与重试按 `账户` 和 `library_id` 双维度限流，承载在 §11.2 的同一限流设施；连续失败到阈值后锁定入口，需人工解锁；
@@ -342,6 +345,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 | `user` | 普通账户、状态、展示资料 |
 | `oauth_account` | Provider Subject 与 User 映射 |
 | `user_session` | 普通用户会话摘要和撤销状态 |
+| `github_connection` | 用户为仓库导入授予的 GitHub Token（加密）、GitHub 账号 id 与 login，每用户一行 |
 | `workspace` | 资源和计费边界 |
 | `workspace_member` | Role 与状态 |
 | `api_key` | Hash、Scope、环境和使用状态 |
@@ -365,6 +369,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 | `library_rule` | 来源维护者规则，按 Version 冻结 |
 | `library_review` | 公开审核、反馈和证据 |
 | `library_claim` | 认领申请：申请人、验证方式、挑战 Token 摘要、状态、失败原因码、过期时间、裁定记录 |
+| `domain_verification` | 创建前的域名挑战：工作空间、host、验证方式、Token 摘要、状态、尝试次数、过期与验证时间、消费它的 Library（§5.4） |
 | `library_score` | Trust/Benchmark 算法版本和分项 |
 | `library_profile` | 库级内容画像：文档标题与目录集、关键实体与同义词表、chunk 向量聚类质心、自动生成的描述与主题标签；随 Version 发布派生，可重建，见 §9.6 |
 
@@ -417,9 +422,10 @@ manifests/{libraryId}/{versionId}/vectors.json
 exports/{workspaceHash}/{exportId}.csv
 quarantine/{operationId}/{objectId}
 uploads/{workspaceId}/{batchId}/{fileId}.pdf
+uploads/platform/{batchId}/{fileId}.pdf
 ```
 
-`uploads/` 是 Dashboard 直传的 PDF：向导在建库前上传，或建库后在该库的文件页上传，`source.config.files` 记录其 Key，构建时由 PDF 连接器读回；Key 以工作空间 id 开头，建库和改文件的请求都只能引用自己前缀下的对象。文件页的每次保存（`updateLibraryFiles`）改写 `source.config.files` 并排队一次 `refresh`：已有 pending 的构建则复用它（它尚未读取来源），正在 running 的则在其后再排一次。被移除文件的对象不立即删除——已发布版本的引用仍指向它——由上传清扫在无来源引用且超过 24 小时后回收。没有文件的 PDF 库不排队构建，`index_status` 停在 `pending`。
+`uploads/` 是 Dashboard 直传的 PDF：向导在建库前上传，或建库后在该库的文件页上传，`source.config.files` 记录其 Key，构建时由 PDF 连接器读回；Key 以工作空间 id 开头，建库和改文件的请求都只能引用自己前缀下的对象。文件页的每次保存（`updateLibraryFiles`）改写 `source.config.files` 并排队一次 `refresh`：已有 pending 的构建则复用它（它尚未读取来源），正在 running 的则在其后再排一次。被移除文件的对象不立即删除——已发布版本的引用仍指向它——由上传清扫在无来源引用且超过 24 小时后回收。没有文件的 PDF 库不排队构建，`index_status` 停在 `pending`。平台 PDF 库走同一套机制，只是由管理后台上传：Key 以固定的 `platform` 段代替工作空间 id（工作空间 id 是 UUID，永远不会与它重合），创建对话框直传后把清单交给 `createPlatformLibrary`，之后在详情页的「PDF 文件」面板增删（`updatePlatformLibraryFiles`，写审计 `platform_library.files`）；已有库也可以通过「添加来源」加一个 PDF 来源（每库至多一个，第二个以 `pdf_source_exists` 拒绝），带文件时立即排一条只抓该来源的 refresh。平台 PDF 库的刷新策略固定为手动；引用指向公开的 `/files/{fileId}`，该路由只放行已发布平台库的文件；后台文件面板走 `/admin/files/{fileId}` 预览草稿（管理员 Cookie 只作用于 `/admin` 路径）。
 
 - 下载通过短时签名 URL 或服务端流式代理；
 - Object Metadata 不保存 Token、邮箱、Query 或私有标题；
@@ -492,6 +498,9 @@ Step 输出只保存可序列化摘要；大对象保存在对象存储。外部
 
 - 公开查询只负责尝试创建 Refresh Operation，不等待执行；
 - Source Digest 未变化时更新 `last_checked_at` 并结束；
+- 平台库按 Source 的 `refresh_policy`（`daily` / `weekly` / `manual`）自动刷新：`/api/cron/drain` 每次先调用 `scheduleDueRefreshes`（`lib/application/ingestion/schedule-refreshes.ts`），为每个到期且没有未完成 Operation 覆盖的 Source 排一条 `trigger = scheduled` 的 Refresh Operation，再执行 drain。某个 Source 的「最近检查时间」取该库 `last_checked_at` 与覆盖它的最近一条已结束 Operation 的较晚者；从未检查过的定时 Source 视为立即到期。整库所有 Source 同时到期时只排一条整库 Operation，否则按 Source 分别排队、其余 Source 从当前版本继承；
+- `workflow_operation.trigger` 记录 Operation 由谁发起（`manual`：管理员或工作空间操作；`scheduled`：定时任务），定时排队不写审计日志；
+- 管理后台 `/admin/refresh-queue` 展示跨库的队列：执行中与等待中的 Operation、最近完成的 Operation 及其结果与抓取方式、每个平台 Source 的策略/最近检查/下次刷新；有未完成 Operation 时页面每几秒自动重新渲染；
 - 私有库默认手动刷新，Webhook 必须验签和去重；
 - 删除首先在 Postgres 把 Library 设为不可访问并撤销发布指针：一个事务写入 `deleted_at` 墓碑、`lifecycle_status = archived`、`index_status = deleting`、`current_version_id = null`，删除 Alias 与 Source，把排队中的 Operation 置为 `cancelled`，并排队一条 Delete Operation（`lib/application/libraries/delete.ts`）；
 - `library` 行本身不删：`usage_event`、`earning_event`、`settlement` 引用它，计费事实是只追加的。所有面向用户、后台、目录与路由的读取都过滤 `deleted_at is null`；`library_public_id_uq` 是仅覆盖存活行的部分唯一索引，因此 Library ID 在删除时即释放；
@@ -985,6 +994,9 @@ GITHUB_OAUTH_CLIENT_ID
 GITHUB_OAUTH_CLIENT_SECRET
 GOOGLE_OAUTH_CLIENT_ID
 GOOGLE_OAUTH_CLIENT_SECRET
+NOTION_OAUTH_CLIENT_ID          # Notion public integration：向导「连接 Notion」导入页面，回调 /api/auth/notion/callback/connect
+NOTION_OAUTH_CLIENT_SECRET
+NOTION_INGESTION_TOKEN         # 可选，internal integration：仅平台 Notion 知识库使用；工作空间知识库用用户自己的授权
 SESSION_SIGNING_SECRET
 API_KEY_HASH_SECRET
 CREDENTIAL_ENCRYPTION_KEY

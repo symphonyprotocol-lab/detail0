@@ -22,7 +22,7 @@
  */
 import { extractText, getDocumentProxy } from 'unpdf';
 import { EMPTY_SOURCE_CONFIG, IngestionFailure } from '@/lib/domain/ingestion';
-import { uploadedFilesOf, type UploadedFile } from '@/lib/domain/library';
+import { uploadedFilesOf, type UploadedFile, PLATFORM_UPLOAD_OWNER } from '@/lib/domain/library';
 import type { ObjectStore } from '@/lib/infrastructure/objects/store';
 import { pdfOcr, type PdfOcr } from './ocr';
 import type { FetchedFile, SourceSnapshot } from './types';
@@ -85,9 +85,12 @@ async function readOne(
 
   return {
     path: upload.name,
-    /* Served by the dashboard for the owning workspace; the library id is
-       not known here, and the route resolves the file by its own id. */
-    url: `/dashboard/files/${upload.id}`,
+    /* Served by the dashboard for the owning workspace, or by the public
+       files route for a platform library's upload; the library id is not
+       known here, and either route resolves the file by its own id. */
+    url: upload.key.startsWith(`uploads/${PLATFORM_UPLOAD_OWNER}/`)
+      ? `/files/${upload.id}`
+      : `/dashboard/files/${upload.id}`,
     content: await pdfText(bytes, upload.name, ocr),
     format: 'text',
   };

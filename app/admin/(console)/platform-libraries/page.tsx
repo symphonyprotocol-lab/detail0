@@ -24,7 +24,7 @@ import {
   TH,
   TitleCell,
 } from '@/components/admin/ui';
-import { EyeIcon, GlobeIcon } from '@/components/ui/icons';
+import { EyeIcon, GlobeIcon, RefreshIcon } from '@/components/ui/icons';
 import {
   listPlatformLibraries,
   platformLibrarySummary,
@@ -49,6 +49,7 @@ import {
 import {
   createPlatformLibraryAction,
   deletePlatformLibraryAction,
+  preparePlatformUploadAction,
   refreshPlatformLibraryAction,
 } from './actions';
 
@@ -169,7 +170,16 @@ export default async function AdminPlatformLibrariesPage({
           ))}
         </div>
 
-        <CreatePlatformLibraryControl action={createPlatformLibraryAction} />
+        <div className="flex flex-wrap items-center gap-2">
+          <CreatePlatformLibraryControl
+            action={createPlatformLibraryAction}
+            prepare={preparePlatformUploadAction}
+          />
+          <ConsoleButton href="/admin/refresh-queue">
+            <RefreshIcon size={14} />
+            {p.queueLink}
+          </ConsoleButton>
+        </div>
       </section>
 
       <TabBar

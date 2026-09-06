@@ -17,7 +17,12 @@ export {
   type CatalogEntry,
   type PublicLibraryDetail,
 } from './catalog';
-export { prepareUploads, type PreparedUpload, type PrepareUploadsInput } from './uploads';
+export {
+  prepareUploads,
+  preparePlatformUploads,
+  type PreparedUpload,
+  type PrepareUploadsInput,
+} from './uploads';
 export {
   libraryFiles,
   updateLibraryFiles,
@@ -26,6 +31,7 @@ export {
   type UpdateLibraryFilesResult,
 } from './files';
 export {
+  confirmUploads,
   createWorkspaceLibrary,
   type CreateWorkspaceLibraryInput,
   type CreateWorkspaceLibraryResult,
@@ -53,3 +59,11 @@ export {
   type DocumentPreview,
   type VersionDocument,
 } from './documents';
+export {
+  checkDomainVerification,
+  startDomainVerification,
+  type CheckDomainVerificationInput,
+  type CheckDomainVerificationResult,
+  type DomainChallenge,
+  type StartDomainVerificationInput,
+} from './domain-verification';

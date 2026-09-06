@@ -1,18 +1,21 @@
 /**
  * Notion pages, through the official API.
  *
- * Notion is the one platform source that cannot be read anonymously: the page
- * has to be shared with an integration, and the integration's token is the
- * credential. There is no useful fallback to the public page HTML -- it is
- * rendered by script and carries none of the block structure -- so an
- * unconfigured token is refused as `source_unsupported` rather than half
- * indexed.
+ * Notion is the one source that cannot be read anonymously: the page has to
+ * be shared with an integration, and the integration's token is the
+ * credential. A workspace library is read with the token of the person who
+ * imported it (their own connection, resolved by the caller and passed in);
+ * a platform library with the platform's own internal-integration token from
+ * the environment. There is no useful fallback to the public page HTML -- it
+ * is rendered by script and carries none of the block structure -- so a
+ * missing token is refused as `source_unsupported` rather than half indexed.
  *
  * Blocks are rendered to Markdown, not to prose, because the rest of the
  * pipeline already understands Markdown: headings become sections, sections
  * become citations, and fenced code stays intact through chunking.
  */
 import { IngestionFailure, INGESTION_LIMITS, parseSourceConfig } from '@/lib/domain/ingestion';
+import { notionPageId as pageIdOf } from '@/lib/domain/notion';
 import { fetchJson } from './http';
 import type { FetchedFile, SourceSnapshot } from './types';
 
@@ -48,8 +51,8 @@ interface Page {
   properties?: Record<string, { type?: string; title?: RichText[] }>;
 }
 
-function headers(): Record<string, string> {
-  const token = process.env.NOTION_INGESTION_TOKEN;
+function headers(credential: string | undefined): Record<string, string> {
+  const token = credential ?? process.env.NOTION_INGESTION_TOKEN;
   if (!token) {
     throw new IngestionFailure(
       'source_unsupported',
@@ -63,28 +66,19 @@ function headers(): Record<string, string> {
   };
 }
 
-/**
- * The 32 hex characters at the end of any Notion URL.
- *
- * Notion puts a human-readable title in front of the id and separates the two
- * with a dash, so the id is recovered from the end rather than by splitting on
- * dashes -- a page called `my-page` would otherwise take the title apart.
- */
-export function notionPageId(location: string): string | null {
-  const url = new URL(location);
-  const last = url.pathname.split('/').filter(Boolean).at(-1) ?? '';
-  const match = /([0-9a-f]{32})$/i.exec(last.replace(/-/g, ''));
-  if (!match) return null;
-  const id = (match[1] ?? '').toLowerCase();
-  return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
-}
+/** The page id a Notion URL names (lib/domain/notion.ts), kept exported for callers of old. */
+export const notionPageId = pageIdOf;
 
-export async function fetchNotionSnapshot(input: { location: string }): Promise<SourceSnapshot> {
+export async function fetchNotionSnapshot(input: {
+  location: string;
+  /** The grant the page is read with; the platform's own token when absent. */
+  token?: string;
+}): Promise<SourceSnapshot> {
   const rootId = notionPageId(input.location);
   if (!rootId) {
     throw new IngestionFailure('source_unsupported', 'validate-source', 'not a Notion page URL');
   }
-  const auth = headers();
+  const auth = headers(input.token);
 
   const files: FetchedFile[] = [];
   const queue: Target[] = [{ id: rootId, kind: 'page' }];

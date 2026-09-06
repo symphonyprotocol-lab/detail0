@@ -20,6 +20,7 @@
  */
 
 import type { LifecycleStatus, Visibility } from '@/lib/domain';
+import { uuidv7 } from './id';
 
 /* ------------------------------------------------------------------ sources */
 
@@ -37,6 +38,22 @@ export type PlatformSourceType = (typeof PLATFORM_SOURCE_TYPES)[number];
 
 export function isPlatformSourceType(value: unknown): value is PlatformSourceType {
   return typeof value === 'string' && (PLATFORM_SOURCE_TYPES as readonly string[]).includes(value);
+}
+
+/**
+ * The source types a platform library may be *created* as: the typed ones
+ * above plus `pdf`, whose files the console uploads to object storage in the
+ * create dialog and manages from the library's files panel afterwards. A
+ * `pdf` source is never added to a library or edited as a location -- its
+ * location is the upload prefix, derived rather than typed -- which is why it
+ * is in this set and not in `PLATFORM_SOURCE_TYPES`.
+ */
+export const PLATFORM_LIBRARY_TYPES = [...PLATFORM_SOURCE_TYPES, 'pdf'] as const;
+
+export type PlatformLibraryType = (typeof PLATFORM_LIBRARY_TYPES)[number];
+
+export function isPlatformLibraryType(value: unknown): value is PlatformLibraryType {
+  return typeof value === 'string' && (PLATFORM_LIBRARY_TYPES as readonly string[]).includes(value);
 }
 
 /**
@@ -92,12 +109,22 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
  * prepared: a key that does not start with the caller's workspace prefix is
  * refused before the store is asked anything.
  */
-export function uploadKey(workspaceId: string, batchId: string, fileId: string): string {
-  return `${uploadPrefix(workspaceId, batchId)}/${fileId}.pdf`;
+export function uploadKey(owner: string, batchId: string, fileId: string): string {
+  return `${uploadPrefix(owner, batchId)}/${fileId}.pdf`;
 }
 
-export function uploadPrefix(workspaceId: string, batchId: string): string {
-  return `uploads/${workspaceId}/${batchId}`;
+/**
+ * The owner segment of a platform library's uploads. Platform libraries have
+ * no workspace (architecture.md 5.4), and their PDFs are uploaded from the
+ * console, so this word takes the workspace id's place in the key -- one
+ * prefix the console may reference and no workspace ever can, since a
+ * workspace id is a UUID.
+ */
+export const PLATFORM_UPLOAD_OWNER = 'platform';
+
+/** `owner` is a workspace id, or `PLATFORM_UPLOAD_OWNER` for the console's uploads. */
+export function uploadPrefix(owner: string, batchId: string): string {
+  return `uploads/${owner}/${batchId}`;
 }
 
 /** A file name fit to show and to cite: no path, no control characters. */
@@ -124,7 +151,7 @@ export function uploadFileName(name: string): string | null {
  */
 export function parseUploadManifest(
   value: unknown,
-  workspaceId: string,
+  owner: string,
 ): { batchId: string; files: UploadedFile[] } | null {
   if (typeof value !== 'object' || value === null) return null;
   const { batchId, files } = value as { batchId?: unknown; files?: unknown };
@@ -148,7 +175,7 @@ export function parseUploadManifest(
       return null;
     }
     seen.add(id);
-    parsed.push({ id, name: fileName, size, key: uploadKey(workspaceId, batchId, id) });
+    parsed.push({ id, name: fileName, size, key: uploadKey(owner, batchId, id) });
   }
   return { batchId, files: parsed };
 }
@@ -236,6 +263,32 @@ export type RefreshPolicy = (typeof REFRESH_POLICIES)[number];
 
 export function isRefreshPolicy(value: unknown): value is RefreshPolicy {
   return typeof value === 'string' && (REFRESH_POLICIES as readonly string[]).includes(value);
+}
+
+/**
+ * How long a source is left alone after a check before it is checked again.
+ *
+ * `manual` has no interval: the operator is the schedule. The two timed
+ * cadences are read by the scheduled drain (architecture.md 8.4), which queues
+ * a refresh for every source whose last check is older than this.
+ */
+export const REFRESH_INTERVALS_MS: Record<Exclude<RefreshPolicy, 'manual'>, number> = {
+  daily: 24 * 60 * 60 * 1000,
+  weekly: 7 * 24 * 60 * 60 * 1000,
+};
+
+/**
+ * When a source is next due, or null when it is only refreshed by hand.
+ *
+ * A timed source that has never been checked is due at once: a daily policy on
+ * a library nobody has refreshed yet is a request for the first build, not for
+ * one tomorrow. That is expressed as the epoch, so "due at or before now" is
+ * one comparison for the scheduler and one for the screen.
+ */
+export function refreshDueAt(policy: RefreshPolicy | 'unknown', lastCheckedAt: Date | null): Date | null {
+  if (policy === 'manual' || policy === 'unknown') return null;
+  if (!lastCheckedAt) return new Date(0);
+  return new Date(lastCheckedAt.getTime() + REFRESH_INTERVALS_MS[policy]);
 }
 
 /* -------------------------------------------------------------- library ids */
@@ -471,7 +524,7 @@ export function normalizeLocation(type: ConnectedSourceType, input: string): str
   /* An upload's location is the key prefix its files sit under; the create
      use case builds it from ids, so this only confirms the shape. */
   if (type === 'pdf') {
-    return /^uploads\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/.test(trimmed) ? trimmed : null;
+    return /^uploads\/(platform|[0-9a-f-]{36})\/[0-9a-f-]{36}$/.test(trimmed) ? trimmed : null;
   }
 
   if (type === 'github') {
@@ -652,6 +705,9 @@ export const PLATFORM_LIBRARY_ERRORS = [
   'unsupported_source',
   'invalid_location',
   'invalid_refresh_policy',
+  'invalid_uploads',
+  'nothing_to_change',
+  'pdf_source_exists',
   'invalid_metadata',
   'invalid_transition',
   'no_ready_version',
@@ -695,17 +751,27 @@ export interface PlatformLibraryDraft {
   description: string | null;
   domainTag: string | null;
   language: string | null;
-  sourceType: PlatformSourceType;
+  sourceType: PlatformLibraryType;
   location: string;
   refreshPolicy: RefreshPolicy;
+  /** `pdf` only: the uploads the manifest listed, keyed under the platform prefix. */
+  files: UploadedFile[];
 }
 
 export interface PlatformLibraryInput {
   title: string;
   publicId: string;
   sourceType: string;
+  /** Ignored for `pdf`, whose location is the prefix its uploads sit under. */
   location: string;
+  /** Ignored for `pdf`: there is nothing to re-fetch, so it is always manual. */
   refreshPolicy: string;
+  /**
+   * `pdf` only: the manifest the console posted after uploading, as parsed
+   * JSON; absent or null creates the library empty, to be filled in from
+   * its files panel.
+   */
+  uploads?: unknown;
   description?: string;
   domainTag?: string;
   language?: string;
@@ -719,7 +785,7 @@ export interface PlatformLibraryInput {
  * even legal, so a wrong type would otherwise be reported as a wrong id.
  */
 export function draftPlatformLibrary(input: PlatformLibraryInput): PlatformLibraryDraft {
-  if (!isPlatformSourceType(input.sourceType)) {
+  if (!isPlatformLibraryType(input.sourceType)) {
     throw new PlatformLibraryRefused('unsupported_source', 'unsupported source type');
   }
   const sourceType = input.sourceType;
@@ -737,13 +803,36 @@ export function draftPlatformLibrary(input: PlatformLibraryInput): PlatformLibra
     );
   }
 
-  const location = normalizeLocation(sourceType, input.location);
+  /*
+   * A pdf library's location and cadence are not the operator's to type: the
+   * location is the prefix its uploads were keyed under, and there is nothing
+   * to re-fetch on a schedule -- a changed file list queues its own rebuild
+   * (`updatePlatformLibraryFiles`). An empty manifest is a library created
+   * before its files, filled in from the files panel.
+   */
+  let location: string | null;
+  let refreshPolicy: RefreshPolicy;
+  let files: UploadedFile[] = [];
+  if (sourceType === 'pdf') {
+    const manifest =
+      input.uploads === undefined || input.uploads === null
+        ? { batchId: uuidv7(), files: [] }
+        : parseUploadManifest(input.uploads, PLATFORM_UPLOAD_OWNER);
+    if (!manifest) {
+      throw new PlatformLibraryRefused('invalid_uploads', 'the upload manifest is not valid');
+    }
+    files = manifest.files;
+    location = uploadPrefix(PLATFORM_UPLOAD_OWNER, manifest.batchId);
+    refreshPolicy = 'manual';
+  } else {
+    location = normalizeLocation(sourceType, input.location);
+    if (!isRefreshPolicy(input.refreshPolicy)) {
+      throw new PlatformLibraryRefused('invalid_refresh_policy', 'unknown refresh policy');
+    }
+    refreshPolicy = input.refreshPolicy;
+  }
   if (!location) {
     throw new PlatformLibraryRefused('invalid_location', 'the source location is not usable');
-  }
-
-  if (!isRefreshPolicy(input.refreshPolicy)) {
-    throw new PlatformLibraryRefused('invalid_refresh_policy', 'unknown refresh policy');
   }
 
   const description = optional(input.description, DESCRIPTION_MAX_LENGTH);
@@ -758,7 +847,8 @@ export function draftPlatformLibrary(input: PlatformLibraryInput): PlatformLibra
     language,
     sourceType,
     location,
-    refreshPolicy: input.refreshPolicy,
+    refreshPolicy,
+    files,
   };
 }
 
@@ -791,7 +881,7 @@ export interface PlatformLibraryEdit {
 
 export interface PlatformLibraryEditInput {
   /** The type the library was created under. Its namespace is immutable. */
-  sourceType: PlatformSourceType;
+  sourceType: PlatformLibraryType;
   title: string;
   publicId: string;
   description?: string;
@@ -863,10 +953,12 @@ export function indexDepthOf(config: Record<string, unknown>): IndexDepth {
 
 /** A validated source, ready to insert or update. */
 export interface PlatformSourceDraft {
-  type: PlatformSourceType;
+  type: PlatformLibraryType;
   location: string;
   refreshPolicy: RefreshPolicy;
   indexDepth: IndexDepth;
+  /** `pdf` only: the uploads the manifest listed, keyed under the platform prefix. */
+  files: UploadedFile[];
 }
 
 /**
@@ -883,9 +975,30 @@ export function draftPlatformSource(input: {
   refreshPolicy: string;
   /** Only read for `llms_txt`; every other type stores the default. */
   indexDepth?: unknown;
+  /** `pdf` only: the manifest the console posted after uploading; absent adds an empty source. */
+  uploads?: unknown;
 }): PlatformSourceDraft {
-  if (!isPlatformSourceType(input.type)) {
+  if (!isPlatformLibraryType(input.type)) {
     throw new PlatformLibraryRefused('unsupported_source', 'unsupported source type');
+  }
+  /* A pdf source is its uploads: location and cadence are derived, as on a
+     create (`draftPlatformLibrary`), and the type is what the files panel
+     manages afterwards. */
+  if (input.type === 'pdf') {
+    const manifest =
+      input.uploads === undefined || input.uploads === null
+        ? { batchId: uuidv7(), files: [] }
+        : parseUploadManifest(input.uploads, PLATFORM_UPLOAD_OWNER);
+    if (!manifest) {
+      throw new PlatformLibraryRefused('invalid_uploads', 'the upload manifest is not valid');
+    }
+    return {
+      type: 'pdf',
+      location: uploadPrefix(PLATFORM_UPLOAD_OWNER, manifest.batchId),
+      refreshPolicy: 'manual',
+      indexDepth: DEFAULT_INDEX_DEPTH,
+      files: manifest.files,
+    };
   }
   const location = normalizeLocation(input.type, input.location);
   if (!location) {
@@ -899,6 +1012,7 @@ export function draftPlatformSource(input: {
     location,
     refreshPolicy: input.refreshPolicy,
     indexDepth: input.type === 'llms_txt' ? parseIndexDepth(input.indexDepth) : DEFAULT_INDEX_DEPTH,
+    files: [],
   };
 }
 

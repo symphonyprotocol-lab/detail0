@@ -12,6 +12,7 @@ import {
   LayoutDashboardIcon,
   Re0Mark,
   ReceiptIcon,
+  RefreshIcon,
   ScrollTextIcon,
   ShieldCheckIcon,
   SlidersIcon,
@@ -39,9 +40,12 @@ import { useI18n } from '@/lib/i18n/client';
  */
 export function AdminSidebar({
   pendingReviews,
+  openRefreshes,
   capabilities,
 }: {
   pendingReviews: number;
+  /** Platform refreshes queued or running, on the queue item. */
+  openRefreshes: number;
   capabilities: readonly AdminCapability[];
 }) {
   const { t } = useI18n();
@@ -79,6 +83,13 @@ export function AdminSidebar({
           href: '/admin/platform-libraries',
           label: nav.platformLibraries,
           Icon: GlobeIcon,
+          needs: 'platformLibraries',
+        },
+        {
+          href: '/admin/refresh-queue',
+          label: nav.refreshQueue,
+          Icon: RefreshIcon,
+          badge: openRefreshes,
           needs: 'platformLibraries',
         },
       ],

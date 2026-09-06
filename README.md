@@ -117,9 +117,11 @@
 
 对象存储用 Vercel Blob：在 Vercel 项目的 Storage 里为每个环境各建一个 Blob Store 并连接到项目，`BLOB_READ_WRITE_TOKEN` 会自动注入；本地用 `vercel env pull` 拉取。所有对象都以私有方式写入。Dashboard 的 PDF 导入向导由浏览器直接上传到 Blob（服务端只签发限定路径、类型和大小的 Client Token），不经过应用，也就不受请求体大小限制，不需要额外的 CORS 配置。Blob 没有生命周期规则，向导中途放弃的上传会留在 `uploads/` 前缀下，由 drain 每次收尾时清理超过 24 小时且未被引用的对象，也可以用 `npm run uploads:purge` 手动跑。未设置 `BLOB_READ_WRITE_TOKEN` 时，代码退回 `OBJECT_STORE_*` 描述的 S3 兼容 Bucket，那时 Bucket 要允许来自应用 Origin 的跨域 `PUT`。
 
-构建任务在建库、改文件、后台刷新等动作的响应返回后立即执行（`after(runOperation)`），所以本地开发不需要额外进程；`vercel.json` 里的 Cron 每 10 分钟调用一次 `/api/cron/drain`（需要 `CRON_SECRET`）作为兜底，负责重试失败任务和清扫废弃上传。
+构建任务在建库、改文件、后台刷新等动作的响应返回后立即执行（`after(runOperation)`），所以本地开发不需要额外进程；`vercel.json` 里的 Cron 每 10 分钟调用一次 `/api/cron/drain`（需要 `CRON_SECRET`）作为兜底，负责重试失败任务和清扫废弃上传。这个 Cron 同时也是平台知识库的自动刷新调度：每次先按各来源的刷新策略（每日 / 每周）把到期的来源排入队列，再执行队列。队列的实时状态、最近完成的记录和各来源的下次刷新时间在管理后台的「刷新队列」页（`/admin/refresh-queue`）查看。本地没有 Cron，可以用 `npx tsx` 调 `scheduleDueRefreshes()` 和 `drainOperations()`，或直接在后台按「排队刷新」。
 
 PDF 知识库可以在建库时就上传文件，也可以先建空库、之后在列表页该库的「管理 PDF 文件」页随时增删文件；保存后会排队重新构建，新版本发布前旧版本继续提供检索。空库不排队构建。PDF 单文件上限 30 MB，每个知识库最多 20 个文件。构建时用 pdf.js 抽取文本层；扫描件没有文本层，需要配置 OCR 服务才能索引：设置 `OCR_PROVIDER=ocrspace` 和 `OCR_PROVIDER_API_KEY`（[ocr.space](https://ocr.space/ocrapi)，免费 Key 限 1 MB、3 页，PDF 套餐才放开到 100 MB、999 页，付费套餐的区域端点填 `OCR_PROVIDER_BASE_URL`；中文扫描件设 `OCR_PROVIDER_LANGUAGE=chs`）。OCR 只在至多一半页面有文本层时触发，文件不经过应用之外的任何临时 URL，直接以 multipart 送给厂商。未配置时扫描件构建会以 `parse_failed` 结束。OCR 是 `lib/infrastructure/connectors/ocr.ts` 里的一个 Provider 接口，换厂商只改这一处。
+
+平台知识库也可以是 PDF 类型：在管理后台「创建平台知识库」里选 PDF，文件直传对象存储；建库后在详情页的「PDF 文件」面板增删，保存即排队重新构建；已有的网站 / GitHub 等库也可以在「添加来源」里加一个 PDF 来源（每库一个）。平台 PDF 库不按时间刷新，引用链接走公开的 `/files/{fileId}`。
 
 完整环境变量清单见 [architecture.md](./architecture.md) 第 19.1 节。Secret 不得进入前端 Bundle，只允许在 Server Component、Route Handler 和 Workflow 中读取。Anchor Signer 私钥不出现在任何环境变量里。
 
@@ -149,6 +151,10 @@ http://localhost:3000/api/auth/github/callback
 http://localhost:3000/api/auth/google/callback
 ```
 
+向导导入 GitHub 仓库时的授权回调是 `/api/auth/github/callback/connect`，属登记地址的子路径，GitHub 无需另行登记。
+
+向导导入 Notion 页面时同样先绑定账号：需要一个 Notion **public integration**（`NOTION_OAUTH_CLIENT_ID` / `_SECRET`），登记的 Redirect URI 为 `http://localhost:3000/api/auth/notion/callback/connect`。用户在 Notion 授权页选择共享给 re0 的页面，向导只列这些页面，之后的刷新也用同一份授权读取；令牌加密存于 `notion_connection` 表。管理后台的平台 Notion 知识库仍用 `NOTION_INGESTION_TOKEN`（internal integration）。
+
 `0002_seed_plans.sql` 会写入 Free 和 Pro 的 Plan Version——首次登录要在同一个事务里创建 Free 订阅，因此迁移必须先于任何流量执行。
 
 测试：
@@ -157,6 +163,25 @@ http://localhost:3000/api/auth/google/callback
 npm test                                                   # 域与安全用例，不需要数据库
 TEST_DATABASE_URL='postgres://...' npx vitest run tests/integration   # 会写库，只指向可丢弃的分支
 ```
+
+### 本地 Firecrawl（网站源的渲染回退）
+
+拒绝普通抓取或只返回 JavaScript 壳的网站源，构建时会交给 Firecrawl 渲染成 Markdown（`lib/infrastructure/connectors/render.ts`）。本地开发不用买托管 API，用 Docker 跑一套自建实例：
+
+```bash
+docker compose -f docker/firecrawl/docker-compose.yaml up -d
+curl -s http://localhost:3002/v2/scrape -H 'content-type: application/json' \
+  -d '{"url":"https://example.com","formats":["markdown"]}'
+```
+
+然后在 `.env.local` 里指向它（不需要 Key，自建实例关闭了鉴权）：
+
+```text
+RENDER_PROVIDER=firecrawl
+RENDER_PROVIDER_BASE_URL=http://localhost:3002
+```
+
+镜像来自 `ghcr.io/firecrawl`（`nuq-postgres` 未公开，`docker/firecrawl/nuq-postgres` 里保存了一份构建文件本地构建）。若本机 Docker 守护进程拉 ghcr.io 报 `denied`，用 `docker/firecrawl/pull-ghcr-image.py` 在主机上下载后 `docker load`。队列数据不做持久化，`docker compose ... down` 即清空。
 
 ## 界面语言
 

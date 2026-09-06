@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useActionState, useState } from 'react';
+import { useActionState, useState, useTransition } from 'react';
 import {
   formatBytes,
   PdfUploadField,
@@ -14,11 +14,25 @@ import {
   BracesIcon,
   FileCodeIcon,
   GitBranchIcon,
+  GitHubIcon,
   GlobeIcon,
   HashIcon,
+  NotionIcon,
   UploadIcon,
 } from '@/components/ui/icons';
-import type { CreateLibraryResult } from '@/app/dashboard/libraries/new/actions';
+import type {
+  CheckDomainVerificationResult,
+  CreateLibraryResult,
+  StartDomainVerificationResult,
+} from '@/app/dashboard/libraries/new/actions';
+import {
+  requiresDomainVerification,
+  verificationHost,
+  type DomainVerificationFailure,
+  type DomainVerificationMethod,
+} from '@/lib/domain/domain-verification';
+import { GITHUB_CONNECT_RETURN_TO, type GithubConnectOutcome } from '@/lib/domain/github';
+import { NOTION_CONNECT_RETURN_TO, type NotionConnectOutcome } from '@/lib/domain/notion';
 import {
   INDEX_DEPTHS,
   parseIndexDepth,
@@ -33,9 +47,13 @@ import { fill } from '@/lib/i18n/format';
 /**
  * Import wizard -- design source frame `ISF8H`, live end to end. Four steps:
  * pick the connector-backed source, describe the library, choose visibility,
- * confirm. Submission writes the rows and queues the build (create.ts); the
- * request never waits for ingestion (architecture.md 3.1), so success shows
- * the queued state rather than pretending the index exists.
+ * confirm. A website, llms.txt or OpenAPI source gets a fifth step between
+ * details and visibility: prove control of the source's host by a DNS TXT
+ * record or a well-known file (requirement.md 7.3.2), because the server
+ * refuses to create such a library without a verified challenge. Submission
+ * writes the rows and queues the build (create.ts); the request never waits
+ * for ingestion (architecture.md 3.1), so success shows the queued state
+ * rather than pretending the index exists.
  */
 
 const SOURCES = ['github', 'website', 'llms_txt', 'openapi', 'notion', 'pdf'] as const;
@@ -46,7 +64,7 @@ const SOURCE_ICONS: Record<SourceId, (props: { size?: number }) => React.ReactEl
   website: GlobeIcon,
   llms_txt: HashIcon,
   openapi: BracesIcon,
-  notion: FileCodeIcon,
+  notion: NotionIcon,
   pdf: UploadIcon,
 };
 
@@ -60,8 +78,81 @@ const NEEDS_SLUG: Record<SourceId, string | null> = {
   pdf: 'docs',
 };
 
+type StepId = 'source' | 'details' | 'verify' | 'visibility' | 'confirm';
+
+/** The challenge the wizard holds; the only copy of the token there is. */
+interface Challenge {
+  verificationId: string;
+  host: string;
+  method: DomainVerificationMethod;
+  token: string;
+  dnsName: string;
+  dnsValue: string;
+  wellKnownUrl: string;
+  expiresAt: string;
+  verified: boolean;
+}
+
+export type StartVerification = (input: {
+  sourceType: string;
+  location: string;
+  method: string;
+}) => Promise<StartDomainVerificationResult>;
+
+export type CheckVerification = (input: {
+  verificationId: string;
+  token: string;
+}) => Promise<CheckDomainVerificationResult>;
+
 const FIELD =
   'h-9 w-full rounded-[7px] border-2 border-line bg-card px-2.5 text-[12px] tracking-[-0.023em] text-ink placeholder:text-muted/70 focus:border-brand focus:outline-none';
+
+/**
+ * The GitHub side of the wizard, read by the page before render: whether the
+ * person has connected an account, and which of their repositories may be
+ * imported -- their own, public, not forks (lib/domain/github.ts). Anything
+ * else is refused again at submit, so the list is a convenience, not the
+ * rule.
+ */
+export type GithubImportState =
+  | { connected: false }
+  | {
+      connected: true;
+      login: string;
+      repositories: {
+        fullName: string;
+        description: string | null;
+        pushedAt: string | null;
+        archived: boolean;
+      }[];
+      /** GitHub did not answer; the list is empty for that reason, not because there is nothing. */
+      listingFailed?: boolean;
+    };
+
+/**
+ * The Notion side, read the same way: whether the person has connected a
+ * Notion account and which pages that grant can read. Every page listed is
+ * one the person shared with the integration on Notion's own consent screen
+ * (lib/domain/notion.ts); submit re-reads the chosen one with the same grant.
+ */
+export type NotionImportState =
+  | {
+      connected: false;
+      /** No Notion integration is configured on this deployment; connecting cannot work. */
+      unavailable?: boolean;
+    }
+  | {
+      connected: true;
+      workspaceName: string | null;
+      ownerName: string | null;
+      pages: { id: string; title: string; url: string; lastEditedAt: string | null }[];
+      /** Notion did not answer; the list is empty for that reason, not because there is nothing. */
+      listingFailed?: boolean;
+    };
+
+/** The connect forms are submitted from inside the wizard's own form, by `form=` on the buttons. */
+const CONNECT_FORM_ID = 'github-connect';
+const NOTION_CONNECT_FORM_ID = 'notion-connect';
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -76,17 +167,34 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 export function ImportWizard({
   action,
   prepare,
+  github,
+  githubOutcome = null,
+  notion,
+  notionOutcome = null,
+  startVerification,
+  checkVerification,
 }: {
   action: (previous: CreateLibraryResult | null, form: FormData) => Promise<CreateLibraryResult>;
   prepare: PrepareUploads;
+  github: GithubImportState;
+  /** Set when the page was reached by coming back from the GitHub consent. */
+  githubOutcome?: GithubConnectOutcome | null;
+  notion: NotionImportState;
+  /** Set when the page was reached by coming back from the Notion consent. */
+  notionOutcome?: NotionConnectOutcome | null;
+  startVerification: StartVerification;
+  checkVerification: CheckVerification;
 }) {
   const { t } = useI18n();
   const n = t.dashboard.newLibrary;
   const w = n.wizard;
-  const steps = [w.stepSource, w.stepDetails, w.stepVisibility, w.stepConfirm];
 
-  const [step, setStep] = useState(0);
-  const [source, setSource] = useState<SourceId | null>(null);
+  /* Coming back from a provider's consent lands on the step that sent the
+     person there, with that source already picked; the rest starts over,
+     which is what a fresh page load would do anyway. */
+  const returned: SourceId | null = githubOutcome ? 'github' : notionOutcome ? 'notion' : null;
+  const [step, setStep] = useState(returned ? 1 : 0);
+  const [source, setSource] = useState<SourceId | null>(returned);
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');
   /* The id follows the title until the operator edits it by hand; from then
@@ -97,6 +205,10 @@ export function ImportWizard({
   const [language, setLanguage] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
   const [indexDepth, setIndexDepth] = useState<IndexDepth>(0);
+  /* The domain challenge for the source's host, once started. Ignored the
+     moment the location points at another host: a challenge is bound to
+     one host, and the server would refuse it for any other. */
+  const [challenge, setChallenge] = useState<Challenge | null>(null);
   /* The last step is a real confirmation: nothing submits until this is
      ticked, so a stray Enter cannot create a library. */
   const [confirmed, setConfirmed] = useState(false);
@@ -105,13 +217,37 @@ export function ImportWizard({
 
   const namespace = source ? NEEDS_SLUG[source] : null;
   const isUpload = source === 'pdf';
+  const needsVerification = source !== null && requiresDomainVerification(source);
+  const stepIds: StepId[] = needsVerification
+    ? ['source', 'details', 'verify', 'visibility', 'confirm']
+    : ['source', 'details', 'visibility', 'confirm'];
+  const stepLabels: Record<StepId, string> = {
+    source: w.stepSource,
+    details: w.stepDetails,
+    verify: w.stepVerify,
+    visibility: w.stepVisibility,
+    confirm: w.stepConfirm,
+  };
+  const current: StepId = stepIds[Math.min(step, stepIds.length - 1)]!;
+  const steps = stepIds.map((id) => stepLabels[id]);
+
   /* Files are optional for a PDF library -- they can be added from its files
      page once it exists -- but nothing may still be in flight at submit. */
   const sourceComplete = isUpload ? files.settled : location.trim().length > 0;
   const detailsComplete =
     title.trim().length > 0 && sourceComplete && (namespace === null || slug.trim().length > 0);
+  const host = needsVerification ? verificationHost(location) : null;
+  const liveChallenge = challenge && host !== null && challenge.host === host ? challenge : null;
+  const verificationComplete = !needsVerification || (liveChallenge?.verified ?? false);
 
-  const canContinue = step === 0 ? source !== null : step === 1 ? detailsComplete : true;
+  const canContinue =
+    current === 'source'
+      ? source !== null
+      : current === 'details'
+        ? detailsComplete
+        : current === 'verify'
+          ? verificationComplete
+          : true;
 
   if (state?.ok) {
     /* An empty PDF library has nothing queued; what it needs next is files. */
@@ -137,6 +273,15 @@ export function ImportWizard({
 
   return (
     <section className={`${PANEL} p-0.5`}>
+      {/* Outside the wizard's form, because forms do not nest; the buttons
+          that start the GitHub consent point here with `form=`, so Enter in
+          a wizard field can never fire it. */}
+      <form id={CONNECT_FORM_ID} method="post" action="/api/auth/github/connect">
+        <input type="hidden" name="returnTo" value={GITHUB_CONNECT_RETURN_TO} />
+      </form>
+      <form id={NOTION_CONNECT_FORM_ID} method="post" action="/api/auth/notion/connect">
+        <input type="hidden" name="returnTo" value={NOTION_CONNECT_RETURN_TO} />
+      </form>
       <nav className="flex flex-wrap gap-4 px-6 py-5" aria-label={n.stepsLabel}>
         {steps.map((label, index) => (
           <span key={label} className="flex flex-1 items-center gap-2">
@@ -176,13 +321,18 @@ export function ImportWizard({
         <input type="hidden" name="language" value={language} />
         <input type="hidden" name="visibility" value={visibility} />
         <input type="hidden" name="indexDepth" value={String(indexDepth)} />
+        <input
+          type="hidden"
+          name="domainVerificationId"
+          value={liveChallenge?.verified ? liveChallenge.verificationId : ''}
+        />
 
         <div className="px-6 py-6">
           <p className="text-[12px] tracking-[-0.023em] text-muted">
             {fill(n.stepCounter, { current: step + 1, total: steps.length })}
           </p>
 
-          {step === 0 ? (
+          {current === 'source' ? (
             <>
               <h2 className="mt-2.5 text-[19px] leading-[1.4] font-[650] tracking-[-0.03em] text-ink">
                 {n.sourceQuestion}
@@ -218,7 +368,7 @@ export function ImportWizard({
             </>
           ) : null}
 
-          {step === 1 && source ? (
+          {current === 'details' && source ? (
             <div className="mt-4 flex max-w-[520px] flex-col gap-4">
               <Field label={w.titleLabel}>
                 <input
@@ -239,6 +389,20 @@ export function ImportWizard({
                     max: String(UPLOAD_LIMITS.maxFiles),
                     size: formatBytes(UPLOAD_LIMITS.maxFileBytes),
                   })}
+                />
+              ) : source === 'github' ? (
+                <GithubRepositoryPicker
+                  github={github}
+                  outcome={githubOutcome}
+                  selected={location}
+                  onSelect={setLocation}
+                />
+              ) : source === 'notion' ? (
+                <NotionPagePicker
+                  notion={notion}
+                  outcome={notionOutcome}
+                  selected={location}
+                  onSelect={setLocation}
                 />
               ) : (
                 <Field label={w.locationLabel} hint={w.locations[source]}>
@@ -308,7 +472,18 @@ export function ImportWizard({
             </div>
           ) : null}
 
-          {step === 2 ? (
+          {current === 'verify' && source ? (
+            <VerifyStep
+              sourceType={source}
+              host={host}
+              challenge={liveChallenge}
+              onChallenge={setChallenge}
+              start={startVerification}
+              check={checkVerification}
+            />
+          ) : null}
+
+          {current === 'visibility' ? (
             <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
               {(['public', 'private'] as const).map((option) => (
                 <button
@@ -333,7 +508,7 @@ export function ImportWizard({
             </div>
           ) : null}
 
-          {step === 3 && source ? (
+          {current === 'confirm' && source ? (
             <div className="mt-4 flex max-w-[520px] flex-col gap-1 rounded-[10px] border-2 border-line bg-subtle p-4">
               {[
                 [w.stepSource, w.sources[source].name],
@@ -342,6 +517,9 @@ export function ImportWizard({
                   ? [w.filesLabel, fill(w.filesCount, { n: String(files.uploaded.length) })]
                   : [w.locationLabel, location],
                 ...(namespace ? [[w.slugLabel, `/${namespace}/${slug.trim().toLowerCase()}`]] : []),
+                ...(needsVerification
+                  ? [[w.stepVerify, liveChallenge?.verified ? liveChallenge.host : '—']]
+                  : []),
                 [
                   w.stepVisibility,
                   visibility === 'public' ? w.visibilityPublic : w.visibilityPrivate,
@@ -368,13 +546,19 @@ export function ImportWizard({
 
           {state && !state.ok ? (
             <p className="mt-4 text-[12px] tracking-[-0.023em] text-rose">
-              {state.error === 'limit'
-                ? w.errorLimit
-                : state.error === 'taken'
-                  ? w.errorTaken
-                  : state.error === 'invalid'
-                    ? w.errorInvalid
-                    : w.errorUnavailable}
+              {state.error === 'github'
+                ? w.errorGithub[state.refusal ?? 'not_found']
+                : state.error === 'notion'
+                  ? w.errorNotion[state.notionRefusal ?? 'not_found']
+                  : state.error === 'limit'
+                  ? w.errorLimit
+                  : state.error === 'taken'
+                    ? w.errorTaken
+                    : state.error === 'invalid'
+                      ? w.errorInvalid
+                      : state.error === 'unverified'
+                        ? w.errorUnverified
+                        : w.errorUnavailable}
             </p>
           ) : null}
         </div>
@@ -407,7 +591,9 @@ export function ImportWizard({
             <button
               key="submit"
               type="submit"
-              disabled={pending || !detailsComplete || source === null || !confirmed}
+              disabled={
+                pending || !detailsComplete || !verificationComplete || source === null || !confirmed
+              }
               className="inline-flex h-[35px] items-center gap-1.5 rounded-[7px] bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40"
             >
               {w.submit}
@@ -417,5 +603,445 @@ export function ImportWizard({
         </footer>
       </form>
     </section>
+  );
+}
+
+/**
+ * Picks the repository: connect first, then choose from the account's own
+ * public, non-fork repositories. There is no free-text field on purpose --
+ * the rule is "your own repositories", and a box that accepts any
+ * `owner/repo` would only ever produce the refusal at submit.
+ */
+function GithubRepositoryPicker({
+  github,
+  outcome,
+  selected,
+  onSelect,
+}: {
+  github: GithubImportState;
+  outcome: GithubConnectOutcome | null;
+  selected: string;
+  onSelect: (fullName: string) => void;
+}) {
+  const { t } = useI18n();
+  const w = t.dashboard.newLibrary.wizard;
+  const [filter, setFilter] = useState('');
+
+  const notice =
+    outcome === 'canceled' ? w.githubCanceled : outcome === 'failed' ? w.githubFailed : null;
+
+  if (!github.connected) {
+    return (
+      <div className="flex flex-col gap-3 rounded-[10px] border-2 border-line bg-subtle p-4">
+        <p className="text-[13px] font-semibold tracking-[-0.023em] text-ink">{w.githubConnectTitle}</p>
+        <p className="text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">{w.githubConnectBody}</p>
+        {notice ? <p className="text-[11px] tracking-[-0.023em] text-rose">{notice}</p> : null}
+        <button
+          type="submit"
+          form={CONNECT_FORM_ID}
+          className="inline-flex h-[35px] w-fit items-center gap-2 rounded-[7px] bg-ink px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-ink/90"
+        >
+          <GitHubIcon size={15} className="text-white" />
+          {w.githubConnectCta}
+        </button>
+      </div>
+    );
+  }
+
+  const needle = filter.trim().toLowerCase();
+  const shown = github.repositories.filter(
+    (repository) => needle.length === 0 || repository.fullName.toLowerCase().includes(needle),
+  );
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">{w.githubRepoLabel}</span>
+        <span className="flex items-center gap-2 text-[10px] tracking-[-0.023em] text-muted">
+          {github.login ? fill(w.githubConnectedAs, { login: github.login }) : null}
+          <button
+            type="submit"
+            form={CONNECT_FORM_ID}
+            className="text-brandink hover:text-brand"
+          >
+            {w.githubSwitch}
+          </button>
+        </span>
+      </div>
+      {notice ? <p className="text-[11px] tracking-[-0.023em] text-rose">{notice}</p> : null}
+      {github.listingFailed ? (
+        <p className="text-[11px] tracking-[-0.023em] text-rose">{w.githubListFailed}</p>
+      ) : github.repositories.length === 0 ? (
+        <p className="rounded-[7px] border-2 border-line bg-subtle p-3 text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">
+          {w.githubNoRepos}
+        </p>
+      ) : (
+        <>
+          <input
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            placeholder={w.githubRepoFilter}
+            aria-label={w.githubRepoFilter}
+            className={FIELD}
+          />
+          <ul
+            role="listbox"
+            aria-label={w.githubRepoLabel}
+            className="flex max-h-[260px] flex-col gap-1 overflow-y-auto rounded-[7px] border-2 border-line bg-card p-1"
+          >
+            {shown.length === 0 ? (
+              <li className="p-2 text-[11px] tracking-[-0.023em] text-muted">{w.githubNoMatch}</li>
+            ) : null}
+            {shown.map((repository) => {
+              const active = repository.fullName === selected;
+              return (
+                <li key={repository.fullName} role="option" aria-selected={active}>
+                  <button
+                    type="button"
+                    onClick={() => onSelect(repository.fullName)}
+                    className={`flex w-full flex-col gap-0.5 rounded-[6px] px-2.5 py-2 text-left transition-colors ${
+                      active ? 'bg-[#f0f8f8] ring-2 ring-brand' : 'hover:bg-subtle'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 text-[12px] tracking-[-0.023em] text-ink">
+                      {repository.fullName}
+                      {repository.archived ? (
+                        <span className="rounded-full bg-mutedbg px-1.5 text-[9px] text-muted">
+                          {w.githubArchived}
+                        </span>
+                      ) : null}
+                    </span>
+                    {repository.description ? (
+                      <span className="line-clamp-1 text-[10px] tracking-[-0.023em] text-muted">
+                        {repository.description}
+                      </span>
+                    ) : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+      <span className="text-[10px] tracking-[-0.023em] text-muted">{w.githubRepoHint}</span>
+    </div>
+  );
+}
+
+/**
+ * Picks the page: connect first, then choose among the pages the person
+ * shared with the integration. No free-text field on purpose -- a URL the
+ * grant cannot read would only ever produce the refusal at submit, and the
+ * way to make a page readable is to share it on Notion's consent screen,
+ * which "Use another account" reopens.
+ */
+function NotionPagePicker({
+  notion,
+  outcome,
+  selected,
+  onSelect,
+}: {
+  notion: NotionImportState;
+  outcome: NotionConnectOutcome | null;
+  selected: string;
+  onSelect: (url: string) => void;
+}) {
+  const { t, locale } = useI18n();
+  const w = t.dashboard.newLibrary.wizard;
+  const [filter, setFilter] = useState('');
+
+  const notice =
+    outcome === 'canceled' ? w.notionCanceled : outcome === 'failed' ? w.notionFailed : null;
+
+  if (!notion.connected) {
+    return (
+      <div className="flex flex-col gap-3 rounded-[10px] border-2 border-line bg-subtle p-4">
+        <p className="text-[13px] font-semibold tracking-[-0.023em] text-ink">{w.notionConnectTitle}</p>
+        <p className="text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">{w.notionConnectBody}</p>
+        {notice ? <p className="text-[11px] tracking-[-0.023em] text-rose">{notice}</p> : null}
+        {notion.unavailable ? (
+          <p className="text-[11px] tracking-[-0.023em] text-rose">{w.notionUnavailable}</p>
+        ) : (
+          <button
+            type="submit"
+            form={NOTION_CONNECT_FORM_ID}
+            className="inline-flex h-[35px] w-fit items-center gap-2 rounded-[7px] bg-ink px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-ink/90"
+          >
+            <NotionIcon size={15} className="text-white" />
+            {w.notionConnectCta}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const needle = filter.trim().toLowerCase();
+  const shown = notion.pages.filter(
+    (page) => needle.length === 0 || page.title.toLowerCase().includes(needle),
+  );
+  const connectedAs = notion.workspaceName ?? notion.ownerName;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">{w.notionPageLabel}</span>
+        <span className="flex items-center gap-2 text-[10px] tracking-[-0.023em] text-muted">
+          {connectedAs ? fill(w.notionConnectedAs, { name: connectedAs }) : null}
+          <button
+            type="submit"
+            form={NOTION_CONNECT_FORM_ID}
+            className="text-brandink hover:text-brand"
+          >
+            {w.notionSwitch}
+          </button>
+        </span>
+      </div>
+      {notice ? <p className="text-[11px] tracking-[-0.023em] text-rose">{notice}</p> : null}
+      {notion.listingFailed ? (
+        <p className="text-[11px] tracking-[-0.023em] text-rose">{w.notionListFailed}</p>
+      ) : notion.pages.length === 0 ? (
+        <p className="rounded-[7px] border-2 border-line bg-subtle p-3 text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">
+          {w.notionNoPages}
+        </p>
+      ) : (
+        <>
+          <input
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            placeholder={w.notionPageFilter}
+            aria-label={w.notionPageFilter}
+            className={FIELD}
+          />
+          <ul
+            role="listbox"
+            aria-label={w.notionPageLabel}
+            className="flex max-h-[260px] flex-col gap-1 overflow-y-auto rounded-[7px] border-2 border-line bg-card p-1"
+          >
+            {shown.length === 0 ? (
+              <li className="p-2 text-[11px] tracking-[-0.023em] text-muted">{w.notionNoMatch}</li>
+            ) : null}
+            {shown.map((page) => {
+              const active = page.url === selected;
+              const edited = page.lastEditedAt ? new Date(page.lastEditedAt) : null;
+              return (
+                <li key={page.id} role="option" aria-selected={active}>
+                  <button
+                    type="button"
+                    onClick={() => onSelect(page.url)}
+                    className={`flex w-full flex-col gap-0.5 rounded-[6px] px-2.5 py-2 text-left transition-colors ${
+                      active ? 'bg-[#f0f8f8] ring-2 ring-brand' : 'hover:bg-subtle'
+                    }`}
+                  >
+                    <span className="line-clamp-1 text-[12px] tracking-[-0.023em] text-ink">{page.title}</span>
+                    {edited && !Number.isNaN(edited.getTime()) ? (
+                      <span className="text-[10px] tracking-[-0.023em] text-muted">
+                        {fill(w.notionEdited, { date: edited.toLocaleDateString(locale) })}
+                      </span>
+                    ) : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+      <span className="text-[10px] tracking-[-0.023em] text-muted">{w.notionPageHint}</span>
+    </div>
+  );
+}
+
+/**
+ * The ownership step. One challenge at a time for the host the location
+ * names; the method is chosen before it is generated, because the token is
+ * bound to the method on the server. "Check now" asks the server to look --
+ * the browser never queries DNS or the host itself, so what verifies is what
+ * the platform saw, not what the claimant's own resolver says.
+ */
+function VerifyStep({
+  sourceType,
+  host,
+  challenge,
+  onChallenge,
+  start,
+  check,
+}: {
+  sourceType: SourceId;
+  host: string | null;
+  challenge: Challenge | null;
+  onChallenge: (challenge: Challenge | null) => void;
+  start: StartVerification;
+  check: CheckVerification;
+}) {
+  const { t, locale } = useI18n();
+  const v = t.dashboard.newLibrary.wizard.verify;
+  const [method, setMethod] = useState<DomainVerificationMethod>(challenge?.method ?? 'dns_txt');
+  const [starting, startTransition] = useTransition();
+  const [checking, checkTransition] = useTransition();
+  const [failure, setFailure] = useState<DomainVerificationFailure | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!host) {
+    return <p className="mt-4 text-[12px] tracking-[-0.023em] text-rose">{v.hostInvalid}</p>;
+  }
+
+  const generate = () => {
+    setFailure(null);
+    setError(null);
+    startTransition(async () => {
+      const result = await start({ sourceType, location: `https://${host}/`, method });
+      if (result.ok && result.challenge) {
+        onChallenge({ ...result.challenge, verified: false });
+        return;
+      }
+      setError(
+        result.error === 'retry_limit_exceeded'
+          ? v.errorRetryLimit
+          : result.error === 'invalid'
+            ? v.errorInvalid
+            : v.errorUnavailable,
+      );
+    });
+  };
+
+  const verify = () => {
+    if (!challenge) return;
+    setFailure(null);
+    setError(null);
+    checkTransition(async () => {
+      const result = await check({ verificationId: challenge.verificationId, token: challenge.token });
+      if (result.ok) {
+        onChallenge({ ...challenge, verified: true });
+        return;
+      }
+      if (result.reason) setFailure(result.reason);
+      else setError(v.errorUnavailable);
+    });
+  };
+
+  const expires = challenge
+    ? new Date(challenge.expiresAt).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
+    : '';
+  const primary =
+    'inline-flex h-[35px] items-center gap-1.5 rounded-[7px] bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40';
+  const secondary =
+    'h-[35px] rounded-[7px] border-2 border-line bg-card px-3 text-[12px] text-steel transition-colors hover:bg-subtle disabled:opacity-40';
+
+  return (
+    <div className="mt-4 flex max-w-[560px] flex-col gap-4">
+      <div>
+        <h2 className="text-[19px] leading-[1.4] font-[650] tracking-[-0.03em] text-ink">
+          {fill(v.title, { host })}
+        </h2>
+        <p className="mt-1.5 text-[12px] leading-[1.6] tracking-[-0.023em] text-muted">{v.intro}</p>
+      </div>
+
+      {challenge?.verified ? (
+        <p className="rounded-[10px] border-2 border-brand bg-[#f0f8f8] p-4 text-[12.5px] leading-[1.6] tracking-[-0.023em] text-ink">
+          {fill(v.verified, { host: challenge.host })}
+        </p>
+      ) : (
+        <>
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            {(['dns_txt', 'well_known'] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setMethod(option)}
+                disabled={challenge !== null}
+                aria-pressed={method === option}
+                className={`flex flex-col gap-1.5 rounded-[10px] border-2 p-4 text-left transition-colors disabled:opacity-60 ${
+                  method === option ? 'border-brand bg-[#f0f8f8]' : 'border-line bg-card hover:bg-subtle'
+                }`}
+              >
+                <span className="text-[13px] tracking-[-0.023em] text-ink">
+                  {option === 'dns_txt' ? v.methodDns : v.methodWellKnown}
+                </span>
+                <span className="text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">
+                  {option === 'dns_txt' ? v.methodDnsNote : v.methodWellKnownNote}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {challenge ? (
+            <div className="flex flex-col gap-3 rounded-[10px] border-2 border-line bg-subtle p-4">
+              {challenge.method === 'dns_txt' ? (
+                <>
+                  <CopyRow label={v.dnsName} value={challenge.dnsName} copy={v.copy} copied={v.copied} />
+                  <CopyRow label={v.dnsType} value="TXT" copy={v.copy} copied={v.copied} />
+                  <CopyRow label={v.dnsValue} value={challenge.dnsValue} copy={v.copy} copied={v.copied} />
+                </>
+              ) : (
+                <>
+                  <CopyRow label={v.wellKnownUrl} value={challenge.wellKnownUrl} copy={v.copy} copied={v.copied} />
+                  <CopyRow label={v.wellKnownBody} value={challenge.token} copy={v.copy} copied={v.copied} />
+                </>
+              )}
+              <p className="text-[10.5px] leading-[1.6] tracking-[-0.023em] text-muted">
+                {fill(v.expires, { date: expires })}
+              </p>
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap items-center gap-2">
+            {challenge ? (
+              <>
+                <button type="button" onClick={verify} disabled={checking || starting} className={primary}>
+                  {checking ? v.checking : v.check}
+                </button>
+                <button type="button" onClick={generate} disabled={checking || starting} className={secondary}>
+                  {v.regenerate}
+                </button>
+              </>
+            ) : (
+              <button type="button" onClick={generate} disabled={starting} className={primary}>
+                {v.generate}
+              </button>
+            )}
+          </div>
+
+          {failure ? (
+            <p className="text-[12px] leading-[1.6] tracking-[-0.023em] text-rose">{v.reasons[failure]}</p>
+          ) : null}
+          {error ? <p className="text-[12px] tracking-[-0.023em] text-rose">{error}</p> : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+function CopyRow({
+  label,
+  value,
+  copy,
+  copied,
+}: {
+  label: string;
+  value: string;
+  copy: string;
+  copied: string;
+}) {
+  const [done, setDone] = useState(false);
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[10.5px] font-semibold tracking-[-0.023em] text-steel">{label}</span>
+      <div className="flex items-center gap-2">
+        <code className="min-w-0 flex-1 truncate rounded-[6px] border-2 border-line bg-card px-2 py-1.5 font-mono text-[11px] text-ink">
+          {value}
+        </code>
+        <button
+          type="button"
+          onClick={() => {
+            void navigator.clipboard?.writeText(value).then(() => {
+              setDone(true);
+              setTimeout(() => setDone(false), 1500);
+            });
+          }}
+          className="h-[30px] shrink-0 rounded-[6px] border-2 border-line bg-card px-2.5 text-[11px] text-steel transition-colors hover:bg-subtle"
+        >
+          {done ? copied : copy}
+        </button>
+      </div>
+    </div>
   );
 }

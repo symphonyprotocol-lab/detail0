@@ -36,6 +36,12 @@ export {
   type ClaimFilter,
 } from './list-libraries';
 export {
+  listRefreshQueue,
+  type RefreshQueue,
+  type RefreshQueueCounts,
+  type RefreshQueueRow,
+} from './refresh-queue';
+export {
   createPlatformLibrary,
   deletePlatformLibrary,
   getPlatformLibrary,
@@ -47,6 +53,8 @@ export {
   updatePlatformLibrary,
   addPlatformLibrarySource,
   updatePlatformLibrarySource,
+  updatePlatformLibraryFiles,
+  type UpdatePlatformFilesResult,
   rebuildPlatformLibraryProfile,
   removePlatformLibrarySource,
   PLATFORM_STATUS_FILTERS,

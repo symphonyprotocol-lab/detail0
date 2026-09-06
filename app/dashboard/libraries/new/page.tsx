@@ -1,20 +1,100 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ImportWizard } from '@/components/dashboard/import-wizard';
-import { createWorkspaceLibraryAction, prepareUploadAction } from './actions';
+import {
+  ImportWizard,
+  type GithubImportState,
+  type NotionImportState,
+} from '@/components/dashboard/import-wizard';
+import {
+  checkDomainVerificationAction,
+  createWorkspaceLibraryAction,
+  prepareUploadAction,
+  startDomainVerificationAction,
+} from './actions';
 import { Badge, IconTile, PANEL } from '@/components/dashboard/ui';
 import { LockIcon, ShieldCheckIcon } from '@/components/ui/icons';
+import { listImportablePages, listImportableRepositories } from '@/lib/application/auth';
+import { isGithubConnectOutcome } from '@/lib/domain/github';
+import { isNotionConnectOutcome } from '@/lib/domain/notion';
+import { isNotionOAuthConfigured } from '@/lib/infrastructure/identity/notion';
 import { dashboardCopy } from '@/lib/dashboard/demo-data';
 import { getMessages } from '@/lib/i18n/server';
+import { requireSession } from '@/lib/http/session';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).dashboard.newLibrary.metaTitle };
 }
 
-export default async function DashboardAddLibraryPage() {
+/**
+ * The wizard's GitHub state, read once per render: whether this person has
+ * connected an account and, if so, which of their repositories may be
+ * imported. GitHub being unreachable degrades to "connected, nothing listed"
+ * with a flag, rather than taking the whole wizard down.
+ */
+async function githubImportState(userId: string): Promise<GithubImportState> {
+  try {
+    const listed = await listImportableRepositories(userId);
+    if (!listed.connected) return { connected: false };
+    return {
+      connected: true,
+      login: listed.login,
+      repositories: listed.repositories.map((repository) => ({
+        fullName: repository.fullName,
+        description: repository.description,
+        pushedAt: repository.pushedAt,
+        archived: repository.archived,
+      })),
+    };
+  } catch (error) {
+    console.warn(`github repositories unavailable: ${error instanceof Error ? error.message : 'unknown'}`);
+    return { connected: true, login: '', repositories: [], listingFailed: true };
+  }
+}
+
+/**
+ * The wizard's Notion state, read the same way: whether this person has
+ * connected a Notion account and which pages that grant can read. Without
+ * a Notion integration configured on this deployment the connect button
+ * would only ever fail, so the wizard is told to say so instead.
+ */
+async function notionImportState(userId: string): Promise<NotionImportState> {
+  if (!isNotionOAuthConfigured()) return { connected: false, unavailable: true };
+  try {
+    const listed = await listImportablePages(userId);
+    if (!listed.connected) return { connected: false };
+    return {
+      connected: true,
+      workspaceName: listed.workspaceName,
+      ownerName: listed.ownerName,
+      pages: listed.pages.map((page) => ({
+        id: page.id,
+        title: page.title,
+        url: page.url,
+        lastEditedAt: page.lastEditedAt,
+      })),
+    };
+  } catch (error) {
+    console.warn(`notion pages unavailable: ${error instanceof Error ? error.message : 'unknown'}`);
+    return { connected: true, workspaceName: null, ownerName: null, pages: [], listingFailed: true };
+  }
+}
+
+export default async function DashboardAddLibraryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ github?: string; notion?: string }>;
+}) {
+  const session = await requireSession('/dashboard/libraries/new');
   const t = await getMessages();
   const n = t.dashboard.newLibrary;
   const reviewSteps = dashboardCopy(t).reviewSteps;
+  const [github, notion] = await Promise.all([
+    githubImportState(session.user.id),
+    notionImportState(session.user.id),
+  ]);
+  const params = await searchParams;
+  const outcome = params.github;
+  const notionOutcome = params.notion;
 
   return (
     <div className="flex flex-col gap-4">
@@ -37,7 +117,16 @@ export default async function DashboardAddLibraryPage() {
         <Badge tone="neutral">{n.draftSaved}</Badge>
       </header>
 
-      <ImportWizard action={createWorkspaceLibraryAction} prepare={prepareUploadAction} />
+      <ImportWizard
+        action={createWorkspaceLibraryAction}
+        prepare={prepareUploadAction}
+        github={github}
+        githubOutcome={isGithubConnectOutcome(outcome) ? outcome : null}
+        notion={notion}
+        notionOutcome={isNotionConnectOutcome(notionOutcome) ? notionOutcome : null}
+        startVerification={startDomainVerificationAction}
+        checkVerification={checkDomainVerificationAction}
+      />
 
       {/* Review pipeline -- design source frame `ISF8H`. */}
       <aside className={`${PANEL} flex flex-col gap-4 p-6`}>

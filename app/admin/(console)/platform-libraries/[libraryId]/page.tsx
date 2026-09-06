@@ -7,6 +7,7 @@ import {
   PlatformRefreshControl,
   type PlatformLibraryTarget,
 } from '@/components/admin/platform-library-controls';
+import { PlatformLibraryFiles } from '@/components/admin/platform-library-files';
 import { PlatformProfilePanel } from '@/components/admin/platform-profile-panel';
 import {
   AddPlatformSourceControl,
@@ -29,7 +30,7 @@ import {
 } from '@/components/admin/ui';
 import { ChevronLeftIcon, GlobeIcon } from '@/components/ui/icons';
 import Link from 'next/link';
-import { getPlatformLibrary } from '@/lib/application/administration';
+import { getPlatformLibrary, type PlatformLibraryDetail } from '@/lib/application/administration';
 import {
   documentsPage,
   documentsPageSize,
@@ -38,7 +39,7 @@ import {
 } from '@/lib/application/libraries';
 import { isIngestionConfigured } from '@/lib/application/ingestion';
 import type { FetchSummary } from '@/lib/domain/ingestion';
-import { isPlatformSourceType, type PlatformSourceType } from '@/lib/domain/library';
+import { isPlatformLibraryType, type PlatformLibraryType } from '@/lib/domain/library';
 import { requireAdminCapability, currentAdminSession } from '@/lib/http/admin';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import { fill } from '@/lib/i18n/format';
@@ -47,10 +48,12 @@ import { bytes, initialsOf, utcInstant, utcStamp } from '../../list-params';
 import {
   addPlatformSourceAction,
   deletePlatformLibraryAction,
+  preparePlatformUploadAction,
   rebuildPlatformLibraryProfileAction,
   refreshPlatformLibraryAction,
   removePlatformSourceAction,
   setPlatformLifecycleAction,
+  updatePlatformFilesAction,
   updatePlatformLibraryAction,
   updatePlatformSourceAction,
 } from '../actions';
@@ -152,7 +155,7 @@ export default async function AdminPlatformLibraryPage({
    * either way, so this only decides which hint the form shows.
    */
   const firstType = record.sources[0]?.type;
-  const sourceType: PlatformSourceType = isPlatformSourceType(firstType) ? firstType : 'github';
+  const sourceType: PlatformLibraryType = isPlatformLibraryType(firstType) ? firstType : 'github';
 
   /* Whether a queued refresh could actually build anything in this deployment. */
   const ingestionReady = isIngestionConfigured();
@@ -282,7 +285,11 @@ export default async function AdminPlatformLibraryPage({
           description={d.sources.namespaceNote}
           action={
             record.lifecycleStatus === 'archived' ? undefined : (
-              <AddPlatformSourceControl action={addPlatformSourceAction} target={target} />
+              <AddPlatformSourceControl
+                action={addPlatformSourceAction}
+                target={target}
+                prepare={preparePlatformUploadAction}
+              />
             )
           }
         />
@@ -330,11 +337,15 @@ export default async function AdminPlatformLibraryPage({
                         source={{ id: source.id, location: source.location }}
                         disabled={record.lifecycleStatus === 'archived'}
                       />
-                      <EditPlatformSourceControl
-                        action={updatePlatformSourceAction}
-                        target={target}
-                        source={source}
-                      />
+                      {/* A pdf source has no location to edit: its files are
+                          managed in the panel below. It can still be removed. */}
+                      {source.type === 'pdf' ? null : (
+                        <EditPlatformSourceControl
+                          action={updatePlatformSourceAction}
+                          target={target}
+                          source={source}
+                        />
+                      )}
                       <RemovePlatformSourceControl
                         action={removePlatformSourceAction}
                         target={target}
@@ -348,6 +359,19 @@ export default async function AdminPlatformLibraryPage({
           </table>
         </TableScroller>
       </Panel>
+
+      {record.files !== null ? (
+        <PlatformLibraryFiles
+          libraryId={record.id}
+          files={record.files}
+          building={record.operations.some(
+            (operation) => operation.status === 'pending' || operation.status === 'running',
+          )}
+          canEdit={record.lifecycleStatus !== 'archived'}
+          action={updatePlatformFilesAction}
+          prepare={preparePlatformUploadAction}
+        />
+      ) : null}
 
       <PlatformProfilePanel
         profile={record.profile}
@@ -500,7 +524,16 @@ export default async function AdminPlatformLibraryPage({
               ) : null}
               {record.operations.map((operation) => (
                 <tr key={operation.id} className="border-t-2 border-line">
-                  <td className={`${TD} font-mono text-[11px]`}>{operation.operationType}</td>
+                  <td className={TD}>
+                    <span className="flex flex-col gap-0.5">
+                      <span className="font-mono text-[11px]">{operation.operationType}</span>
+                      {/* Who asked: the button, or the drain acting on a policy. */}
+                      <span className="text-[11px] text-muted">
+                        {label(t.admin.refreshQueue.triggers, operation.trigger)}
+                        {operation.sourceId ? ` · ${sourceScope(record, operation.sourceId)}` : ''}
+                      </span>
+                    </span>
+                  </td>
                   <td className={TD}>
                     <span className="flex flex-col items-start gap-1">
                       <Pill tone={operation.status === 'failed' ? 'danger' : 'neutral'}>
@@ -601,6 +634,12 @@ function fetchMethodLabel(t: Dictionary, summary: FetchSummary | null): string {
     rendered: String(summary.rendered),
     total: String(summary.direct + summary.rendered),
   });
+}
+
+/** The one source a refresh named, as its type and location; the id if it is gone. */
+function sourceScope(record: PlatformLibraryDetail, sourceId: string): string {
+  const source = record.sources.find((candidate) => candidate.id === sourceId);
+  return source ? `${source.type} · ${source.location}` : sourceId.slice(0, 8);
 }
 
 function actionLabel(t: Dictionary, action: string): string {

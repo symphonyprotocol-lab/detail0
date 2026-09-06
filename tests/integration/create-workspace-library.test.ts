@@ -33,6 +33,7 @@ const { runOperation, memoryObjectStore, purgeAbandonedUploads } = await import(
 const { queryDocs } = await import('@/lib/application/retrieval/query-docs');
 const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
+const { verifiedDomain } = await import('@/tests/fixtures/verified-domain');
 const { uuidv7 } = await import('@/lib/domain/id');
 
 const workspaces: string[] = [];
@@ -159,6 +160,9 @@ describeWithDb('workspace library creation', () => {
       await database
         .delete(schema.libraryScore)
         .where(inArray(schema.libraryScore.libraryId, libraries));
+      await database
+        .delete(schema.libraryClaim)
+        .where(inArray(schema.libraryClaim.libraryId, libraries));
       await database.delete(schema.source).where(inArray(schema.source.libraryId, libraries));
       await database.delete(schema.library).where(inArray(schema.library.id, libraries));
     }
@@ -175,6 +179,9 @@ describeWithDb('workspace library creation', () => {
       await database
         .delete(schema.subscription)
         .where(inArray(schema.subscription.workspaceId, workspaces));
+      await database
+        .delete(schema.domainVerification)
+        .where(inArray(schema.domainVerification.workspaceId, workspaces));
       await database.delete(schema.workspace).where(inArray(schema.workspace.id, workspaces));
     }
     if (planVersions.length > 0) {
@@ -195,6 +202,7 @@ describeWithDb('workspace library creation', () => {
       visibility: 'private',
       sourceType: 'website',
       location: 'https://docs.example.test/handbook',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://docs.example.test/handbook'),
       slug: `handbook-${stamp}`,
       description: 'Internal onboarding notes',
       language: 'en',
@@ -477,6 +485,7 @@ describeWithDb('workspace library creation', () => {
       visibility: 'private',
       sourceType: 'openapi',
       location: 'https://api.example.test/openapi.json',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/openapi.json'),
       slug: `only-one-${stamp}`,
     });
     libraries.push(first.libraryId);
@@ -489,6 +498,7 @@ describeWithDb('workspace library creation', () => {
         visibility: 'private',
         sourceType: 'openapi',
         location: 'https://api.example.test/openapi.json',
+        domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/openapi.json'),
         slug: `second-${stamp}`,
       }),
     ).rejects.toMatchObject({ code: 'library_limit_exceeded' });
@@ -502,6 +512,7 @@ describeWithDb('workspace library creation', () => {
         visibility: 'private',
         sourceType: 'openapi',
         location: 'https://api.example.test/openapi.json',
+        domainVerificationId: await verifiedDomain(other, 'https://api.example.test/openapi.json'),
         slug: `only-one-${stamp}`,
       }),
     ).rejects.toMatchObject({ code: 'invalid_request' });

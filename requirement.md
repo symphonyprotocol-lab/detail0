@@ -422,14 +422,15 @@ Git 仓库根目录可以提供来源侧配置：
 | --- | --- | --- |
 | GitHub 仓库 | **仓库权限校验**（默认） | 通过用户已绑定的 GitHub 账号读取其对该仓库的权限级别，要求 `admin` 或 `maintain` |
 | GitHub 仓库 | DNS TXT / well-known | 当仓库归属组织且申请人不便暴露账号权限时，退回按仓库主域名验证 |
-| Website、`llms.txt` | **DNS TXT 记录**（默认） | 在 `_re0-challenge.<域名>` 下存在与本次挑战匹配的 TXT 值 |
-| Website、`llms.txt` | well-known 文件 | `https://<域名>/.well-known/re0-challenge/<token>` 返回匹配内容 |
-| 上传文档、OpenAPI 文件 | 不适用 | 创建者即所有者，无需认领 |
+| Website、`llms.txt`、OpenAPI | **DNS TXT 记录**（默认） | 在 `_re0-challenge.<域名>` 下存在与本次挑战匹配的 TXT 值 |
+| Website、`llms.txt`、OpenAPI | well-known 文件 | `https://<域名>/.well-known/re0-challenge/<token>` 返回匹配内容 |
+| 上传文档 | 不适用 | 创建者即所有者，无需认领 |
 | Notion | 不适用 | 由用户自己的授权连接创建，创建者即所有者 |
 
 要求：
 
-- 挑战 Token 一次一发、与「申请人 + 知识库 + 验证方式」绑定，**有效期 7 天**，过期作废且不可复用；
+- **创建前验证**：Website、`llms.txt` 和 OpenAPI 三类知识库的内容完全来自一个域名，因此**创建即需要验证**：用户在创建向导中先对来源域名完成 DNS TXT 或 well-known 挑战，服务端拒绝创建未验证域名的这三类知识库；验证通过的挑战只能用于**一个**知识库、且必须在验证后 1 小时内使用，创建时同步写入一条 `verified` 认领记录，知识库自创建起即为已认领状态。GitHub 仓库由绑定账号的仓库归属校验承担同样的创建前验证；
+- 挑战 Token 一次一发、与「申请人 + 知识库 + 验证方式」绑定（创建前验证时与「工作空间 + 域名 + 验证方式」绑定），**有效期 7 天**，过期作废且不可复用；
 - 验证域必须与知识库当前来源的域一致；子域不自动继承父域的验证结果，父域可显式覆盖其子域；
 - GitHub 权限校验只请求读取权限，不请求写权限、不读取私有源码，授权可在 GitHub 侧随时撤销；
 - 抓取 well-known 文件复用第 12 节的来源安全约束（禁止私网、Metadata Endpoint、重定向绕过），不因为是验证请求而放宽；

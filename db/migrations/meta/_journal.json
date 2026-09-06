@@ -190,6 +190,34 @@
       "when": 1788700000000,
       "tag": "0026_per_source_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1788700100000,
+      "tag": "0027_operation_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1788700200000,
+      "tag": "0028_github_connection",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1788700300000,
+      "tag": "0029_domain_verification",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1788700400000,
+      "tag": "0030_notion_connection",
+      "breakpoints": true
     }
   ]
 }

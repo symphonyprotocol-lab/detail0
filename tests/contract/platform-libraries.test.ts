@@ -145,7 +145,8 @@ describe('the create form', () => {
     // Both the id and the location are wrong for `markdown` too; the type is
     // the field that explains them.
     expect(refusal({ ...WEBSITE, sourceType: 'markdown' })).toBe('unsupported_source');
-    expect(refusal({ ...WEBSITE, sourceType: 'pdf' })).toBe('unsupported_source');
+    /* pdf is a library type now (platform-pdf.test.ts); a website id under it is the id's fault. */
+    expect(refusal({ ...WEBSITE, sourceType: 'pdf' })).toBe('invalid_public_id');
     expect(refusal({ ...WEBSITE, sourceType: 'anything' })).toBe('unsupported_source');
   });
 
@@ -328,7 +329,7 @@ describe('sources', () => {
       location: 'https://github.com/vercel/next.js.git',
       refreshPolicy: 'weekly',
     });
-    expect(draft).toEqual({ type: 'github', location: 'vercel/next.js', refreshPolicy: 'weekly', indexDepth: 0 });
+    expect(draft).toEqual({ type: 'github', location: 'vercel/next.js', refreshPolicy: 'weekly', indexDepth: 0, files: [] });
   });
 
   it('keeps the nested-index depth only for an llms.txt source, defaulting to none', () => {

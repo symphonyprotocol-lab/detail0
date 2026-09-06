@@ -42,6 +42,7 @@ const { createPlatformLibrary, deletePlatformLibrary, getPlatformLibrary, listPl
 const { PlatformLibraryRefused } = await import('@/lib/domain/library');
 const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
+const { verifiedDomain } = await import('@/tests/fixtures/verified-domain');
 const { uuidv7 } = await import('@/lib/domain/id');
 
 const workspaces: string[] = [];
@@ -183,6 +184,9 @@ describeWithDb('library deletion', () => {
       await database
         .delete(schema.libraryAlias)
         .where(inArray(schema.libraryAlias.libraryId, libraries));
+      await database
+        .delete(schema.libraryClaim)
+        .where(inArray(schema.libraryClaim.libraryId, libraries));
       await database.delete(schema.source).where(inArray(schema.source.libraryId, libraries));
       await database.delete(schema.library).where(inArray(schema.library.id, libraries));
       await database
@@ -207,6 +211,9 @@ describeWithDb('library deletion', () => {
       await database
         .delete(schema.subscription)
         .where(inArray(schema.subscription.workspaceId, workspaces));
+      await database
+        .delete(schema.domainVerification)
+        .where(inArray(schema.domainVerification.workspaceId, workspaces));
       await database.delete(schema.workspace).where(inArray(schema.workspace.id, workspaces));
     }
     if (planVersions.length > 0) {
@@ -221,7 +228,7 @@ describeWithDb('library deletion', () => {
     const database = db();
     /* A one-library plan: re-creating the id below proves the slot came back. */
     const workspaceId = await workspaceOnPlan(1);
-    const slug = `handbook-${stamp}`;
+    const slug = `handbook-deleted-${stamp}`;
 
     const created = await createWorkspaceLibrary({
       role: 'owner',
@@ -230,6 +237,7 @@ describeWithDb('library deletion', () => {
       visibility: 'private',
       sourceType: 'website',
       location: 'https://docs.example.test/handbook',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://docs.example.test/handbook'),
       slug,
     });
     libraries.push(created.libraryId);
@@ -306,6 +314,7 @@ describeWithDb('library deletion', () => {
       visibility: 'private',
       sourceType: 'website',
       location: 'https://docs.example.test/handbook',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://docs.example.test/handbook'),
       slug,
     });
     libraries.push(again.libraryId);
@@ -375,6 +384,7 @@ describeWithDb('library deletion', () => {
       visibility: 'private',
       sourceType: 'openapi',
       location: 'https://api.example.test/openapi.json',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/openapi.json'),
       slug: `not-yours-${stamp}`,
     });
     libraries.push(created.libraryId);
@@ -426,6 +436,7 @@ describeWithDb('library deletion', () => {
       visibility: 'private',
       sourceType: 'website',
       location: 'https://docs.example.test/queued',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://docs.example.test/queued'),
       slug: `queued-${stamp}`,
     });
     libraries.push(created.libraryId);
@@ -525,6 +536,7 @@ describeWithDb('library deletion', () => {
       visibility: 'private',
       sourceType: 'openapi',
       location: 'https://api.example.test/openapi.json',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/openapi.json'),
       slug: `user-owned-${stamp}`,
     });
     libraries.push(user.libraryId);

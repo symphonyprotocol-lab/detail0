@@ -180,6 +180,60 @@ export const userSession = pgTable(
   ],
 );
 
+/**
+ * A person's GitHub account, connected for repository imports.
+ *
+ * Login drops the provider token (requirement.md 12). This is the separate
+ * grant a person gives on the wizard so it can list their own public
+ * repositories and, at submit, prove the chosen one is theirs
+ * (lib/domain/github.ts). `token_sealed` is the access token sealed with the
+ * cookie key -- never the token itself -- and the row sits apart from
+ * business tables as requirement.md 12 asks. One per user; reconnecting
+ * replaces the token.
+ */
+export const githubConnection = pgTable(
+  'github_connection',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id').notNull().references(() => user.id),
+    /** GitHub's numeric account id as text; logins are renamed, ids are not. */
+    githubUserId: text('github_user_id').notNull(),
+    login: text('login').notNull(),
+    tokenSealed: text('token_sealed').notNull(),
+    scope: text('scope').notNull().default(''),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('github_connection_user_uq').on(t.userId)],
+);
+
+/**
+ * A person's Notion account, connected for page imports.
+ *
+ * The counterpart of `githubConnection` for the one source that cannot be
+ * read anonymously: the sealed token is the only way to fetch the pages the
+ * person shared with the integration, so it is kept for the library's
+ * refreshes as well as for the wizard's listing (lib/domain/notion.ts). One
+ * per user; reconnecting replaces the token.
+ */
+export const notionConnection = pgTable(
+  'notion_connection',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id').notNull().references(() => user.id),
+    /** The integration's bot id in the granted workspace. */
+    botId: text('bot_id').notNull(),
+    notionWorkspaceId: text('notion_workspace_id').notNull(),
+    workspaceName: text('workspace_name'),
+    notionUserId: text('notion_user_id'),
+    ownerName: text('owner_name'),
+    tokenSealed: text('token_sealed').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('notion_connection_user_uq').on(t.userId)],
+);
+
 export const workspace = pgTable('workspace', {
   id: uuid('id').primaryKey(),
   name: text('name').notNull(),
@@ -569,6 +623,34 @@ export const libraryClaim = pgTable(
       .where(sql`${t.status} = 'pending'`),
     index('library_claim_claimant_idx').on(t.claimantWorkspaceId),
   ],
+);
+
+/**
+ * A challenge proving a workspace controls a host, met before a website,
+ * llms.txt or OpenAPI library may be created from it (requirement.md 7.3.2,
+ * architecture.md 5.4, lib/domain/domain-verification.ts). Reuses the claim
+ * enums: a domain challenge is a claim made before the library exists, and
+ * a verified one is copied onto `library_claim` when the library is created.
+ * Hash only; the plaintext token is returned once. Spent on exactly one
+ * library through `consumed_library_id`.
+ */
+export const domainVerification = pgTable(
+  'domain_verification',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    host: text('host').notNull(),
+    method: claimMethodEnum('method').notNull(),
+    challengeTokenHash: text('challenge_token_hash').notNull(),
+    status: claimStatusEnum('status').notNull(),
+    failureReason: text('failure_reason'),
+    attempts: integer('attempts').notNull().default(0),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    consumedLibraryId: uuid('consumed_library_id').references(() => library.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('domain_verification_workspace_idx').on(t.workspaceId, t.createdAt)],
 );
 
 export const libraryScore = pgTable(
@@ -1116,6 +1198,12 @@ export const workflowOperation = pgTable(
     status: text('status').notNull(),
     attempts: integer('attempts').notNull().default(0),
     error: text('error'),
+    /**
+     * `manual` for an operator's button or a workspace action, `scheduled`
+     * for a refresh the drain queued from a source's refresh policy.
+     * `lib/domain/ingestion.ts` `OperationTrigger`.
+     */
+    trigger: text('trigger').notNull().default('manual'),
     /**
      * How the pages of a build were fetched -- our own fetch vs a rendering
      * provider, per page. Written by the build after `fetch-snapshot`; null

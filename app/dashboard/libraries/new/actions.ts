@@ -3,7 +3,21 @@
 import { after } from 'next/server';
 import { AppError } from '@/contracts/errors';
 import { runOperation } from '@/lib/application/ingestion';
-import { createWorkspaceLibrary, prepareUploads, type PreparedUpload } from '@/lib/application/libraries';
+import {
+  GithubImportRefused,
+  NotionImportRefused,
+  type GithubImportRefusalCode,
+  type NotionImportRefusalCode,
+} from '@/lib/application/auth';
+import {
+  checkDomainVerification,
+  createWorkspaceLibrary,
+  prepareUploads,
+  startDomainVerification,
+  type DomainChallenge,
+  type PreparedUpload,
+} from '@/lib/application/libraries';
+import type { DomainVerificationFailure } from '@/lib/domain/domain-verification';
 import { isConnectedSourceType, UPLOAD_LIMITS } from '@/lib/domain/library';
 import { requireSession } from '@/lib/http/session';
 
@@ -17,7 +31,13 @@ export interface CreateLibraryResult {
   publicId?: string;
   /** Where the files page of a PDF library created without files is. */
   libraryId?: string;
-  error?: 'invalid' | 'taken' | 'limit' | 'unavailable';
+  error?: 'invalid' | 'taken' | 'limit' | 'unavailable' | 'github' | 'notion' | 'unverified';
+  /** With `error: 'github'`: which import rule the repository failed. */
+  refusal?: GithubImportRefusalCode;
+  /** With `error: 'notion'`: why the page could not be imported. */
+  notionRefusal?: NotionImportRefusalCode;
+  /** With `error: 'unverified'`: why the domain challenge could not be spent. */
+  reason?: DomainVerificationFailure;
 }
 
 export async function createWorkspaceLibraryAction(
@@ -45,6 +65,7 @@ export async function createWorkspaceLibraryAction(
     const { publicId, libraryId, operationId } = await createWorkspaceLibrary({
       workspaceId: session.workspace.id,
       role: session.workspace.role,
+      userId: session.user.id,
       title: String(form.get('title') ?? ''),
       visibility,
       sourceType,
@@ -52,6 +73,7 @@ export async function createWorkspaceLibraryAction(
       slug: String(form.get('slug') ?? ''),
       uploads,
       indexDepth: String(form.get('indexDepth') ?? ''),
+      domainVerificationId: String(form.get('domainVerificationId') ?? '') || undefined,
       description: String(form.get('description') ?? '') || null,
       language: String(form.get('language') ?? '') || null,
     });
@@ -70,6 +92,15 @@ export async function createWorkspaceLibraryAction(
     }
     return { ok: true, publicId, libraryId };
   } catch (error) {
+    if (error instanceof GithubImportRefused) {
+      return { ok: false, error: 'github', refusal: error.refusal };
+    }
+    if (error instanceof NotionImportRefused) {
+      return { ok: false, error: 'notion', notionRefusal: error.refusal };
+    }
+    if (error instanceof AppError && error.code === 'claim_verification_failed') {
+      return { ok: false, error: 'unverified', reason: verificationReason(error.reason) };
+    }
     if (error instanceof AppError && error.code === 'library_limit_exceeded') {
       return { ok: false, error: 'limit' };
     }
@@ -126,5 +157,88 @@ export async function prepareUploadAction(
     }
     console.error(`prepare upload failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return { ok: false, maxFileBytes, error: 'unavailable' };
+  }
+}
+
+/* ------------------------------------------------------ domain challenges */
+
+/**
+ * The domain challenge (requirement.md 7.3.2) the wizard walks a website,
+ * llms.txt or OpenAPI library through before it may be created. Two calls:
+ * start hands back the one plaintext copy of the token with where to put it;
+ * check asks DNS or the host and says whether it was found. Both answer with
+ * stable codes only -- no DNS payload, no fetched body (requirement.md 7.3.7).
+ */
+export interface StartDomainVerificationResult {
+  ok: boolean;
+  challenge?: Omit<DomainChallenge, 'expiresAt'> & { expiresAt: string };
+  error?: 'invalid' | 'access_denied' | 'retry_limit_exceeded' | 'unavailable';
+}
+
+export async function startDomainVerificationAction(input: {
+  sourceType: string;
+  location: string;
+  method: string;
+}): Promise<StartDomainVerificationResult> {
+  const session = await requireSession('/dashboard/libraries/new');
+  const sourceType = String(input?.sourceType ?? '');
+  if (!isConnectedSourceType(sourceType)) return { ok: false, error: 'invalid' };
+  try {
+    const challenge = await startDomainVerification({
+      workspaceId: session.workspace.id,
+      role: session.workspace.role,
+      sourceType,
+      location: String(input?.location ?? ''),
+      method: String(input?.method ?? ''),
+    });
+    return { ok: true, challenge: { ...challenge, expiresAt: challenge.expiresAt.toISOString() } };
+  } catch (error) {
+    if (error instanceof AppError) {
+      if (error.code === 'invalid_request') return { ok: false, error: 'invalid' };
+      if (error.code === 'access_denied') return { ok: false, error: 'access_denied' };
+      if (error.code === 'claim_verification_failed') return { ok: false, error: 'retry_limit_exceeded' };
+    }
+    console.error(`start domain verification failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return { ok: false, error: 'unavailable' };
+  }
+}
+
+export interface CheckDomainVerificationResult {
+  ok: boolean;
+  host?: string;
+  reason?: DomainVerificationFailure;
+  error?: 'access_denied' | 'unavailable';
+}
+
+export async function checkDomainVerificationAction(input: {
+  verificationId: string;
+  token: string;
+}): Promise<CheckDomainVerificationResult> {
+  const session = await requireSession('/dashboard/libraries/new');
+  try {
+    const result = await checkDomainVerification({
+      workspaceId: session.workspace.id,
+      role: session.workspace.role,
+      verificationId: String(input?.verificationId ?? ''),
+      token: String(input?.token ?? ''),
+    });
+    return result.ok ? { ok: true, host: result.host } : { ok: false, reason: result.reason };
+  } catch (error) {
+    if (error instanceof AppError && error.code === 'access_denied') {
+      return { ok: false, error: 'access_denied' };
+    }
+    console.error(`check domain verification failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return { ok: false, error: 'unavailable' };
+  }
+}
+
+function verificationReason(reason: string | undefined): DomainVerificationFailure {
+  switch (reason) {
+    case 'challenge_expired':
+    case 'retry_limit_exceeded':
+    case 'source_mismatch':
+      return reason;
+    default:
+      return 'challenge_not_found';
   }
 }

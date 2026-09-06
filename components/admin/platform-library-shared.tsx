@@ -3,7 +3,7 @@
 import { startTransition, useState, type ReactNode } from 'react';
 import { Monogram } from '@/components/admin/ui';
 import { CircleXIcon } from '@/components/ui/icons';
-import { idNamespace, slugWithoutPrefix, type PlatformSourceType } from '@/lib/domain/library';
+import { idNamespace, slugWithoutPrefix, type PlatformLibraryType } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
 import type { PlatformLibraryActionResult } from '@/app/admin/(console)/platform-libraries/actions';
 
@@ -153,7 +153,7 @@ export function PublicIdField({
   label: string;
   hint: string;
   placeholder: string;
-  sourceType: PlatformSourceType;
+  sourceType: PlatformLibraryType;
   /** The full id being edited; absent when the library is being created. */
   defaultValue?: string;
 }) {

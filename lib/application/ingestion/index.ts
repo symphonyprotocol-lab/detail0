@@ -11,6 +11,12 @@ export { rebuildProfile, rebuildStaleProfiles } from './rebuild-profile';
 export { purgeLibrary, type PurgeOutcome } from './purge-library';
 export { purgeAbandonedUploads, type PurgeUploadsOutcome } from './purge-uploads';
 export {
+  refreshSchedule,
+  scheduleDueRefreshes,
+  type ScheduledRefresh,
+  type ScheduledSource,
+} from './schedule-refreshes';
+export {
   drainOperations,
   runOperation,
   MAX_ATTEMPTS,

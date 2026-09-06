@@ -5,13 +5,20 @@ import { ConsoleDialog } from '@/components/admin/console-dialog';
 import { ConsoleButton, IconButton } from '@/components/admin/ui';
 import { CircleXIcon, PencilIcon, PlusIcon, SpinnerIcon, TrashIcon } from '@/components/ui/icons';
 import {
-  PLATFORM_SOURCE_TYPES,
+  PLATFORM_LIBRARY_TYPES,
+  UPLOAD_LIMITS,
   REFRESH_POLICIES,
-  type PlatformSourceType,
+  type PlatformLibraryType,
   type RefreshPolicy,
   INDEX_DEPTHS,
   type IndexDepth,
 } from '@/lib/domain/library';
+import {
+  formatBytes,
+  PdfUploadField,
+  usePdfUploads,
+  type PrepareUploads,
+} from '@/components/dashboard/pdf-uploader';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
 import {
@@ -55,7 +62,7 @@ export function EditPlatformLibraryControl({
     description: string | null;
     domainTag: string | null;
     language: string | null;
-    sourceType: PlatformSourceType;
+    sourceType: PlatformLibraryType;
   };
 }) {
   const { t } = useI18n();
@@ -99,7 +106,7 @@ function EditDialog({
     description: string | null;
     domainTag: string | null;
     language: string | null;
-    sourceType: PlatformSourceType;
+    sourceType: PlatformLibraryType;
   };
   onClose: () => void;
 }) {
@@ -220,9 +227,12 @@ export interface PlatformSourceRow {
 export function AddPlatformSourceControl({
   action,
   target,
+  prepare,
 }: {
   action: Action;
   target: PlatformLibraryTarget;
+  /** Upload tickets for a pdf source's files; the browser uploads directly. */
+  prepare: PrepareUploads;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -240,6 +250,7 @@ export function AddPlatformSourceControl({
           key={attempt}
           action={action}
           target={target}
+          prepare={prepare}
           source={null}
           onClose={() => {
             setOpen(false);
@@ -301,22 +312,28 @@ function SourceDialog({
   action,
   target,
   source,
+  prepare,
   onClose,
 }: {
   action: Action;
   target: PlatformLibraryTarget;
   source: PlatformSourceRow | null;
+  /** Absent on an edit: a pdf source is never edited here. */
+  prepare?: PrepareUploads;
   onClose: () => void;
 }) {
   const { t } = useI18n();
   const d = t.admin.platformLibraryDetail;
   const p = t.admin.platformLibraries;
+  const f = p.form;
   const copy = source ? d.sourceDialog.edit : d.sourceDialog.add;
   const [state, submit, pending] = useActionState(action, null);
   const formId = useId();
-  const [sourceType, setSourceType] = useState<PlatformSourceType>(
-    (source?.type as PlatformSourceType) ?? 'website',
+  const [sourceType, setSourceType] = useState<PlatformLibraryType>(
+    (source?.type as PlatformLibraryType) ?? 'website',
   );
+  const isPdf = sourceType === 'pdf';
+  const uploads = usePdfUploads(prepare ?? (async () => ({ ok: false, maxFileBytes: 0, error: 'unavailable' })));
 
   useEffect(() => {
     if (state?.ok) onClose();
@@ -335,7 +352,12 @@ function SourceDialog({
           <ConsoleButton onClick={onClose} disabled={dismissBlocked}>
             {d.cancel}
           </ConsoleButton>
-          <ConsoleButton variant="primary" type="submit" form={formId} disabled={pending}>
+          <ConsoleButton
+            variant="primary"
+            type="submit"
+            form={formId}
+            disabled={pending || (isPdf && !uploads.settled)}
+          >
             {pending ? (
               <>
                 <SpinnerIcon size={14} className="motion-safe:animate-spin" />
@@ -360,31 +382,36 @@ function SourceDialog({
               name={source ? undefined : 'sourceType'}
               value={sourceType}
               disabled={Boolean(source)}
-              onChange={(event) => setSourceType(event.target.value as PlatformSourceType)}
+              onChange={(event) => setSourceType(event.target.value as PlatformLibraryType)}
               className={`${FIELD} disabled:text-muted`}
             >
-              {PLATFORM_SOURCE_TYPES.map((type) => (
+              {PLATFORM_LIBRARY_TYPES.map((type) => (
                 <option key={type} value={type}>
                   {p.sourceTypes[type]}
                 </option>
               ))}
             </select>
           </Field>
-          <Field label={d.sourceDialog.fieldRefresh}>
-            <select
-              name="refreshPolicy"
-              defaultValue={
-                source && source.refreshPolicy !== 'unknown' ? source.refreshPolicy : 'daily'
-              }
-              className={FIELD}
-            >
-              {REFRESH_POLICIES.map((policy) => (
-                <option key={policy} value={policy}>
-                  {p.refreshPolicies[policy]}
-                </option>
-              ))}
-            </select>
-          </Field>
+          {isPdf ? (
+            /* Always manual for a pdf source; the server forces it too. */
+            <input type="hidden" name="refreshPolicy" value="manual" />
+          ) : (
+            <Field label={d.sourceDialog.fieldRefresh}>
+              <select
+                name="refreshPolicy"
+                defaultValue={
+                  source && source.refreshPolicy !== 'unknown' ? source.refreshPolicy : 'daily'
+                }
+                className={FIELD}
+              >
+                {REFRESH_POLICIES.map((policy) => (
+                  <option key={policy} value={policy}>
+                    {p.refreshPolicies[policy]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
         </div>
 
         {sourceType === 'llms_txt' ? (
@@ -399,16 +426,32 @@ function SourceDialog({
           </Field>
         ) : null}
 
-        <Field label={d.sourceDialog.fieldLocation} hint={d.sourceDialog.hintLocation}>
-          <input
-            name="location"
-            required
-            maxLength={500}
-            defaultValue={source?.location ?? ''}
-            data-dialog-autofocus
-            className={FIELD}
-          />
-        </Field>
+        {isPdf ? (
+          <>
+            {/* Derived server side: the prefix the uploads were keyed under. */}
+            <input type="hidden" name="location" value="" />
+            <PdfUploadField
+              state={uploads}
+              label={f.fieldFiles}
+              hint={fill(f.hintFiles, {
+                max: String(UPLOAD_LIMITS.maxFiles),
+                size: formatBytes(UPLOAD_LIMITS.maxFileBytes),
+              })}
+            />
+            <input type="hidden" name="uploads" value={uploads.manifest} />
+          </>
+        ) : (
+          <Field label={d.sourceDialog.fieldLocation} hint={d.sourceDialog.hintLocation}>
+            <input
+              name="location"
+              required
+              maxLength={500}
+              defaultValue={source?.location ?? ''}
+              data-dialog-autofocus
+              className={FIELD}
+            />
+          </Field>
+        )}
 
         <ReasonField
           label={copy.reason}

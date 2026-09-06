@@ -7,8 +7,15 @@
  * Ownership vs rights, deliberately split: `owner_workspace_id` is set to the
  * creator so the dashboard and private visibility work, but that is *access*,
  * not *rights*. Sources that requirement.md 7.3 gates behind a claim (github,
- * website, llms_txt) do not earn until a claim verifies -- enforced where the
- * earning event is written, not here.
+ * website, llms_txt, openapi) do not earn until a claim verifies -- enforced
+ * where the earning event is written, not here.
+ *
+ * For the three sources fetched from a host -- website, llms_txt, openapi --
+ * control of that host is proven *before* the library exists: the wizard
+ * starts a domain challenge (domain-verification.ts) and creation refuses
+ * anything but a verified, unspent challenge for the source's host. The
+ * challenge is spent here, inside the same transaction that writes the rows,
+ * and copied onto `library_claim` so the library is born claimed.
  */
 import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
@@ -24,6 +31,11 @@ import {
   type ConnectedSourceType,
   type UploadedFile,
 } from '@/lib/domain/library';
+import { checkGithubImport, type CheckGithubImport } from '@/lib/application/auth/github-connection';
+import { checkNotionImport, type CheckNotionImport } from '@/lib/application/auth/notion-connection';
+import { NOTION_SOURCE_USER_KEY } from '@/lib/domain/notion';
+import { requiresDomainVerification } from '@/lib/domain/domain-verification';
+import { consumeDomainVerification } from './domain-verification';
 import { isObjectStoreConfigured, objectStore, type ObjectStore } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { canManageLibraries, type WorkspaceRole } from './delete';
@@ -32,6 +44,14 @@ import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans/configuration
 export interface CreateWorkspaceLibraryInput {
   workspaceId: string;
   role: WorkspaceRole;
+  /**
+   * The signed-in account. Required for github, whose repository must be
+   * one this person owns on GitHub (lib/domain/github.ts), and for notion,
+   * whose page is read with this person's own grant (lib/domain/notion.ts);
+   * both checks read a connected grant that belongs to the user, not the
+   * workspace.
+   */
+  userId?: string;
   title: string;
   visibility: 'public' | 'private';
   sourceType: ConnectedSourceType;
@@ -50,10 +70,21 @@ export interface CreateWorkspaceLibraryInput {
   uploads?: unknown;
   /** For llms_txt only: how many levels of nested indexes to follow. */
   indexDepth?: unknown;
+  /**
+   * For website, llms_txt and openapi: the verified domain challenge for the
+   * source's host, as `startDomainVerification` issued it and
+   * `checkDomainVerification` verified it. Required for those types; spent
+   * on this library.
+   */
+  domainVerificationId?: unknown;
   description?: string | null;
   language?: string | null;
   /** The store the uploads are confirmed in; the configured one by default. */
   store?: Pick<ObjectStore, 'head'>;
+  /** The repository check for github; GitHub itself by default. */
+  checkRepository?: CheckGithubImport;
+  /** The page check for notion; Notion itself by default. */
+  checkPage?: CheckNotionImport;
 }
 
 export interface CreateWorkspaceLibraryResult {
@@ -89,6 +120,8 @@ export async function createWorkspaceLibrary(
    */
   let uploaded: UploadedFile[] = [];
   let location: string | null;
+  /* What the source row remembers besides its location. */
+  let sourceConfig: Record<string, unknown> = {};
   if (input.sourceType === 'pdf') {
     const manifest =
       input.uploads === undefined || input.uploads === null
@@ -107,6 +140,48 @@ export async function createWorkspaceLibrary(
     throw new AppError('invalid_request', 'the source location is not valid for this source type');
   }
 
+  /*
+   * A repository is imported from the person's own GitHub account and from
+   * nowhere else: public, not a fork, owned by the account whose grant is on
+   * file. The check re-reads the repository with that grant rather than
+   * trusting the wizard's list, and the location is rewritten to GitHub's
+   * spelling so the library id follows the repository, not the form post.
+   * The repository id is kept on the source for the claim flow to compare
+   * against (architecture.md 5.4).
+   */
+  if (input.sourceType === 'github') {
+    if (!input.userId) {
+      throw new AppError('access_denied', 'a signed-in account is needed to import a repository');
+    }
+    const check = await (input.checkRepository ?? checkGithubImport)({
+      userId: input.userId,
+      location,
+    });
+    location = check.location;
+    sourceConfig = { repositoryId: check.repositoryId };
+  } else if (input.sourceType === 'notion') {
+    /*
+     * A Notion page is read with the person's own grant and no other: the
+     * check re-reads it with that grant, the location is rewritten to the
+     * page's own URL, and the account is remembered on the source so every
+     * later build resolves the same grant (build-version.ts). A page the
+     * grant cannot see is refused here, not minutes later by the build.
+     */
+    if (!input.userId) {
+      throw new AppError('access_denied', 'a signed-in account is needed to import a Notion page');
+    }
+    const check = await (input.checkPage ?? checkNotionImport)({
+      userId: input.userId,
+      location,
+    });
+    location = check.location;
+    sourceConfig = { pageId: check.pageId, [NOTION_SOURCE_USER_KEY]: input.userId };
+  } else if (input.sourceType === 'pdf') {
+    sourceConfig = { files: uploaded };
+  } else if (input.sourceType === 'llms_txt') {
+    sourceConfig = { indexDepth: parseIndexDepth(input.indexDepth) };
+  }
+
   const publicId =
     input.sourceType === 'github'
       ? normalizePublicId('github', location)
@@ -115,9 +190,20 @@ export async function createWorkspaceLibrary(
     throw new AppError('invalid_request', 'the library id is not valid');
   }
 
+  /* Refused before anything is counted or locked: a missing challenge is
+     the wizard skipping a step, and the answer should not wait on the plan. */
+  if (requiresDomainVerification(input.sourceType) && typeof input.domainVerificationId !== 'string') {
+    throw new AppError(
+      'claim_verification_failed',
+      'the source domain must be verified before this library is created',
+      'challenge_not_found',
+    );
+  }
+
   const database = db();
 
   const limit = await libraryLimit(input.workspaceId);
+  const now = new Date();
 
   const libraryId = uuidv7();
   const sourceId = uuidv7();
@@ -175,13 +261,17 @@ export async function createWorkspaceLibrary(
         libraryId,
         type: input.sourceType,
         location,
-        config:
-          input.sourceType === 'pdf'
-            ? { files: uploaded }
-            : input.sourceType === 'llms_txt'
-              ? { indexDepth: parseIndexDepth(input.indexDepth) }
-              : {},
+        config: sourceConfig,
       });
+      if (requiresDomainVerification(input.sourceType)) {
+        await consumeDomainVerification(tx, {
+          workspaceId: input.workspaceId,
+          verificationId: input.domainVerificationId,
+          location: location!,
+          libraryId,
+          now,
+        });
+      }
       if (operationId) {
         await tx.insert(schema.workflowOperation).values({
           id: operationId,
