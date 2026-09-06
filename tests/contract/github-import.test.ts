@@ -9,6 +9,7 @@ process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 import { describe, expect, it } from 'vitest';
 import {
   GITHUB_CONNECT_SCOPE,
+  grantScopeCovers,
   importableRepositories,
   importRefusal,
   isGithubConnectHandshake,
@@ -24,6 +25,7 @@ const mine: RepositoryFacts = {
   private: false,
   fork: false,
   archived: false,
+  permission: 'admin',
 };
 
 describe('repository import rule', () => {
@@ -38,8 +40,18 @@ describe('repository import rule', () => {
   });
 
   it('refuses another account’s repository first, whatever else is wrong with it', () => {
-    expect(importRefusal(mine, '7')).toBe('not_owner');
-    expect(importRefusal({ ...mine, private: true, fork: true }, '7')).toBe('not_owner');
+    const theirs = { ...mine, permission: 'read' as const };
+    expect(importRefusal(theirs, '7')).toBe('not_owner');
+    expect(importRefusal({ ...theirs, private: true, fork: true }, '7')).toBe('not_owner');
+  });
+
+  it('accepts an organisation repository only with admin or maintain rights', () => {
+    const org = { ...mine, ownerId: 9000 };
+    expect(importRefusal({ ...org, permission: 'admin' }, '42')).toBeNull();
+    expect(importRefusal({ ...org, permission: 'maintain' }, '42')).toBeNull();
+    expect(importRefusal({ ...org, permission: 'write' }, '42')).toBe('not_owner');
+    expect(importRefusal({ ...org, permission: 'read' }, '42')).toBe('not_owner');
+    expect(importRefusal({ ...org, permission: 'none' }, '42')).toBe('not_owner');
   });
 
   it('filters a listing with the same rule', () => {
@@ -48,16 +60,26 @@ describe('repository import rule', () => {
         mine,
         { ...mine, id: 2, fullName: 'octocat/forked', fork: true },
         { ...mine, id: 3, fullName: 'octocat/secret', private: true },
-        { ...mine, id: 4, fullName: 'someone/else', ownerId: 7 },
+        { ...mine, id: 4, fullName: 'someone/else', ownerId: 7, permission: 'read' },
         { ...mine, id: 5, fullName: 'octocat/old', archived: true },
+        { ...mine, id: 6, fullName: 'org/admin-here', ownerId: 9000, permission: 'admin' },
+        { ...mine, id: 7, fullName: 'org/member-only', ownerId: 9000, permission: 'write' },
       ],
       '42',
     );
-    expect(listed.map((repository) => repository.fullName)).toEqual(['octocat/docs', 'octocat/old']);
+    expect(listed.map((repository) => repository.fullName)).toEqual([
+      'octocat/docs',
+      'octocat/old',
+      'org/admin-here',
+    ]);
   });
 
-  it('asks for no repository write scope', () => {
+  it('asks for no repository write scope, and notices a grant that predates a scope', () => {
     expect(GITHUB_CONNECT_SCOPE).not.toMatch(/repo/);
+    expect(grantScopeCovers('read:user read:org')).toBe(true);
+    expect(grantScopeCovers('read:org,read:user,gist')).toBe(true);
+    expect(grantScopeCovers('read:user')).toBe(false);
+    expect(grantScopeCovers('')).toBe(false);
   });
 });
 

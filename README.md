@@ -151,7 +151,11 @@ http://localhost:3000/api/auth/github/callback
 http://localhost:3000/api/auth/google/callback
 ```
 
-向导导入 GitHub 仓库时的授权回调是 `/api/auth/github/callback/connect`，属登记地址的子路径，GitHub 无需另行登记。
+向导导入 GitHub 仓库时还有第二个回调，GitHub App 要求回调地址精确匹配，必须一并登记（Developer settings → 该应用 → Add callback URL）：
+
+```text
+http://localhost:3000/api/auth/github/callback/connect
+```
 
 向导导入 Notion 页面时同样先绑定账号：需要一个 Notion **public integration**（`NOTION_OAUTH_CLIENT_ID` / `_SECRET`），登记的 Redirect URI 为 `http://localhost:3000/api/auth/notion/callback/connect`。用户在 Notion 授权页选择共享给 re0 的页面，向导只列这些页面，之后的刷新也用同一份授权读取；令牌加密存于 `notion_connection` 表。管理后台的平台 Notion 知识库仍用 `NOTION_INGESTION_TOKEN`（internal integration）。
 

@@ -40,9 +40,9 @@ export function callbackUrl(provider: string): string {
 }
 
 /**
- * Where GitHub sends the browser after the repository-import consent. A
- * sub-path of the login callback, which is the one URL registered on the
- * OAuth app: GitHub accepts any redirect under the registered path.
+ * Where GitHub sends the browser after the repository-import consent. Must
+ * be registered on the GitHub App alongside the login callback: GitHub Apps
+ * match callback URLs exactly.
  */
 export function githubConnectCallbackUrl(): string {
   return `${callbackUrl('github')}/connect`;

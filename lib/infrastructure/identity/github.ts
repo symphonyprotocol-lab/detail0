@@ -9,7 +9,11 @@
  */
 import { AppError } from '@/contracts/errors';
 import { AuthFailure, type IdentityProfile } from '@/lib/domain/auth';
-import { GITHUB_CONNECT_SCOPE, type RepositoryFacts } from '@/lib/domain/github';
+import {
+  GITHUB_CONNECT_SCOPE,
+  type RepositoryFacts,
+  type RepositoryPermission,
+} from '@/lib/domain/github';
 
 const AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';
 const TOKEN_URL = 'https://github.com/login/oauth/access_token';
@@ -146,8 +150,7 @@ export async function exchange(input: {
 /**
  * The second consent: connecting the account for repository imports.
  *
- * Same OAuth app, its own redirect URI (a sub-path of the registered
- * callback, which GitHub permits) and the read-only scope from
+ * Same OAuth app, its own registered redirect URI and the read-only scope from
  * lib/domain/github.ts. The token this yields *is* kept, sealed, by the
  * application layer -- unlike the login token above.
  */
@@ -230,6 +233,18 @@ interface RepositoryRecord {
   fork: boolean;
   archived?: boolean;
   owner: { id: number };
+  /** Present when the request is authenticated; the caller's own rights. */
+  permissions?: { admin?: boolean; maintain?: boolean; push?: boolean; pull?: boolean };
+}
+
+function permissionFrom(record: RepositoryRecord): RepositoryPermission {
+  const p = record.permissions;
+  if (!p) return 'none';
+  if (p.admin) return 'admin';
+  if (p.maintain) return 'maintain';
+  if (p.push) return 'write';
+  if (p.pull) return 'read';
+  return 'none';
 }
 
 function repositoryFrom(record: RepositoryRecord): GithubRepository {
@@ -244,6 +259,7 @@ function repositoryFrom(record: RepositoryRecord): GithubRepository {
     private: record.private,
     fork: record.fork,
     archived: record.archived === true,
+    permission: permissionFrom(record),
   };
 }
 
@@ -287,17 +303,22 @@ const LIST_PAGES = 3;
 const PAGE_SIZE = 100;
 
 /**
- * The public repositories the token's account owns, newest push first.
+ * The public repositories the token's account owns or belongs to through an
+ * organisation, newest push first.
  *
- * `affiliation=owner` and `visibility=public` are GitHub's own filters; the
- * fork rule is ours and is applied by the caller through the domain, so the
- * list and the submit-time check cannot drift apart.
+ * `affiliation` and `visibility=public` are GitHub's own filters; the fork
+ * rule and the "admin or maintain in an organisation" rule are ours and are
+ * applied by the caller through the domain, so the list and the submit-time
+ * check cannot drift apart. An organisation that restricts third-party OAuth
+ * apps hides its repositories from this call until the app is approved
+ * there; that is GitHub's decision, surfaced to the person on the consent
+ * screen, not something a scope changes.
  */
 export async function listOwnedPublicRepositories(token: string): Promise<GithubRepository[]> {
   const all: GithubRepository[] = [];
   for (let page = 1; page <= LIST_PAGES; page += 1) {
     const records = await repositoryApi<RepositoryRecord[]>(
-      `/user/repos?visibility=public&affiliation=owner&sort=pushed&per_page=${PAGE_SIZE}&page=${page}`,
+      `/user/repos?visibility=public&affiliation=owner,organization_member&sort=pushed&per_page=${PAGE_SIZE}&page=${page}`,
       token,
     );
     if (!records || records.length === 0) break;

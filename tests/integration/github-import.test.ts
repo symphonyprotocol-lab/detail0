@@ -38,10 +38,11 @@ const ACCOUNT = '424242';
 const TOKEN = 'gho_test_token_value';
 
 const repositories: Repository[] = [
-  { id: 1, name: 'Docs', fullName: 'Octocat/Docs', description: 'the docs', defaultBranch: 'main', pushedAt: null, ownerId: 424242, private: false, fork: false, archived: false },
-  { id: 2, name: 'forked', fullName: 'octocat/forked', description: null, defaultBranch: 'main', pushedAt: null, ownerId: 424242, private: false, fork: true, archived: false },
-  { id: 3, name: 'secret', fullName: 'octocat/secret', description: null, defaultBranch: 'main', pushedAt: null, ownerId: 424242, private: true, fork: false, archived: false },
-  { id: 4, name: 'else', fullName: 'someone/else', description: null, defaultBranch: 'main', pushedAt: null, ownerId: 7, private: false, fork: false, archived: false },
+  { id: 1, name: 'Docs', fullName: 'Octocat/Docs', description: 'the docs', defaultBranch: 'main', pushedAt: null, ownerId: 424242, private: false, fork: false, archived: false, permission: 'admin' },
+  { id: 2, name: 'forked', fullName: 'octocat/forked', description: null, defaultBranch: 'main', pushedAt: null, ownerId: 424242, private: false, fork: true, archived: false, permission: 'admin' },
+  { id: 3, name: 'secret', fullName: 'octocat/secret', description: null, defaultBranch: 'main', pushedAt: null, ownerId: 424242, private: true, fork: false, archived: false, permission: 'admin' },
+  { id: 4, name: 'else', fullName: 'someone/else', description: null, defaultBranch: 'main', pushedAt: null, ownerId: 7, private: false, fork: false, archived: false, permission: 'write' },
+  { id: 5, name: 'handbook', fullName: 'acme/handbook', description: null, defaultBranch: 'main', pushedAt: null, ownerId: 9000, private: false, fork: false, archived: false, permission: 'maintain' },
 ];
 
 /** GitHub, as far as these tests need it: the token must be the one on file. */
@@ -53,7 +54,8 @@ function reader(options: { revoked?: boolean } = {}) {
   return {
     async listOwnedPublicRepositories(token: string) {
       guard(token);
-      return repositories.filter((repository) => repository.ownerId === 424242 && !repository.private);
+      /* GitHub's own filters: owned or member-of, public. */
+      return repositories.filter((repository) => !repository.private);
     },
     async readRepository(token: string, location: string) {
       guard(token);
@@ -112,7 +114,7 @@ async function workspaceOnPlan(libraryLimit: number): Promise<string> {
 }
 
 /** The consent round trip with a fake exchange: begin, then complete with the state the cookie carries. */
-async function connect(userId: string, grant = { accessToken: TOKEN, scope: 'read:user', githubUserId: ACCOUNT, login: 'octocat' }) {
+async function connect(userId: string, grant = { accessToken: TOKEN, scope: 'read:user read:org', githubUserId: ACCOUNT, login: 'octocat' }) {
   const started = await beginGithubConnect({
     returnTo: '/dashboard/libraries/new',
     redirectUri: 'http://localhost:3000/api/auth/github/callback/connect',
@@ -187,7 +189,7 @@ describeWithDb('github repository import', () => {
     expect((await githubConnectionFor(userId))?.login).toBe('octocat');
 
     /* Reconnecting replaces rather than adds. */
-    await connect(userId, { accessToken: TOKEN, scope: 'read:user', githubUserId: ACCOUNT, login: 'octocat-renamed' });
+    await connect(userId, { accessToken: TOKEN, scope: 'read:user read:org', githubUserId: ACCOUNT, login: 'octocat-renamed' });
     const rows = await db().select().from(schema.githubConnection).where(eq(schema.githubConnection.userId, userId));
     expect(rows).toHaveLength(1);
     expect(rows[0]?.login).toBe('octocat-renamed');
@@ -195,7 +197,7 @@ describeWithDb('github repository import', () => {
     /* The wizard's list: the fork is out, the private one GitHub already withheld. */
     const listed = await listImportableRepositories(userId, reader());
     expect(listed.connected).toBe(true);
-    if (listed.connected) expect(listed.repositories.map((r) => r.fullName)).toEqual(['Octocat/Docs']);
+    if (listed.connected) expect(listed.repositories.map((r) => r.fullName)).toEqual(['Octocat/Docs', 'acme/handbook']);
 
     const attempt = (location: string) =>
       createWorkspaceLibrary({
@@ -228,6 +230,16 @@ describeWithDb('github repository import', () => {
     const [source] = await db().select().from(schema.source).where(eq(schema.source.libraryId, created.libraryId));
     expect(source?.location).toBe('Octocat/Docs');
     expect(source?.config).toEqual({ repositoryId: 1 });
+  });
+
+  it('treats a grant taken with fewer scopes as not connected', async () => {
+    const userId = await account();
+    await connect(userId, { accessToken: TOKEN, scope: 'read:user', githubUserId: ACCOUNT, login: 'octocat' });
+    expect(await listImportableRepositories(userId, reader())).toEqual({ connected: false });
+    await expect(checkGithubImport({ userId, location: 'octocat/docs' }, reader())).rejects.toMatchObject({ refusal: 'not_connected' });
+    /* Consent again with the full scope, and the same row is what gets replaced. */
+    await connect(userId);
+    expect((await listImportableRepositories(userId, reader())).connected).toBe(true);
   });
 
   it('forgets a grant GitHub reports revoked', async () => {

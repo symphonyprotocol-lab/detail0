@@ -15,6 +15,7 @@ import { eq } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { AuthFailure, OAUTH_STATE_TTL_MS, safeReturnTo } from '@/lib/domain/auth';
 import {
+  grantScopeCovers,
   importableRepositories,
   importRefusal,
   isGithubConnectHandshake,
@@ -195,11 +196,14 @@ async function grantFor(userId: string): Promise<Grant | null> {
       tokenSealed: schema.githubConnection.tokenSealed,
       githubUserId: schema.githubConnection.githubUserId,
       login: schema.githubConnection.login,
+      scope: schema.githubConnection.scope,
     })
     .from(schema.githubConnection)
     .where(eq(schema.githubConnection.userId, userId))
     .limit(1);
   if (!row) return null;
+  /* An older grant with fewer scopes: keep the row, but ask again. */
+  if (!grantScopeCovers(row.scope)) return null;
   const token = await unseal<string>(row.tokenSealed);
   /* Unreadable means the signing secret rotated; the grant is as good as gone. */
   if (typeof token !== 'string') {
@@ -214,7 +218,8 @@ export type ImportableRepositories =
   | { connected: true; login: string; repositories: GithubRepository[] };
 
 /**
- * What the wizard offers: the account's own public, non-fork repositories.
+ * What the wizard offers: public, non-fork repositories the account owns or
+ * administers in an organisation.
  * A token GitHub no longer honours drops the connection, so the wizard asks
  * for a fresh one instead of showing a list that submit would then refuse.
  */
