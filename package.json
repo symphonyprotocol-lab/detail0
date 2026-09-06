@@ -27,7 +27,7 @@
     "@neondatabase/serverless": "^1.0.1",
     "@vercel/blob": "^2.8.0",
     "ai": "^7.0.87",
-    "drizzle-orm": "^0.44.5",
+    "drizzle-orm": "^0.45.2",
     "fumadocs-core": "^15.8.4",
     "fumadocs-mdx": "^12.0.2",
     "fumadocs-ui": "^15.8.4",
@@ -50,11 +50,16 @@
     "@types/react-dom": "^19.1.9",
     "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31.4",
-    "postcss": "^8.5.6",
+    "postcss": "^8.5.23",
     "tailwindcss": "^4.1.13",
     "tsx": "^4.23.12",
     "typescript": "^5.9.2",
     "vitest": "^4.1.11",
     "ws": "^8.21.3"
+  },
+  "overrides": {
+    "postcss": "$postcss",
+    "sharp": ">=0.35.0",
+    "esbuild": ">=0.25.0"
   }
 }
