@@ -11,6 +11,7 @@
  */
 import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import { uuidv7 } from '@/lib/domain/id';
+import { BUILD_ENTRYPOINT } from '@/lib/domain/build-billing';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { PLAN_VERSION_NEWEST_FIRST } from './configuration';
 
@@ -20,14 +21,20 @@ const REQUEST_PAGE_LIMIT = 50;
 
 export interface UsageBucket {
   date: string; // YYYY-MM-DD, UTC
+  /** Retrieval calls. */
   calls: number;
+  /** Build calls (library-build-billing.md 8), shown apart. */
+  buildCalls: number;
 }
 
 export interface UsageOverview {
   buckets: UsageBucket[];
   periodStart: string;
   periodEnd: string;
+  /** Everything debited from the allowance this period: retrieval and build. */
   callsThisPeriod: number;
+  retrievalCallsThisPeriod: number;
+  buildCallsThisPeriod: number;
   returnedTokensThisPeriod: number;
   planAllowance: number;
   addonBalanceRemaining: number;
@@ -50,7 +57,8 @@ export async function rebuildUsageSummary(workspaceId: string): Promise<void> {
     const counted = await tx
       .select({
         day: sql<string>`to_char(date_trunc('day', ${schema.usageEvent.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
-        calls: sql<number>`count(*)::int`,
+        calls: sql<number>`coalesce(sum(${schema.usageEvent.calls}) filter (where ${schema.usageEvent.entrypoint} <> ${BUILD_ENTRYPOINT}), 0)::int`,
+        buildCalls: sql<number>`coalesce(sum(${schema.usageEvent.calls}) filter (where ${schema.usageEvent.entrypoint} = ${BUILD_ENTRYPOINT}), 0)::int`,
       })
       .from(schema.usageEvent)
       .where(
@@ -79,6 +87,7 @@ export async function rebuildUsageSummary(workspaceId: string): Promise<void> {
             periodStart: windowStart,
             bucketDate: new Date(`${bucket.day}T00:00:00Z`),
             calls: bucket.calls,
+            buildCalls: bucket.buildCalls,
           })),
         )
         .onConflictDoUpdate({
@@ -86,6 +95,7 @@ export async function rebuildUsageSummary(workspaceId: string): Promise<void> {
           set: {
             periodStart: sql`excluded.period_start`,
             calls: sql`excluded.calls`,
+            buildCalls: sql`excluded.build_calls`,
           },
         });
     }
@@ -98,7 +108,11 @@ export async function usageOverview(workspaceId: string): Promise<UsageOverview>
   const database = db();
 
   const buckets = await database
-    .select({ bucketDate: schema.usageSummary.bucketDate, calls: schema.usageSummary.calls })
+    .select({
+      bucketDate: schema.usageSummary.bucketDate,
+      calls: schema.usageSummary.calls,
+      buildCalls: schema.usageSummary.buildCalls,
+    })
     .from(schema.usageSummary)
     .where(eq(schema.usageSummary.workspaceId, workspaceId))
     .orderBy(schema.usageSummary.bucketDate);
@@ -106,7 +120,8 @@ export async function usageOverview(workspaceId: string): Promise<UsageOverview>
   const { allowance, periodStart, periodEnd } = await currentWindow(workspaceId);
   const [inPeriod] = await database
     .select({
-      n: sql<number>`count(*)::int`,
+      retrieval: sql<number>`coalesce(sum(${schema.usageEvent.calls}) filter (where ${schema.usageEvent.entrypoint} <> ${BUILD_ENTRYPOINT}), 0)::int`,
+      build: sql<number>`coalesce(sum(${schema.usageEvent.calls}) filter (where ${schema.usageEvent.entrypoint} = ${BUILD_ENTRYPOINT}), 0)::int`,
       tokens: sql<number>`coalesce(sum(${schema.usageEvent.returnedTokens}), 0)::bigint`,
     })
     .from(schema.usageEvent)
@@ -128,10 +143,13 @@ export async function usageOverview(workspaceId: string): Promise<UsageOverview>
     buckets: buckets.map((bucket) => ({
       date: bucket.bucketDate.toISOString().slice(0, 10),
       calls: bucket.calls,
+      buildCalls: bucket.buildCalls,
     })),
     periodStart: periodStart.toISOString(),
     periodEnd: periodEnd.toISOString(),
-    callsThisPeriod: inPeriod?.n ?? 0,
+    callsThisPeriod: (inPeriod?.retrieval ?? 0) + (inPeriod?.build ?? 0),
+    retrievalCallsThisPeriod: inPeriod?.retrieval ?? 0,
+    buildCallsThisPeriod: inPeriod?.build ?? 0,
     returnedTokensThisPeriod: Number(inPeriod?.tokens ?? 0),
     planAllowance: allowance,
     addonBalanceRemaining: addon?.remaining ?? 0,

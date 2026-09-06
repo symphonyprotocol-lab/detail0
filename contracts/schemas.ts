@@ -162,6 +162,8 @@ export const queryDocsOutputSchema = z.object({
 export const usageBucketSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   calls: z.number().int().nonnegative(),
+  /** library-build-billing.md 8: build calls, apart from retrieval. */
+  buildCalls: z.number().int().nonnegative(),
 });
 
 export const usageOverviewSchema = z.object({
@@ -169,6 +171,8 @@ export const usageOverviewSchema = z.object({
   periodStart: z.string().datetime(),
   periodEnd: z.string().datetime(),
   callsThisPeriod: z.number().int().nonnegative(),
+  retrievalCallsThisPeriod: z.number().int().nonnegative(),
+  buildCallsThisPeriod: z.number().int().nonnegative(),
   returnedTokensThisPeriod: z.number().int().nonnegative(),
   planAllowance: z.number().int().nonnegative(),
   addonBalanceRemaining: z.number().int().nonnegative(),

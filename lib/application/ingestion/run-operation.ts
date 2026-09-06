@@ -12,13 +12,21 @@
  * that follows an operator pressing the button, at minimum -- and a claim that
  * two of them can win is a library built twice.
  */
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import {
   IngestionFailure,
   isIngestionError,
   type IngestionErrorCode,
 } from '@/lib/domain/ingestion';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import {
+  openBuildCharge,
+  releaseBuildCharge,
+  settleBuildCharge,
+  type BuildCharge,
+  type SettledBuildCharge,
+} from '@/lib/application/plans/build-quota';
+import { BUILD_RESERVATION_TTL_MS } from '@/lib/application/plans/quota';
 import { advanceLifecycleAfterBuild } from './advance-lifecycle';
 import { buildVersion } from './build-version';
 import { publishVersion } from './publish-version';
@@ -71,6 +79,7 @@ export async function runOperation(input: {
       libraryId: schema.workflowOperation.libraryId,
       operationType: schema.workflowOperation.operationType,
       attempts: schema.workflowOperation.attempts,
+      trigger: schema.workflowOperation.trigger,
     });
 
   const operation = claimed[0];
@@ -105,14 +114,35 @@ export async function runOperation(input: {
       ),
     );
 
+  /*
+   * The build's seat in the call ledger. library-build-billing.md 4: held at
+   * the quoted cap before the fetch, resized to the measured price before
+   * embedding, committed inside the publication transaction, released on
+   * every other exit. `charge` is null for a build that is nobody's bill.
+   */
+  let charge: BuildCharge | null = null;
+  const billing: { settled: SettledBuildCharge | null } = { settled: null };
   try {
+    charge = await openBuildCharge({
+      operationId: operation.id,
+      libraryId: operation.libraryId,
+      trigger: operation.trigger,
+    });
+    const openCharge = charge;
+
     const built = await buildVersion({
       libraryId: operation.libraryId,
       operationId: operation.id,
       dependencies: input.dependencies,
+      beforeIndex: openCharge
+        ? async (facts) => {
+            billing.settled = await settleBuildCharge(openCharge, facts);
+          }
+        : undefined,
     });
 
     if (!built.changed) {
+      await releaseBuildCharge(charge);
       await finish(operation.id, 'skipped', null);
       return { status: 'skipped', reason: 'unchanged' };
     }
@@ -125,7 +155,18 @@ export async function runOperation(input: {
      * on `lifecycle_status`, which only an operator makes (requirement.md 5.3),
      * and requirement.md 6.2 forbids collapsing the two into one field.
      */
-    await publishVersion({ libraryId: operation.libraryId, versionId: built.versionId });
+    await publishVersion({
+      libraryId: operation.libraryId,
+      versionId: built.versionId,
+      charge:
+        charge && billing.settled
+          ? {
+              charge,
+              settled: billing.settled,
+              operation: operation.operationType === 'ingest' ? 'index' : 'refresh',
+            }
+          : null,
+    });
 
     /* A user library, by contrast, does move: private goes live, public
        joins the review queue (`lifecycleAfterBuild`). Platform rows are
@@ -141,6 +182,7 @@ export async function runOperation(input: {
     };
   } catch (error) {
     const code = errorCode(error);
+    await releaseBuildCharge(charge);
 
     /*
      * A failed refresh keeps the current version. requirement.md 8.2 is
@@ -263,6 +305,41 @@ async function finish(
 }
 
 /**
+ * An operation that has been `running` longer than any build can take belongs
+ * to a worker that died before `finish` -- a function timeout, an eviction.
+ * Nothing else would ever close it: the drain claims `pending` rows only, and
+ * a rebuild request sees the open row and queues behind it for ever. It is
+ * failed here, and the seat it held in the call ledger (library-build-billing.md
+ * 4.2) goes back, on the same clock `sweepAbandonedSeats` uses for build seats.
+ */
+async function reapStaleRunning(): Promise<void> {
+  const database = db();
+  const stale = await database
+    .update(schema.workflowOperation)
+    .set({ status: 'failed', error: 'internal_error', updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.workflowOperation.status, 'running'),
+        lt(schema.workflowOperation.updatedAt, new Date(Date.now() - BUILD_RESERVATION_TTL_MS)),
+      ),
+    )
+    .returning({ id: schema.workflowOperation.id, reservationId: schema.workflowOperation.reservationId });
+  const seats = stale.map((row) => row.reservationId).filter((id): id is string => id !== null);
+  if (seats.length > 0) {
+    await database
+      .update(schema.usageReservation)
+      .set({ status: 'released' })
+      .where(
+        and(
+          inArray(schema.usageReservation.id, seats),
+          eq(schema.usageReservation.status, 'pending'),
+        ),
+      );
+  }
+  for (const row of stale) console.error(`ingestion ${row.id} reaped: worker never finished`);
+}
+
+/**
  * Drains the queue, oldest first.
  *
  * Serial rather than concurrent. A build holds an embedding provider's rate
@@ -275,6 +352,8 @@ export async function drainOperations(input: {
   dependencies?: IngestionDependencies;
 } = {}): Promise<OperationOutcome[]> {
   const limit = Math.max(1, Math.min(50, input.limit ?? 10));
+
+  await reapStaleRunning();
 
   const pending = await db()
     .select({ id: schema.workflowOperation.id })

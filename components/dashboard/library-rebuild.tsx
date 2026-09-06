@@ -48,7 +48,7 @@ export function RebuildLibraryButton({
             state.ok ? 'text-brandink' : 'text-rose'
           }`}
         >
-          {state.ok ? a.rebuildQueued : a.rebuildFailed}
+          {state.ok ? a.rebuildQueued : state.error === 'quota' ? a.rebuildQuota : a.rebuildFailed}
         </span>
       ) : null}
     </form>

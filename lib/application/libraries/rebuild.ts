@@ -9,6 +9,8 @@
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { uuidv7 } from '@/lib/domain/id';
+import { requiresDomainVerification } from '@/lib/domain/domain-verification';
+import { assertBuildAffordable } from '@/lib/application/plans/build-quota';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { canManageLibraries, type WorkspaceRole } from './delete';
 
@@ -29,6 +31,19 @@ export async function requestLibraryRebuild(input: {
     throw new AppError('access_denied', 'only a workspace owner or admin can rebuild a library');
   }
   if (!UUID.test(input.libraryId)) throw new AppError('library_not_found', 'no such library');
+
+  /* library-build-billing.md 4.1: refused before it is queued when the
+     balance cannot cover the base fee. The source type decides whether the
+     crawl limit joins the quote. */
+  const [source] = await db()
+    .select({ type: schema.source.type })
+    .from(schema.source)
+    .where(eq(schema.source.libraryId, input.libraryId))
+    .limit(1);
+  await assertBuildAffordable({
+    workspaceId: input.workspaceId,
+    fetchesPages: source ? requiresDomainVerification(source.type) : false,
+  });
 
   return db().transaction(async (tx) => {
     const [locked] = await tx

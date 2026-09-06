@@ -14,6 +14,8 @@ import {
 import { Badge, IconTile, PANEL } from '@/components/dashboard/ui';
 import { LockIcon, ShieldCheckIcon } from '@/components/ui/icons';
 import { listImportablePages, listImportableRepositories } from '@/lib/application/auth';
+import { quoteBuild } from '@/lib/application/plans';
+import { fill } from '@/lib/i18n/format';
 import { isGithubConnectOutcome } from '@/lib/domain/github';
 import { isNotionConnectOutcome } from '@/lib/domain/notion';
 import { isNotionOAuthConfigured } from '@/lib/infrastructure/identity/notion';
@@ -88,10 +90,15 @@ export default async function DashboardAddLibraryPage({
   const t = await getMessages();
   const n = t.dashboard.newLibrary;
   const reviewSteps = dashboardCopy(t).reviewSteps;
-  const [github, notion] = await Promise.all([
+  const [github, notion, quote] = await Promise.all([
     githubImportState(session.user.id),
     notionImportState(session.user.id),
+    /* library-build-billing.md 4.1: the worst case, over the page-fetching
+       sources, shown before anything is queued. */
+    quoteBuild({ workspaceId: session.workspace.id, fetchesPages: true }),
   ]);
+  const number = new Intl.NumberFormat();
+  const cost = n.buildCost;
   const params = await searchParams;
   const outcome = params.github;
   const notionOutcome = params.notion;
@@ -127,6 +134,32 @@ export default async function DashboardAddLibraryPage({
         startVerification={startDomainVerificationAction}
         checkVerification={checkDomainVerificationAction}
       />
+
+      {/* Build cost -- library-build-billing.md 8. */}
+      <aside className={`${PANEL} flex flex-col gap-3 p-6`}>
+        <div className="flex flex-col gap-[3px]">
+          <p className="text-[15px] leading-[1.4] tracking-[-0.025em] text-ink">{cost.title}</p>
+          <p className="text-[11px] leading-[1.5] tracking-[-0.023em] text-muted">{cost.description}</p>
+        </div>
+        <ul className="flex flex-col gap-1.5 text-[12px] tracking-[-0.023em] text-ink">
+          <li>
+            {fill(cost.formula, {
+              base: number.format(quote.rates.baseCalls),
+              tokens: number.format(quote.rates.tokensPerCall),
+              pages: number.format(quote.rates.pagesPerCall),
+            })}
+          </li>
+          <li>{fill(cost.max, { calls: number.format(quote.maxCalls) })}</li>
+          <li className={quote.affordable ? 'text-muted' : 'text-rose'}>
+            {fill(cost.remaining, {
+              plan: number.format(quote.planAllowanceRemaining),
+              addon: number.format(quote.addonBalanceRemaining),
+            })}
+            {quote.affordable ? null : ` ${cost.insufficient}`}
+          </li>
+          {quote.mode === 'shadow' ? <li className="text-muted">{cost.shadow}</li> : null}
+        </ul>
+      </aside>
 
       {/* Review pipeline -- design source frame `ISF8H`. */}
       <aside className={`${PANEL} flex flex-col gap-4 p-6`}>

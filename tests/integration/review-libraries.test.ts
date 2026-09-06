@@ -136,6 +136,8 @@ describeWithDb('user library review', () => {
     const database = db();
     if (libraries.length > 0) {
       await database.delete(schema.workflowOperation).where(inArray(schema.workflowOperation.libraryId, libraries));
+      /* A user library's build writes a usage event that points at its version. */
+      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.libraryId, libraries));
       await database.delete(schema.libraryReview).where(inArray(schema.libraryReview.libraryId, libraries));
       await database.update(schema.library).set({ currentVersionId: null }).where(inArray(schema.library.id, libraries));
       await database.delete(schema.libraryProfileVector).where(inArray(schema.libraryProfileVector.libraryId, libraries));

@@ -38,6 +38,10 @@ export interface PlanVersionRow {
   librarySizeBytesLimit: number;
   apiKeyLimit: number;
   shareRateBps: number;
+  /** library-build-billing.md 3.3. */
+  buildBaseCalls: number;
+  buildTokensPerCall: number;
+  buildPagesPerCall: number;
   capabilities: PlanCapabilities;
   createdAt: Date;
   /** Subscriptions still billing against this row -- what superseding leaves behind. */
@@ -111,6 +115,9 @@ function toRow(row: RawVersion, subscriptions: number): PlanVersionRow {
     librarySizeBytesLimit: row.librarySizeBytesLimit,
     apiKeyLimit: row.apiKeyLimit,
     shareRateBps: row.shareRateBps,
+    buildBaseCalls: row.buildBaseCalls,
+    buildTokensPerCall: row.buildTokensPerCall,
+    buildPagesPerCall: row.buildPagesPerCall,
     capabilities: readCapabilities(planId, row.capabilities),
     createdAt: row.createdAt,
     subscriptions,
@@ -267,6 +274,9 @@ export async function createPlanVersion(
       librarySizeBytesLimit: draft.librarySizeBytesLimit,
       apiKeyLimit: draft.apiKeyLimit,
       shareRateBps: draft.shareRateBps,
+      buildBaseCalls: draft.buildBaseCalls,
+      buildTokensPerCall: draft.buildTokensPerCall,
+      buildPagesPerCall: draft.buildPagesPerCall,
       capabilities: { ...draft.capabilities },
     });
   });
@@ -301,6 +311,9 @@ function auditShape(version: {
   librarySizeBytesLimit: number;
   apiKeyLimit: number;
   shareRateBps: number;
+  buildBaseCalls: number;
+  buildTokensPerCall: number;
+  buildPagesPerCall: number;
   capabilities: PlanCapabilities;
 }): Record<string, unknown> {
   return {
@@ -313,6 +326,9 @@ function auditShape(version: {
     librarySizeBytesLimit: version.librarySizeBytesLimit,
     apiKeyLimit: version.apiKeyLimit,
     shareRateBps: version.shareRateBps,
+    buildBaseCalls: version.buildBaseCalls,
+    buildTokensPerCall: version.buildTokensPerCall,
+    buildPagesPerCall: version.buildPagesPerCall,
     capabilities: version.capabilities,
   };
 }

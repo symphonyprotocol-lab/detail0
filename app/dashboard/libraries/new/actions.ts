@@ -31,7 +31,15 @@ export interface CreateLibraryResult {
   publicId?: string;
   /** Where the files page of a PDF library created without files is. */
   libraryId?: string;
-  error?: 'invalid' | 'taken' | 'limit' | 'unavailable' | 'github' | 'notion' | 'unverified';
+  error?:
+    | 'invalid'
+    | 'taken'
+    | 'limit'
+    | 'quota'
+    | 'unavailable'
+    | 'github'
+    | 'notion'
+    | 'unverified';
   /** With `error: 'github'`: which import rule the repository failed. */
   refusal?: GithubImportRefusalCode;
   /** With `error: 'notion'`: why the page could not be imported. */
@@ -103,6 +111,9 @@ export async function createWorkspaceLibraryAction(
     }
     if (error instanceof AppError && error.code === 'library_limit_exceeded') {
       return { ok: false, error: 'limit' };
+    }
+    if (error instanceof AppError && error.code === 'quota_exceeded') {
+      return { ok: false, error: 'quota' };
     }
     if (error instanceof AppError && error.code === 'invalid_request') {
       return { ok: false, error: error.message.includes('taken') ? 'taken' : 'invalid' };

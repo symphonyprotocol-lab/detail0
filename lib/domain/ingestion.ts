@@ -57,8 +57,13 @@ export type OperationState = (typeof OPERATION_STATES)[number];
  * drain acting on a source's refresh policy. Kept on the row so the queue can
  * say which, and so an audit reader is not left looking for an administrator
  * behind a refresh nobody requested.
+ *
+ * `platform` is the platform's own decision -- a rebuild forced by a parser,
+ * chunker or model upgrade, or the first refresh of a library that predates
+ * per-source digests. library-build-billing.md 5.4: such a build is never the
+ * owner's bill, whatever it measures.
  */
-export const OPERATION_TRIGGERS = ['manual', 'scheduled'] as const;
+export const OPERATION_TRIGGERS = ['manual', 'scheduled', 'platform'] as const;
 
 export type OperationTrigger = (typeof OPERATION_TRIGGERS)[number];
 
@@ -156,6 +161,12 @@ export const INGESTION_ERRORS = [
   'index_incomplete',
   'storage_unavailable',
   'publish_failed',
+  /**
+   * library-build-billing.md 4.3: chunking measured a price the workspace's
+   * allowance and pack balance cannot cover, so the build stopped before
+   * embedding. Not retried -- the balance does not change on its own.
+   */
+  'quota_exceeded',
   'internal_error',
 ] as const;
 

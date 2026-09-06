@@ -29,6 +29,9 @@ export interface PlanVersionTarget {
     librarySizeMb: string;
     apiKeyLimit: string;
     shareRate: string;
+    buildBaseCalls: string;
+    buildTokensPerCall: string;
+    buildPagesPerCall: string;
     publicReviewRequired: boolean;
   };
 }
@@ -268,6 +271,33 @@ function PlanVersionDialog({
                     required
                     inputMode="decimal"
                     defaultValue={target.defaults.shareRate}
+                    className={FIELD}
+                  />
+                </Field>
+                <Field label={p.fieldBuildBaseCalls} hint={p.hintBuildBaseCalls}>
+                  <input
+                    name="buildBaseCalls"
+                    required
+                    inputMode="numeric"
+                    defaultValue={target.defaults.buildBaseCalls}
+                    className={FIELD}
+                  />
+                </Field>
+                <Field label={p.fieldBuildTokensPerCall} hint={p.hintBuildTokensPerCall}>
+                  <input
+                    name="buildTokensPerCall"
+                    required
+                    inputMode="numeric"
+                    defaultValue={target.defaults.buildTokensPerCall}
+                    className={FIELD}
+                  />
+                </Field>
+                <Field label={p.fieldBuildPagesPerCall} hint={p.hintBuildPagesPerCall}>
+                  <input
+                    name="buildPagesPerCall"
+                    required
+                    inputMode="numeric"
+                    defaultValue={target.defaults.buildPagesPerCall}
                     className={FIELD}
                   />
                 </Field>

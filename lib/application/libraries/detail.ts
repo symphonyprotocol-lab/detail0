@@ -12,6 +12,7 @@ import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { isQueryable, type IndexStatus, type LifecycleStatus, type Visibility } from '@/lib/domain';
 import { ref } from '@/lib/application/administration/column-ref';
 import { uploadedFilesOf } from '@/lib/domain/library';
+import { BUILD_ENTRYPOINT } from '@/lib/domain/build-billing';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
 const HISTORY_LIMIT = 10;
@@ -44,6 +45,8 @@ export interface WorkspaceLibraryDetail {
     publishedAt: string | null;
     createdAt: string;
     isCurrent: boolean;
+    /** Calls the build was billed (library-build-billing.md 8); null when it was nobody's bill. */
+    buildCalls: number | null;
   }[];
   operations: {
     id: string;
@@ -116,6 +119,12 @@ export async function workspaceLibraryDetail(input: {
         publishedAt: schema.libraryVersion.publishedAt,
         createdAt: schema.libraryVersion.createdAt,
         documents,
+        buildCalls: sql<number | null>`(
+          select ${schema.usageEvent.calls} from ${schema.usageEvent}
+          where ${ref(schema.usageEvent.versionId)} = ${ref(schema.libraryVersion.id)}
+            and ${ref(schema.usageEvent.entrypoint)} = ${BUILD_ENTRYPOINT}
+          limit 1
+        )`,
       })
       .from(schema.libraryVersion)
       .where(eq(schema.libraryVersion.libraryId, record.id))
@@ -196,6 +205,7 @@ export async function workspaceLibraryDetail(input: {
       publishedAt: iso(version.publishedAt),
       createdAt: version.createdAt.toISOString(),
       isCurrent: version.id === record.currentVersionId,
+      buildCalls: version.buildCalls === null ? null : Number(version.buildCalls),
     })),
     operations: operations.map((operation) => ({
       ...operation,

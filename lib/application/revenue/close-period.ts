@@ -20,10 +20,11 @@
  *
  * Stage 1 of the share doc: accounting only. No payout rows are written here.
  */
-import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, ne, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { allocatablePoolMinor, settlementAmountMinor } from '@/lib/domain';
 import { PLAN_CURRENCY } from '@/lib/domain/plans';
+import { BUILD_ENTRYPOINT } from '@/lib/domain/build-billing';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
 export interface PeriodAllocation {
@@ -138,10 +139,23 @@ export async function closePeriod(periodId: string): Promise<ClosedPeriod> {
       );
     const netRevenueMinor = Number(revenue?.net ?? 0);
 
+    /*
+     * Retrieval only. library-build-billing.md 5.5: a build's usage event is
+     * a billed call, but it consumed no library's content and can earn
+     * nobody anything, so it stays out of both the attributable count and
+     * this denominator -- inside it, a workspace that builds a lot would
+     * dilute every publisher's share.
+     */
     const [billed] = await tx
       .select({ n: sql<number>`count(*)::int` })
       .from(schema.usageEvent)
-      .where(and(gte(schema.usageEvent.createdAt, start), lt(schema.usageEvent.createdAt, end)));
+      .where(
+        and(
+          gte(schema.usageEvent.createdAt, start),
+          lt(schema.usageEvent.createdAt, end),
+          ne(schema.usageEvent.entrypoint, BUILD_ENTRYPOINT),
+        ),
+      );
     const totalBilledCalls = billed?.n ?? 0;
 
     /*

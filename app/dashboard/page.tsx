@@ -71,6 +71,11 @@ export default async function DashboardOverviewPage() {
       value: number.format(overview.addonBalanceRemaining),
       caption: o.stats.addonCaption,
     },
+    {
+      label: o.stats.buildCalls,
+      value: number.format(overview.buildCallsThisPeriod),
+      caption: o.stats.buildCallsCaption,
+    },
   ];
 
   const byDate = new Map(overview.buckets.map((bucket) => [bucket.date, bucket.calls]));

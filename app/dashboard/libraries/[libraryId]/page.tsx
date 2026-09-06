@@ -24,6 +24,9 @@ import {
 } from '@/lib/application/libraries';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
+import { quoteBuild } from '@/lib/application/plans';
+import { requiresDomainVerification } from '@/lib/domain/domain-verification';
+import { isConnectedSourceType } from '@/lib/domain/library';
 import { getMessages, translations } from '@/lib/i18n/server';
 import { rebuildLibraryAction } from './actions';
 
@@ -58,6 +61,14 @@ export default async function DashboardLibraryPage({
   ]);
   const library = await workspaceLibraryDetail({ workspaceId: session.workspace.id, libraryId });
   if (!library) notFound();
+  /* library-build-billing.md 4.1: what a rebuild may cost, beside the button. */
+  const quote = await quoteBuild({
+    workspaceId: session.workspace.id,
+    fetchesPages:
+      library.source !== null &&
+      isConnectedSourceType(library.source.type) &&
+      requiresDomainVerification(library.source.type),
+  });
   const currentVersionId = library.versions.find((version) => version.isCurrent)?.id ?? null;
   const docsPage = documentsPage(query.docs);
   const docsSize = documentsPageSize(query.size);
@@ -147,11 +158,16 @@ export default async function DashboardLibraryPage({
             </Link>
           ) : null}
           {canEdit ? (
-            <RebuildLibraryButton
-              libraryId={library.id}
-              action={rebuildLibraryAction}
-              disabled={library.lifecycleStatus === 'archived'}
-            />
+            <div className="flex flex-col items-end gap-1.5">
+              <RebuildLibraryButton
+                libraryId={library.id}
+                action={rebuildLibraryAction}
+                disabled={library.lifecycleStatus === 'archived' || !quote.affordable}
+              />
+              <span className="max-w-[260px] text-right text-[11px] leading-[1.5] tracking-[-0.023em] text-muted">
+                {fill(d.actions.rebuildNote, { calls: number.format(quote.maxCalls) })}
+              </span>
+            </div>
           ) : null}
         </div>
       </header>
@@ -334,6 +350,9 @@ export default async function DashboardLibraryPage({
             </span>,
             label(d.indexStatus, version.indexStatus),
             `${number.format(version.documents)} / ${number.format(version.chunks)}`,
+            version.buildCalls === null
+              ? d.versions.costFree
+              : fill(d.versions.cost, { calls: number.format(version.buildCalls) }),
             when(version.publishedAt),
           ])}
         />

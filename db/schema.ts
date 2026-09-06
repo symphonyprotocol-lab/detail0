@@ -308,6 +308,14 @@ export const planVersion = pgTable(
     apiKeyLimit: integer('api_key_limit').notNull(),
     /** Publisher share rate, frozen per version. requirement.md 4.4 */
     shareRateBps: integer('share_rate_bps').notNull().default(2000),
+    /**
+     * What a library build costs, frozen per version like every price here.
+     * library-build-billing.md 3.3; `lib/domain/build-billing.ts` `BuildRates`.
+     * The pack stores the 0 sentinel in all three, never a rate.
+     */
+    buildBaseCalls: integer('build_base_calls').notNull().default(1),
+    buildTokensPerCall: integer('build_tokens_per_call').notNull().default(20_000),
+    buildPagesPerCall: integer('build_pages_per_call').notNull().default(5),
     capabilities: jsonb('capabilities').$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1014,6 +1022,14 @@ export const usageReservation = pgTable(
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
     requestId: text('request_id').notNull(),
     status: reservationStatusEnum('status').notNull(),
+    /** Seats held: 1 for a retrieval, the quoted cap for a build. */
+    calls: integer('calls').notNull().default(1),
+    /**
+     * 'retrieval' or 'build'. The abandoned-seat sweep in `reserveCall` only
+     * releases retrieval seats: a build's seat outlives the sweep's TTL and
+     * is released by the operation that holds it.
+     */
+    kind: text('kind').notNull().default('retrieval'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -1040,6 +1056,14 @@ export const usageEvent = pgTable(
     latencyMs: integer('latency_ms'),
     inputTokens: integer('input_tokens'),
     returnedTokens: integer('returned_tokens'),
+    /**
+     * The event's weight against the allowance: 1 for every retrieval, the
+     * priced figure for a build (`entrypoint = 'build'`). Every count of
+     * consumption sums this rather than counting rows.
+     */
+    calls: integer('calls').notNull().default(1),
+    /** A build's measurements and the rates it was priced at. `BuildDetail`. */
+    buildDetail: jsonb('build_detail').$type<Record<string, unknown>>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -1047,6 +1071,10 @@ export const usageEvent = pgTable(
     index('usage_event_workspace_time_idx').on(t.workspaceId, t.createdAt),
     /** Retrieval calls per library, for the console's per-library figures. */
     index('usage_event_library_time_idx').on(t.libraryId, t.createdAt),
+    /** "What did this version's build cost", read by the library page. */
+    index('usage_event_version_idx')
+      .on(t.versionId)
+      .where(sql`${t.entrypoint} = 'build'`),
   ],
 );
 
@@ -1057,7 +1085,10 @@ export const usageSummary = pgTable(
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
     periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
     bucketDate: timestamp('bucket_date', { withTimezone: true }).notNull(),
+    /** Retrieval calls in the bucket. */
     calls: integer('calls').notNull().default(0),
+    /** Build calls in the bucket, kept apart so the dashboard can say which is which. */
+    buildCalls: integer('build_calls').notNull().default(0),
   },
   (t) => [uniqueIndex('usage_summary_uq').on(t.workspaceId, t.bucketDate)],
 );
@@ -1215,6 +1246,16 @@ export const workflowOperation = pgTable(
       rendered: number;
       renderer: 'firecrawl' | 'jina' | null;
     }>(),
+    /**
+     * The build's seat in the call ledger. library-build-billing.md 4:
+     * `quoted_calls` is the cap reserved before fetching, `charged_calls` the
+     * priced figure once chunking measured the build; the reservation is
+     * committed with the version's publication and released on every other
+     * outcome. All null for a build that was never billable.
+     */
+    reservationId: uuid('reservation_id').references(() => usageReservation.id),
+    quotedCalls: integer('quoted_calls'),
+    chargedCalls: integer('charged_calls'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

@@ -27,8 +27,8 @@ describe('refreshDueAt', () => {
 });
 
 describe('operation trigger', () => {
-  it('names the two ways an operation is asked for, with a label in each language', () => {
-    expect(OPERATION_TRIGGERS).toEqual(['manual', 'scheduled']);
+  it('names the three ways an operation is asked for, with a label in each language', () => {
+    expect(OPERATION_TRIGGERS).toEqual(['manual', 'scheduled', 'platform']);
     for (const trigger of OPERATION_TRIGGERS) {
       expect(isOperationTrigger(trigger)).toBe(true);
       expect(en.admin.refreshQueue.triggers[trigger]).toBeTruthy();

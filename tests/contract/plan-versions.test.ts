@@ -137,6 +137,9 @@ describe('a proposed version', () => {
       librarySizeBytesLimit: 100 * BYTES_PER_MB,
       apiKeyLimit: 20,
       shareRateBps: 2000,
+      buildBaseCalls: 1,
+      buildTokensPerCall: 20_000,
+      buildPagesPerCall: 5,
       capabilities: { publicReviewRequired: true, addonPurchase: true },
     });
   });
@@ -192,6 +195,9 @@ describe('the Additional Calls pack', () => {
       librarySizeBytesLimit: PACK_INHERITS_PRO,
       apiKeyLimit: PACK_INHERITS_PRO,
       shareRateBps: PACK_INHERITS_PRO,
+      buildBaseCalls: PACK_INHERITS_PRO,
+      buildTokensPerCall: PACK_INHERITS_PRO,
+      buildPagesPerCall: PACK_INHERITS_PRO,
       capabilities: { publicReviewRequired: true, addonPurchase: false },
     });
   });
@@ -250,6 +256,9 @@ describe('isSamePlanVersion', () => {
     librarySizeBytesLimit: 100 * BYTES_PER_MB,
     apiKeyLimit: 20,
     shareRateBps: 2000,
+    buildBaseCalls: 1,
+    buildTokensPerCall: 20_000,
+    buildPagesPerCall: 5,
     capabilities: { publicReviewRequired: true, addonPurchase: true },
   };
 

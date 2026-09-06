@@ -79,7 +79,8 @@ pool = attributable_revenue × share_rate
 
 - `share_rate` 来自不可变 `Plan Version`，初始建议 **20%**，评审时定档；
 - 净收入指扣除支付渠道手续费与退款后的金额，不扣除平台自身的检索成本；
-- 分母用「全部计费 Call」而非「全部 Call」，保证平台库和私有库消耗的收入不进入分配池。
+- 分母用「全部计费 Call」而非「全部 Call」，保证平台库和私有库消耗的收入不进入分配池；
+- 知识库构建产生的 Usage Event（`entrypoint = build`，见 [library-build-billing.md](./library-build-billing.md) 5.5）不进入分子也不进入分母：它没有消费任何库的内容，计入分母只会稀释所有发布者的分成。
 
 ### 3.3 分配
 

@@ -552,6 +552,8 @@ export function ImportWizard({
                   ? w.errorNotion[state.notionRefusal ?? 'not_found']
                   : state.error === 'limit'
                   ? w.errorLimit
+                  : state.error === 'quota'
+                  ? w.errorQuota
                   : state.error === 'taken'
                     ? w.errorTaken
                     : state.error === 'invalid'

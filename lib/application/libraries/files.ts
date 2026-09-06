@@ -28,6 +28,7 @@ import {
 import type { IndexStatus, LifecycleStatus } from '@/lib/domain';
 import type { ObjectStore } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { assertBuildAffordable } from '@/lib/application/plans/build-quota';
 import { confirmUploads } from './create';
 import { canManageLibraries, type WorkspaceRole } from './delete';
 
@@ -130,6 +131,12 @@ export async function updateLibraryFiles(
   /* Confirmed before the transaction: a store round-trip per file is not
      something to hold a row lock across. */
   await confirmUploads(manifest.files, input.store);
+  /* library-build-billing.md 4.1: a file change that will queue a build is
+     refused up front when the balance cannot cover the base fee, as the
+     wizard and the rebuild button refuse. Uploads fetch no pages. */
+  if (manifest.files.length > 0 || remove.length > 0) {
+    await assertBuildAffordable({ workspaceId: input.workspaceId, fetchesPages: false });
+  }
 
   const database = db();
   return database.transaction(async (tx) => {

@@ -64,16 +64,32 @@ import { objectKeys } from '@/lib/infrastructure/objects/store';
 import { platformTermWeight } from './term-weights';
 import type { FetchedFile, SourceSnapshot } from '@/lib/infrastructure/connectors';
 import { defaultDependencies, type IngestionDependencies } from './dependencies';
+import type { BuildFacts } from '@/lib/domain/build-billing';
 
 export interface BuildInput {
   libraryId: string;
   operationId: string;
   dependencies?: IngestionDependencies;
+  /**
+   * Runs once chunking has measured the build and before anything is
+   * embedded -- the last point at which stopping costs the platform nothing.
+   * library-build-billing.md 4.3: the worker prices the build here and
+   * throws `quota_exceeded` when the workspace cannot cover it.
+   */
+  beforeIndex?: (facts: BuildFacts) => Promise<void>;
 }
 
 export type BuildOutcome =
   | { changed: false; digest: string }
-  | { changed: true; digest: string; versionId: string; documents: number; chunks: number };
+  | {
+      changed: true;
+      digest: string;
+      versionId: string;
+      documents: number;
+      chunks: number;
+      /** What the build added, as the billing formula reads it. */
+      facts: BuildFacts;
+    };
 
 /** Rows are inserted in batches so one build is not one enormous statement. */
 const INSERT_BATCH = 250;
@@ -221,6 +237,21 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     built.embeddingModel === adapter.model &&
     built.searchConfig === searchConfig;
   const cached = (sameConfiguration && built?.sourceDigests) || {};
+  /*
+   * A rebuild forced by our own parser, chunker or model moving is the
+   * platform's decision, not the owner's (library-build-billing.md 1.1): the
+   * price formula reads this flag and charges nothing. A changed search
+   * configuration is the owner's own edit and is not covered.
+   */
+  const platformRebuild =
+    built !== undefined &&
+    (built.parserVersion !== PARSER_VERSION ||
+      built.chunkerVersion !== CHUNKER_VERSION ||
+      built.embeddingModel !== adapter.model ||
+      /* A version from before per-source digests carries nothing forward
+         (`cached` is empty), so its first refresh re-embeds the whole
+         library. That is our migration, not the owner's change. */
+      built.sourceDigests === null);
 
   /* ------------------------------------------------------- fetch-snapshot */
 
@@ -272,6 +303,9 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
   const fetched = plans.filter((plan) => plan.snapshot !== undefined);
   const fetchedFiles = fetched.flatMap((plan) => plan.snapshot!.files);
+  /* Pages a connector pulled from a host. A repository, a Notion space or an
+     upload reports no fetch method, so those sources count no pages. */
+  const pagesFetched = fetchedFiles.filter((file) => file.fetchedVia !== undefined).length;
   if (fetched.length > 0 && fetchedFiles.length === 0) {
     throw new IngestionFailure('source_empty', 'fetch-snapshot', 'the source served no documents');
   }
@@ -414,6 +448,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
   let totalChunks = 0;
   let totalTokens = 0;
+  let carriedTokens = 0;
   let citedChunks = 0;
   let flaggedChunks = 0;
   const seenBodies = new Set<string>();
@@ -475,6 +510,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
           const citation = chunk.citation as Citation;
           if (citation.section) citedChunks += 1;
           totalTokens += chunk.tokens;
+          carriedTokens += chunk.tokens;
           const key = `${chunk.body.length}:${chunk.body.slice(0, 200)}`;
           if (seenBodies.has(key)) duplicates += 1;
           else seenBodies.add(key);
@@ -548,6 +584,19 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   if (totalChunks === 0) {
     throw new IngestionFailure('parse_failed', 'chunk', 'nothing chunked');
   }
+
+  /*
+   * Measured, and priced by the caller, before a byte reaches the store or
+   * the embedding provider. Nothing of this version exists yet, so a refusal
+   * here leaves nothing to discard.
+   */
+  const facts: BuildFacts = {
+    freshTokens: totalTokens - carriedTokens,
+    carriedTokens,
+    pagesFetched,
+    platformRebuild,
+  };
+  if (input.beforeIndex) await input.beforeIndex(facts);
 
   /* ---------------------------------------------------------- embed-index */
 
@@ -843,7 +892,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     },
   });
 
-  return { changed: true, digest, versionId, documents: rows.length, chunks: totalChunks };
+  return { changed: true, digest, versionId, documents: rows.length, chunks: totalChunks, facts };
 }
 
 /**

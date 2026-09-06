@@ -40,6 +40,7 @@ import { isObjectStoreConfigured, objectStore, type ObjectStore } from '@/lib/in
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { canManageLibraries, type WorkspaceRole } from './delete';
 import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans/configuration';
+import { assertBuildAffordable } from '@/lib/application/plans/build-quota';
 
 export interface CreateWorkspaceLibraryInput {
   workspaceId: string;
@@ -203,6 +204,18 @@ export async function createWorkspaceLibrary(
   const database = db();
 
   const limit = await libraryLimit(input.workspaceId);
+  /*
+   * library-build-billing.md 4.1: a workspace that cannot cover a build's
+   * base fee is refused before a row exists, rather than handed a library
+   * whose first build can only fail. Read before the lock, like the limit:
+   * the reservation itself is taken by the worker under the lock.
+   */
+  if (input.sourceType !== 'pdf' || uploaded.length > 0) {
+    await assertBuildAffordable({
+      workspaceId: input.workspaceId,
+      fetchesPages: requiresDomainVerification(input.sourceType),
+    });
+  }
   const now = new Date();
 
   const libraryId = uuidv7();

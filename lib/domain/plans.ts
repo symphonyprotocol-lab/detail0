@@ -12,6 +12,8 @@
  * that the console maintains the Plan Version of exactly those three.
  */
 
+import { BUILD_RATE_LIMITS, DEFAULT_BUILD_RATES } from './build-billing';
+
 export const PLAN_TIER_IDS = ['free', 'pro', 'addon'] as const;
 
 export type PlanTierId = (typeof PLAN_TIER_IDS)[number];
@@ -117,6 +119,10 @@ export interface PlanVersionDraft {
   librarySizeBytesLimit: number;
   apiKeyLimit: number;
   shareRateBps: number;
+  /** library-build-billing.md 3.3; the pack carries the 0 sentinel in all three. */
+  buildBaseCalls: number;
+  buildTokensPerCall: number;
+  buildPagesPerCall: number;
   capabilities: PlanCapabilities;
 }
 
@@ -131,6 +137,7 @@ export const PLAN_CHANGE_ERRORS = [
   'invalid_library_size',
   'invalid_api_key_limit',
   'invalid_share_rate',
+  'invalid_build_rate',
   'free_must_be_free',
   'no_change',
   'superseded',
@@ -199,6 +206,10 @@ export interface PlanVersionInput {
   librarySizeMb?: string;
   apiKeyLimit?: string;
   shareRate?: string;
+  /** library-build-billing.md 3.3, as typed. Absent means "keep the defaults". */
+  buildBaseCalls?: string;
+  buildTokensPerCall?: string;
+  buildPagesPerCall?: string;
   publicReviewRequired?: boolean;
 }
 
@@ -260,6 +271,9 @@ export function parsePlanVersionDraft(input: PlanVersionInput): PlanVersionDraft
       librarySizeBytesLimit: PACK_INHERITS_PRO,
       apiKeyLimit: PACK_INHERITS_PRO,
       shareRateBps: PACK_INHERITS_PRO,
+      buildBaseCalls: PACK_INHERITS_PRO,
+      buildTokensPerCall: PACK_INHERITS_PRO,
+      buildPagesPerCall: PACK_INHERITS_PRO,
       capabilities: capabilitiesFor(planId, true),
     };
   }
@@ -284,6 +298,35 @@ export function parsePlanVersionDraft(input: PlanVersionInput): PlanVersionDraft
     throw new PlanChangeRefused('invalid_share_rate', 'the publisher share must be 0-100%');
   }
 
+  /*
+   * The build rates default rather than demand: a form written before they
+   * existed still mints a valid row, and the defaults are what the migration
+   * wrote onto every tier. A typed value is held to its ceiling like the rest.
+   */
+  const buildRate = (raw: string | undefined, fallback: number, range: { min: number; max: number }) => {
+    if (raw === undefined || raw.trim() === '') return fallback;
+    const value = wholeNumber(raw);
+    if (value === null || !within(value, range)) {
+      throw new PlanChangeRefused('invalid_build_rate', 'a build rate must be a whole number within range');
+    }
+    return value;
+  };
+  const buildBaseCalls = buildRate(
+    input.buildBaseCalls,
+    DEFAULT_BUILD_RATES.baseCalls,
+    BUILD_RATE_LIMITS.baseCalls,
+  );
+  const buildTokensPerCall = buildRate(
+    input.buildTokensPerCall,
+    DEFAULT_BUILD_RATES.tokensPerCall,
+    BUILD_RATE_LIMITS.tokensPerCall,
+  );
+  const buildPagesPerCall = buildRate(
+    input.buildPagesPerCall,
+    DEFAULT_BUILD_RATES.pagesPerCall,
+    BUILD_RATE_LIMITS.pagesPerCall,
+  );
+
   return {
     planId,
     priceMinor,
@@ -293,6 +336,9 @@ export function parsePlanVersionDraft(input: PlanVersionInput): PlanVersionDraft
     librarySizeBytesLimit: mbToBytes(librarySizeMb),
     apiKeyLimit,
     shareRateBps,
+    buildBaseCalls,
+    buildTokensPerCall,
+    buildPagesPerCall,
     capabilities: capabilitiesFor(planId, publicReviewRequired),
   };
 }
@@ -339,6 +385,9 @@ export function isSamePlanVersion(
     librarySizeBytesLimit: number;
     apiKeyLimit: number;
     shareRateBps: number;
+    buildBaseCalls: number;
+    buildTokensPerCall: number;
+    buildPagesPerCall: number;
     capabilities: PlanCapabilities;
   } | null,
 ): boolean {
@@ -351,6 +400,9 @@ export function isSamePlanVersion(
     draft.librarySizeBytesLimit === live.librarySizeBytesLimit &&
     draft.apiKeyLimit === live.apiKeyLimit &&
     draft.shareRateBps === live.shareRateBps &&
+    draft.buildBaseCalls === live.buildBaseCalls &&
+    draft.buildTokensPerCall === live.buildTokensPerCall &&
+    draft.buildPagesPerCall === live.buildPagesPerCall &&
     draft.capabilities.publicReviewRequired === live.capabilities.publicReviewRequired
   );
 }

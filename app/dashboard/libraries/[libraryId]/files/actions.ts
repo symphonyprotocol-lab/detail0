@@ -17,7 +17,7 @@ export interface UpdateLibraryFilesActionResult {
   ok: boolean;
   /** True when a build was queued (or one was already waiting). */
   queued?: boolean;
-  error?: 'nothing' | 'invalid' | 'not_found' | 'access_denied' | 'unavailable';
+  error?: 'nothing' | 'invalid' | 'not_found' | 'access_denied' | 'quota' | 'unavailable';
 }
 
 export async function updateLibraryFilesAction(
@@ -66,6 +66,7 @@ export async function updateLibraryFilesAction(
     if (error instanceof AppError) {
       if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
       if (error.code === 'access_denied') return { ok: false, error: 'access_denied' };
+      if (error.code === 'quota_exceeded') return { ok: false, error: 'quota' };
       if (error.code === 'invalid_request') {
         return { ok: false, error: error.message === 'nothing to change' ? 'nothing' : 'invalid' };
       }

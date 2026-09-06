@@ -19,6 +19,13 @@ export {
   type ReservedCall,
 } from './quota';
 export {
+  assertBuildAffordable,
+  currentBuildBillingMode,
+  lastChargedCalls,
+  quoteBuild,
+  type BuildQuote,
+} from './build-quota';
+export {
   PLAN_VERSION_NEWEST_FIRST,
   createPlanVersion,
   currentPlanVersion,

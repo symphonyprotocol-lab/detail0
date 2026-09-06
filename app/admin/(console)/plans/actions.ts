@@ -70,6 +70,9 @@ export async function createPlanVersionAction(
       librarySizeMb: String(form.get('librarySizeMb') ?? ''),
       apiKeyLimit: String(form.get('apiKeyLimit') ?? ''),
       shareRate: String(form.get('shareRate') ?? ''),
+      buildBaseCalls: String(form.get('buildBaseCalls') ?? ''),
+      buildTokensPerCall: String(form.get('buildTokensPerCall') ?? ''),
+      buildPagesPerCall: String(form.get('buildPagesPerCall') ?? ''),
       /*
        * An unchecked checkbox posts nothing at all, so absence is "off" here
        * rather than "unset" -- the dialog always renders the control.

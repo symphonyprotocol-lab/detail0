@@ -12,7 +12,7 @@ export interface RebuildLibraryActionResult {
   ok: boolean;
   /** False when a pending build was already waiting. */
   created?: boolean;
-  error?: 'not_found' | 'access_denied' | 'invalid' | 'unavailable';
+  error?: 'not_found' | 'access_denied' | 'invalid' | 'quota' | 'unavailable';
 }
 
 export async function rebuildLibraryAction(
@@ -48,6 +48,7 @@ export async function rebuildLibraryAction(
       if (error.code === 'library_not_found') return { ok: false, error: 'not_found' };
       if (error.code === 'access_denied') return { ok: false, error: 'access_denied' };
       if (error.code === 'invalid_request') return { ok: false, error: 'invalid' };
+      if (error.code === 'quota_exceeded') return { ok: false, error: 'quota' };
     }
     console.error(`rebuild library failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return { ok: false, error: 'unavailable' };
