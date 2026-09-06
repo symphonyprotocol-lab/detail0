@@ -85,6 +85,26 @@ export async function runOperation(input: {
     return purge(operation.id, operation.libraryId, input.dependencies);
   }
 
+  /*
+   * The library says it is building while it is. A first build used to leave
+   * `index_status` at `pending` until the version published, so the detail
+   * page's banner (which reads the running operation) said "in progress"
+   * while the status readout beside it said "waiting to build". Only a
+   * library with nothing published moves: one already serving a version
+   * keeps `ready` or `stale` throughout, as requirement.md 8.2 asks -- a
+   * refresh in flight is not a reason to look unavailable.
+   */
+  await database
+    .update(schema.library)
+    .set({ indexStatus: 'processing' })
+    .where(
+      and(
+        eq(schema.library.id, operation.libraryId),
+        sql`${schema.library.currentVersionId} is null`,
+        isNull(schema.library.deletedAt),
+      ),
+    );
+
   try {
     const built = await buildVersion({
       libraryId: operation.libraryId,
@@ -137,6 +157,9 @@ export async function runOperation(input: {
     const retriable = operation.attempts < MAX_ATTEMPTS && isRetriable(code);
     await finish(operation.id, retriable ? 'pending' : 'failed', code);
 
+    /* A queued retry leaves `processing` in place: the operation is still
+       open, the banner still says so, and the queue row carries the retry
+       count. Only a final failure changes the library's status, below. */
     if (!retriable) {
       await database
         .update(schema.library)
