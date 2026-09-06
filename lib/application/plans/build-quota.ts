@@ -16,7 +16,7 @@
  * no reservation and a zero-weight event, so the `build_detail` column fills
  * with what each build *would* have cost.
  */
-import { and, asc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, lt, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { uuidv7 } from '@/lib/domain/id';
 import {
@@ -444,35 +444,6 @@ export async function releaseBuildCharge(charge: BuildCharge | null): Promise<vo
         eq(schema.usageReservation.status, 'pending'),
       ),
     );
-}
-
-/**
- * What a library's most recent priced build cost, for the scheduled drain's
- * gate (library-build-billing.md 7). Null when it has never been priced.
- */
-export async function lastChargedCalls(libraryIds: string[]): Promise<Map<string, number>> {
-  if (libraryIds.length === 0) return new Map();
-  const rows = await db()
-    .select({
-      libraryId: schema.workflowOperation.libraryId,
-      charged: sql<number | null>`(
-        array_agg(${schema.workflowOperation.chargedCalls} order by ${schema.workflowOperation.createdAt} desc)
-      )[1]`,
-    })
-    .from(schema.workflowOperation)
-    .where(
-      and(
-        inArray(schema.workflowOperation.libraryId, libraryIds),
-        eq(schema.workflowOperation.status, 'succeeded'),
-        sql`${schema.workflowOperation.chargedCalls} is not null`,
-      ),
-    )
-    .groupBy(schema.workflowOperation.libraryId);
-  const result = new Map<string, number>();
-  for (const row of rows) {
-    if (row.libraryId && row.charged !== null) result.set(row.libraryId, Number(row.charged));
-  }
-  return result;
 }
 
 async function pendingSeat(tx: Tx, reservationId: string): Promise<number> {

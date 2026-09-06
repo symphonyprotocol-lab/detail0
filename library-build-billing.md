@@ -256,6 +256,8 @@ export async function releaseBuild(reservationId: string): Promise<void>;
 
 ## 7. 定时刷新闸门
 
+> 当前状态：`refreshSchedule` 只调度平台库（`is_platform_library = true`），平台库的构建不计入任何工作空间，因此本节的闸门尚未实现，代码里也没有对应分支。把定时刷新扩展到用户库时，须连同本节一起实现，并注意两点：同一轮内多个库要累减同一工作空间的余额；来源未变化的刷新不会写 `charged_calls`，估算不能只取最近一次成功构建。
+
 `schedule-refreshes.ts` 的 `scheduleDueRefreshes` 在插入 `workflow_operation` 前：
 
 1. 以该库上一次 `charged_calls` 作为估算（首次刷新用上一次 index 的费用）；

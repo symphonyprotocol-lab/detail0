@@ -21,7 +21,6 @@ export {
 export {
   assertBuildAffordable,
   currentBuildBillingMode,
-  lastChargedCalls,
   quoteBuild,
   type BuildQuote,
 } from './build-quota';

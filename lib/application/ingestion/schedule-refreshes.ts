@@ -22,7 +22,6 @@ import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { uuidv7 } from '@/lib/domain/id';
 import { isRefreshPolicy, refreshDueAt, type RefreshPolicy } from '@/lib/domain/library';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
-import { currentBuildBillingMode, lastChargedCalls, quoteBuild } from '@/lib/application/plans/build-quota';
 
 /** Operation types that fetch a library's sources. */
 const FETCHING_OPERATIONS = ['refresh', 'ingest'] as const;
@@ -172,6 +171,12 @@ export interface ScheduledRefresh {
  * log -- there is no administrator behind it -- which is what the row's
  * `trigger` column is for.
  */
+/*
+ * Only platform libraries are scheduled (`refreshSchedule` filters on
+ * `is_platform_library`), and a platform build is nobody's bill, so no
+ * affordability gate runs here. library-build-billing.md 7 describes the
+ * gate an owned-library schedule would need; it belongs with that change.
+ */
 export async function scheduleDueRefreshes(now: Date = new Date()): Promise<ScheduledRefresh[]> {
   const schedule = await refreshSchedule(now);
   const byLibrary = new Map<string, ScheduledSource[]>();
@@ -183,20 +188,10 @@ export async function scheduleDueRefreshes(now: Date = new Date()): Promise<Sche
 
   const queued: ScheduledRefresh[] = [];
   const database = db();
-  const gate = await refreshGate([...byLibrary.keys()]);
   for (const [libraryId, rows] of byLibrary) {
     const due = rows.filter((row) => row.dueAt !== null && row.dueAt <= now && !row.open);
     const first = due[0];
     if (!first) continue;
-    /*
-     * library-build-billing.md 7: a scheduled refresh the owner's balance
-     * cannot cover is skipped, not queued into a failure. Nothing is written;
-     * the next tick asks again, so a top-up or a new period resumes it.
-     */
-    if (!gate.affordable(libraryId)) {
-      console.error(`refresh of ${first.publicId} skipped: build quota exhausted`);
-      continue;
-    }
     const targets = due.length === rows.length ? [null] : due.map((row) => row.sourceId);
     for (const sourceId of targets) {
       const operationId = uuidv7();
@@ -213,42 +208,6 @@ export async function scheduleDueRefreshes(now: Date = new Date()): Promise<Sche
     }
   }
   return queued;
-}
-
-/**
- * Which owned libraries can afford their next refresh. The estimate is the
- * last priced build of the same library, or the base fee when it was never
- * priced; platform libraries and shadow mode always pass.
- */
-async function refreshGate(libraryIds: string[]): Promise<{ affordable(libraryId: string): boolean }> {
-  if (libraryIds.length === 0 || currentBuildBillingMode() !== 'enforce') {
-    return { affordable: () => true };
-  }
-  const owners = await db()
-    .select({
-      id: schema.library.id,
-      ownerWorkspaceId: schema.library.ownerWorkspaceId,
-      isPlatformLibrary: schema.library.isPlatformLibrary,
-    })
-    .from(schema.library)
-    .where(inArray(schema.library.id, libraryIds));
-  const charged = await lastChargedCalls(libraryIds);
-  const verdict = new Map<string, boolean>();
-  const quotes = new Map<string, { planAllowanceRemaining: number; addonBalanceRemaining: number; rates: { baseCalls: number } }>();
-  for (const library of owners) {
-    if (library.isPlatformLibrary || !library.ownerWorkspaceId) {
-      verdict.set(library.id, true);
-      continue;
-    }
-    let quote = quotes.get(library.ownerWorkspaceId);
-    if (!quote) {
-      quote = await quoteBuild({ workspaceId: library.ownerWorkspaceId, fetchesPages: false });
-      quotes.set(library.ownerWorkspaceId, quote);
-    }
-    const estimate = Math.max(quote.rates.baseCalls, charged.get(library.id) ?? 0);
-    verdict.set(library.id, quote.planAllowanceRemaining + quote.addonBalanceRemaining >= estimate);
-  }
-  return { affordable: (libraryId) => verdict.get(libraryId) ?? true };
 }
 
 function readPolicy(stored: Record<string, unknown> | null): RefreshPolicy | 'unknown' {
