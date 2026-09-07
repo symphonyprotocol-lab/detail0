@@ -25,6 +25,8 @@ describe('notionPageId', () => {
     expect(notionPageId(`https://www.notion.so/acme/My-page-with-dashes-${ID}`)).toBe(DASHED);
     expect(notionPageId(`https://acme.notion.site/${ID}`)).toBe(DASHED);
     expect(notionPageId(`https://www.notion.so/${DASHED}?v=abc`)).toBe(DASHED);
+    /* The URL the API returns today. */
+    expect(notionPageId(`https://app.notion.com/p/Hello-My-Page-${ID}`)).toBe(DASHED);
   });
 
   it('accepts a bare id, dashed or not', () => {

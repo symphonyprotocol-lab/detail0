@@ -46,7 +46,9 @@ export function notionPageId(location: string): string | null {
     } catch {
       return null;
     }
-    if (!/(^|\.)notion\.(so|site)$/i.test(url.hostname)) return null;
+    /* notion.so and notion.site are the classic hosts; the API now hands out
+       app.notion.com URLs (`/p/<title>-<id>`), so notion.com is a page host too. */
+    if (!/(^|\.)notion\.(so|site|com)$/i.test(url.hostname)) return null;
     last = url.pathname.split('/').filter(Boolean).at(-1) ?? '';
   }
   const match = /([0-9a-f]{32})$/i.exec(last.replace(/-/g, ''));
