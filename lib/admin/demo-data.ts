@@ -1,12 +1,14 @@
 /**
- * Placeholder data for the admin console -- design source frames `oxEhj`,
- * `SRtSN`, `zcHnx`, `WHlyq`, `RubCg`, `Uko79`, `buNhV` and `z9DJOF`.
+ * Placeholder data for the admin console -- design source frames `SRtSN`,
+ * `zcHnx`, `WHlyq`, `RubCg`, `Uko79`, `buNhV` and `z9DJOF`.
  *
- * Administration use cases are not implemented yet (architecture.md 21), so
- * these screens render from this fixture. The shapes mirror db/schema.ts --
+ * Most console screens now read their own use case; what is left here is the
+ * fixture behind the screens whose use cases are not built yet (architecture.md
+ * 21), settlements first among them. The shapes mirror db/schema.ts --
  * `administrator`, `audit_log`, `library_review`, `library_claim`,
  * `plan_version`, `payment_event` and `settlement` -- closely enough that each
- * block can be swapped for a query one at a time.
+ * block can be swapped for a query one at a time. The overview (`oxEhj`) was
+ * the last of its blocks to go: `lib/application/administration/overview`.
  *
  * Same split as `lib/dashboard/demo-data`: numbers, ids and enum values are
  * facts and live here; the words that label them live in the dictionaries
@@ -26,7 +28,7 @@ function initials(name: string): string {
   return Array.from(name).slice(0, 2).join('').toUpperCase();
 }
 
-/* --------------------------------------------------------------- overview */
+/* ------------------------------------------------------------------ stats */
 
 export interface AdminStat {
   label: string;
@@ -35,48 +37,6 @@ export interface AdminStat {
   delta?: string;
   deltaTone?: 'up' | 'flat';
   caption?: string;
-}
-
-/** Thirteen days of sign-ups; the design labels every other point. */
-const GROWTH_VOLUME: [number, number][] = [
-  [96, 18],
-  [118, 22],
-  [104, 19],
-  [142, 27],
-  [156, 31],
-  [138, 30],
-  [184, 39],
-  [206, 44],
-  [192, 43],
-  [238, 52],
-  [261, 58],
-  [246, 57],
-  [302, 68],
-];
-
-export const GROWTH_SCALE_MAX = 320;
-
-export interface GrowthPoint {
-  /** Only every other point carries an axis label, as in the design. */
-  label?: string;
-  users: number;
-  paid: number;
-}
-
-export type ActivityTone = 'brand' | 'neutral' | 'amber' | 'rose';
-
-export interface ActivityEntry {
-  title: string;
-  meta: string;
-  when: string;
-  tone: ActivityTone;
-}
-
-export interface HealthRow {
-  label: string;
-  value: string;
-  /** Meter fill, 0..100. */
-  percent: number;
 }
 
 /* ------------------------------------------------------------------ users */
@@ -187,32 +147,6 @@ export function adminCopy(t: Dictionary) {
   const d = t.adminDemo;
   // Role names are production copy, shared with the console header.
   const roles = t.admin.roles;
-
-  const stats: AdminStat[] = [
-    { label: d.stats.users, value: '12,846', delta: '12.8%', deltaTone: 'up' },
-    { label: d.stats.libraries, value: '38,291', delta: '8.4%', deltaTone: 'up' },
-    { label: d.stats.pending, value: '2', caption: d.stats.pendingCaption },
-    { label: d.stats.revenue, value: '$19,240', delta: '16.2%', deltaTone: 'up' },
-  ];
-
-  const growth: GrowthPoint[] = GROWTH_VOLUME.map(([users, paid], index) => ({
-    ...(index % 2 === 0 ? { label: d.growthDays[index / 2] ?? '' } : {}),
-    users,
-    paid,
-  }));
-
-  const activityTones: ActivityTone[] = ['brand', 'neutral', 'amber', 'rose'];
-  const activity: ActivityEntry[] = d.activity.map((entry, index) => ({
-    ...entry,
-    tone: activityTones[index] ?? 'neutral',
-  }));
-
-  const health: HealthRow[] = [
-    { label: d.health.api, value: '99.99%', percent: 100 },
-    { label: d.health.index, value: '99.94%', percent: 100 },
-    { label: d.health.payment, value: '100%', percent: 100 },
-    { label: d.health.queue, value: d.health.queueValue, percent: 38 },
-  ];
 
   const userFacts: [AdminUserRow['plan'], number, number, string, AccountStatus][] = [
     ['Pro', 12, 18_420, '2026-06-05', 'active'],
@@ -347,13 +281,6 @@ export function adminCopy(t: Dictionary) {
   }));
 
   return {
-    stats,
-    growth,
-    growthNewUsers: '2,184',
-    growthConversion: '7.8%',
-    pendingQueue: d.pendingQueue,
-    activity,
-    health,
     users,
     libraries,
     libraryTabs,

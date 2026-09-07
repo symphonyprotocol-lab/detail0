@@ -12,7 +12,6 @@ import {
 import {
   ArrowUpRightIcon,
   CalendarIcon,
-  ChevronDownIcon,
   CircleDollarSignIcon,
   ClockIcon,
   DatabaseIcon,
@@ -20,29 +19,47 @@ import {
   TrendingUpIcon,
   UsersIcon,
 } from '@/components/ui/icons';
-import { adminCopy, type ActivityTone } from '@/lib/admin/demo-data';
+import {
+  consoleOverview,
+  healthNeedsAttention,
+  type ConsoleAuditRow,
+  type WindowedCount,
+} from '@/lib/application/administration';
 import type { AdminCapability } from '@/lib/domain/admin';
+import { percentFromBps } from '@/lib/domain/billing';
+import {
+  changeBps,
+  DEFAULT_OVERVIEW_RANGE,
+  OVERVIEW_RANGES,
+  shareBps,
+  type OverviewRange,
+} from '@/lib/domain/overview';
 import { requireAdmin } from '@/lib/http/admin';
+import type { Dictionary } from '@/lib/i18n/dictionary';
+import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
+import { bytes, money, oneOf } from '../list-params';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).admin.overview.title };
 }
 
-const STAT_ICONS = [UsersIcon, DatabaseIcon, ClockIcon, CircleDollarSignIcon];
+type Overview = Dictionary['admin']['overview'];
 
-/**
- * What each tile and panel is about, so a role only sees the parts it may act
- * on. The overview is the one console screen open to every administrator --
- * it is where `requireAdminCapability` sends anyone who lands somewhere they
- * are not entitled to, so it must never be a way around the matrix.
- */
-const STAT_NEEDS: AdminCapability[] = [
-  'users',
-  'libraries',
-  'libraries',
-  'billing',
-];
+interface StatTile {
+  need: AdminCapability;
+  label: string;
+  value: string;
+  Icon: typeof UsersIcon;
+  /** Period-over-period move in basis points; null when there is nothing to compare. */
+  changeBps: number | null;
+  /** Which earlier period the move is against; the tiles do not all share one. */
+  deltaLabel: string;
+  /** What to say under the value when there is no move to show. */
+  caption: string;
+}
+
+type ActivityTone = 'brand' | 'neutral' | 'amber' | 'rose';
 
 const ACTIVITY_TONE: Record<ActivityTone, string> = {
   brand: 'bg-brandsoft text-brandink',
@@ -51,13 +68,163 @@ const ACTIVITY_TONE: Record<ActivityTone, string> = {
   rose: 'bg-rosesoft text-err',
 };
 
-export default async function AdminOverviewPage() {
-  const [session, t] = await Promise.all([requireAdmin(), getMessages()]);
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+/** `2 分钟前`, `3 小时前`, `5 天前` -- the grain the activity list reads at. */
+function ago(ms: number, o: Overview): string {
+  if (ms < MINUTE_MS) return o.ago.now;
+  if (ms < HOUR_MS) return fill(o.ago.minutes, { n: Math.floor(ms / MINUTE_MS) });
+  if (ms < DAY_MS) return fill(o.ago.hours, { n: Math.floor(ms / HOUR_MS) });
+  return fill(o.ago.days, { n: Math.floor(ms / DAY_MS) });
+}
+
+/** `40 分钟`, `1.5 小时`, `3 天` -- how long a library has waited. */
+function duration(ms: number, o: Overview): string {
+  if (ms < HOUR_MS) return fill(o.duration.minutes, { n: Math.max(1, Math.round(ms / MINUTE_MS)) });
+  if (ms < DAY_MS) return fill(o.duration.hours, { n: (ms / HOUR_MS).toFixed(1).replace(/\.0$/, '') });
+  return fill(o.duration.days, { n: (ms / DAY_MS).toFixed(1).replace(/\.0$/, '') });
+}
+
+/** `+12.8%`; the sign is part of the figure, so a fall reads as one. */
+function signedPercent(bps: number): string {
+  return `${bps > 0 ? '+' : bps < 0 ? '−' : ''}${percentFromBps(Math.abs(bps))}%`;
+}
+
+/**
+ * A failed action is always red. Beyond that, the tone follows what was
+ * touched: an account is amber because suspending one is the console's
+ * heaviest lever, a platform library is brand, and the rest is neutral.
+ */
+function activityTone(entry: ConsoleAuditRow): ActivityTone {
+  if (entry.result !== 'success') return 'rose';
+  if (entry.action.startsWith('user.')) return 'amber';
+  if (entry.action.startsWith('platform_library.')) return 'brand';
+  return 'neutral';
+}
+
+function rangeOf(value: string | string[] | undefined): OverviewRange {
+  const allowed = OVERVIEW_RANGES.map(String);
+  return Number(oneOf(value, allowed, String(DEFAULT_OVERVIEW_RANGE))) as OverviewRange;
+}
+
+/**
+ * Operations overview -- design source frame `oxEhj`.
+ *
+ * Every figure comes from `consoleOverview`, which reads the table that owns
+ * it and leaves out whatever this session's capabilities do not cover. This
+ * is the one console screen open to every administrator -- it is where
+ * `requireAdminCapability` sends anyone who lands somewhere they are not
+ * entitled to -- so a tile or panel a role may not act on is not rendered,
+ * and its query is not run either.
+ *
+ * The range control is real: `?range=7|30|90` moves the window the tiles
+ * compare against and the days the chart draws.
+ */
+export default async function AdminOverviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [session, params, t] = await Promise.all([requireAdmin(), searchParams, getMessages()]);
   const o = t.admin.overview;
-  const d = adminCopy(t);
-  const can = (capability: AdminCapability) =>
-    session.capabilities.includes(capability);
-  const stats = d.stats.filter((_, index) => can(STAT_NEEDS[index] ?? 'users'));
+  const range = rangeOf(params.range);
+  const now = new Date();
+
+  const view = await consoleOverview({ range, capabilities: session.capabilities, now });
+  const can = (capability: AdminCapability) => session.capabilities.includes(capability);
+
+  const windowed = (counts: WindowedCount | null) => ({
+    value: (counts?.total ?? 0).toLocaleString('en-US'),
+    changeBps: counts ? changeBps(counts.inWindow, counts.inPreviousWindow) : null,
+    deltaLabel: o.previousWindow,
+    caption: fill(o.newInWindow, { count: counts?.inWindow ?? 0 }),
+  });
+
+  const review = view.health.review;
+  const revenue = view.revenue;
+
+  const tiles: StatTile[] = (
+    [
+      { need: 'users', label: o.stats.users, Icon: UsersIcon, ...windowed(view.users) },
+      { need: 'libraries', label: o.stats.libraries, Icon: DatabaseIcon, ...windowed(view.libraries) },
+      {
+        need: 'libraries',
+        label: o.stats.pending,
+        Icon: ClockIcon,
+        value: review.pending.toLocaleString('en-US'),
+        changeBps: null,
+        deltaLabel: '',
+        caption:
+          review.oldestWaitingMs === null
+            ? o.pendingNone
+            : fill(o.pendingOldest, { duration: duration(review.oldestWaitingMs, o) }),
+      },
+      /*
+       * Money is compared month to month whatever the range control says --
+       * that is how the billing screen and the provider's statements cut it
+       * -- so this tile names its period where the others name theirs.
+       */
+      {
+        need: 'billing',
+        label: o.stats.revenue,
+        Icon: CircleDollarSignIcon,
+        value: money(revenue?.monthNetMinor ?? 0, revenue?.currency),
+        changeBps: revenue ? changeBps(revenue.monthNetMinor, revenue.previousMonthNetMinor) : null,
+        deltaLabel: o.previousMonth,
+        caption: o.previousMonthNone,
+      },
+    ] satisfies StatTile[]
+  ).filter((tile) => can(tile.need));
+
+  const attention = healthNeedsAttention(view.health);
+  const api = view.health.api;
+  const index = view.health.index;
+  const builds = view.health.builds;
+  const finished = builds.succeeded + builds.failed;
+
+  /*
+   * Each meter is a share of "fine": successful requests, indexed libraries,
+   * builds that finished well, libraries that have not waited a day. An empty
+   * denominator is a full bar -- nothing has gone wrong when nothing happened.
+   */
+  const health = [
+    {
+      label: o.health.api,
+      value:
+        api.requests === 0
+          ? o.health.apiNone
+          : fill(o.health.apiValue, {
+              requests: api.requests.toLocaleString('en-US'),
+              rate: percentFromBps(shareBps(api.requests - api.failures, api.requests)),
+            }),
+      percent: api.requests === 0 ? 100 : ((api.requests - api.failures) / api.requests) * 100,
+    },
+    {
+      label: o.health.index,
+      value: index.total === 0 ? o.health.indexNone : fill(o.health.indexValue, index),
+      percent: index.total === 0 ? 100 : (index.ready / index.total) * 100,
+    },
+    {
+      label: o.health.builds,
+      value: fill(o.health.buildsValue, builds),
+      percent: finished === 0 ? 100 : (builds.succeeded / finished) * 100,
+    },
+    {
+      label: o.health.review,
+      value:
+        review.pending === 0
+          ? o.health.reviewNone
+          : fill(o.health.reviewValue, { count: review.pending, overdue: review.overdue }),
+      percent: review.pending === 0 ? 100 : ((review.pending - review.overdue) / review.pending) * 100,
+    },
+  ];
+
+  const rangeHref = (days: OverviewRange) =>
+    days === DEFAULT_OVERVIEW_RANGE ? '/admin/overview' : `/admin/overview?range=${days}`;
+
+  const actionLabels: Record<string, string> = t.admin.audit.actions;
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -67,107 +234,111 @@ export default async function AdminOverviewPage() {
         title={o.title}
         description={o.description}
         action={
-          <ConsoleButton>
-            <CalendarIcon size={14} />
-            {o.range}
-            <ChevronDownIcon size={13} />
-          </ConsoleButton>
+          <span className="flex items-center gap-1.5">
+            {OVERVIEW_RANGES.map((days) => (
+              <ConsoleButton
+                key={days}
+                href={rangeHref(days)}
+                variant={days === range ? 'primary' : 'outline'}
+              >
+                {days === range ? <CalendarIcon size={14} /> : null}
+                {fill(o.range, { days })}
+              </ConsoleButton>
+            ))}
+          </span>
         }
       />
 
       {/* Metric strip. */}
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat) => {
-          const Icon = STAT_ICONS[d.stats.indexOf(stat)] ?? UsersIcon;
-          return (
-            <article
-              key={stat.label}
-              className={`${CONSOLE_PANEL} flex items-center gap-3 p-[18px]`}
-            >
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-[9px] bg-brandsoft text-brand">
-                <Icon size={18} />
+        {tiles.map((tile) => (
+          <article key={tile.label} className={`${CONSOLE_PANEL} flex items-center gap-3 p-[18px]`}>
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-[9px] bg-brandsoft text-brand">
+              <tile.Icon size={18} />
+            </span>
+            <span className="flex min-w-0 flex-col gap-[3px]">
+              <span className="text-[11px] leading-[1.35] tracking-[-0.023em] text-muted">
+                {tile.label}
               </span>
-              <span className="flex min-w-0 flex-col gap-[3px]">
-                <span className="text-[11px] leading-[1.35] tracking-[-0.023em] text-muted">
-                  {stat.label}
-                </span>
-                <span className="text-[20px] leading-[1.3] font-semibold tracking-[-0.03em] text-ink">
-                  {stat.value}
-                </span>
-                {stat.delta ? (
-                  <span className="flex items-center gap-1 text-[11px] tracking-[-0.023em] text-good">
-                    <TrendingUpIcon size={12} />
-                    {stat.delta}
-                  </span>
-                ) : (
-                  <span className="text-[11px] tracking-[-0.023em] text-amberink">
-                    {stat.caption}
-                  </span>
-                )}
+              <span className="text-[20px] leading-[1.3] font-semibold tracking-[-0.03em] text-ink">
+                {tile.value}
               </span>
-            </article>
-          );
-        })}
+              {tile.changeBps !== null ? (
+                <span
+                  className={`flex items-center gap-1 text-[11px] tracking-[-0.023em] ${
+                    tile.changeBps < 0 ? 'text-err' : 'text-good'
+                  }`}
+                >
+                  <TrendingUpIcon size={12} className={tile.changeBps < 0 ? 'rotate-180' : ''} />
+                  {signedPercent(tile.changeBps)}
+                  <span className="text-muted">{tile.deltaLabel}</span>
+                </span>
+              ) : (
+                <span className="text-[11px] tracking-[-0.023em] text-amberink">{tile.caption}</span>
+              )}
+            </span>
+          </article>
+        ))}
       </section>
 
       {/* User growth. */}
-      {can('users') ? (
+      {can('users') && view.growth ? (
         <Panel>
           <PanelHead
             title={o.growthTitle}
             description={o.growthSubtitle}
-            action={<ConsoleButton>{o.growthRange}</ConsoleButton>}
+            action={
+              <span className="text-[12px] tracking-[-0.023em] text-muted">
+                {fill(o.range, { days: range })}
+              </span>
+            }
           />
           <div className="flex flex-col gap-4 p-[19px]">
             <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
               <span className="flex flex-col gap-0.5">
                 <span className="text-[19px] leading-[1.3] font-semibold tracking-[-0.03em] text-ink">
-                  {d.growthNewUsers}
+                  {(view.users?.inWindow ?? 0).toLocaleString('en-US')}
                 </span>
-                <span className="text-[11px] tracking-[-0.023em] text-muted">
-                  {o.growthNewUsers}
-                </span>
+                <span className="text-[11px] tracking-[-0.023em] text-muted">{o.growthNewUsers}</span>
               </span>
-              <span className="flex flex-col gap-0.5">
-                <span className="text-[19px] leading-[1.3] font-semibold tracking-[-0.03em] text-ink">
-                  {d.growthConversion}
+              {/* Who paid is billing data; a session without it sees sign-ups alone. */}
+              {view.conversionBps !== null ? (
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-[19px] leading-[1.3] font-semibold tracking-[-0.03em] text-ink">
+                    {percentFromBps(view.conversionBps)}%
+                  </span>
+                  <span className="text-[11px] tracking-[-0.023em] text-muted">{o.growthConversion}</span>
                 </span>
-                <span className="text-[11px] tracking-[-0.023em] text-muted">
-                  {o.growthConversion}
-                </span>
-              </span>
+              ) : null}
               <ul className="flex items-center gap-3.5">
                 {[
                   { label: o.seriesUsers, dot: 'bg-barstrong' },
-                  { label: o.seriesPaid, dot: 'bg-bar' },
+                  ...(view.growthIncludesPaid ? [{ label: o.seriesPaid, dot: 'bg-bar' }] : []),
                 ].map((series) => (
                   <li
                     key={series.label}
                     className="flex items-center gap-1.5 text-[11px] tracking-[-0.023em] text-muted"
                   >
-                    <span
-                      aria-hidden
-                      className={`size-[7px] rounded-full ${series.dot}`}
-                    />
+                    <span aria-hidden className={`size-[7px] rounded-full ${series.dot}`} />
                     {series.label}
                   </li>
                 ))}
               </ul>
             </div>
-            <GrowthChart />
+            <GrowthChart points={view.growth} showPaid={view.growthIncludesPaid} />
           </div>
         </Panel>
       ) : null}
 
       {/* Review queue. */}
-      {can('libraries') ? (
+      {can('libraries') && view.pendingQueue ? (
         <Panel>
           <PanelHead
             title={o.pendingTitle}
             description={o.pendingSubtitle}
             action={
               <Link
-                href="/admin/libraries"
+                href="/admin/libraries?status=pending"
                 className="inline-flex items-center gap-1.5 text-[12px] tracking-[-0.023em] text-brandink hover:text-brand"
               >
                 {o.pendingAll}
@@ -175,37 +346,46 @@ export default async function AdminOverviewPage() {
               </Link>
             }
           />
-          <ul>
-            {d.pendingQueue.map((item, index) => (
-              <li
-                key={item.title}
-                className={`flex flex-wrap items-center gap-3 px-[15px] py-3.5 ${
-                  index === 0 ? 'border-b-2 border-line' : ''
-                }`}
-              >
-                <span className="flex size-[34px] shrink-0 items-center justify-center rounded-[8px] bg-ambersoft text-amberink">
-                  <FileTextIcon size={16} />
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="truncate text-[12px] font-medium tracking-[-0.023em] text-ink">
-                    {item.title}
+          {view.pendingQueue.length === 0 ? (
+            <p className="px-[15px] py-5 text-[12px] tracking-[-0.023em] text-muted">{o.pendingEmpty}</p>
+          ) : (
+            <ul>
+              {view.pendingQueue.map((library, index) => (
+                <li
+                  key={library.id}
+                  className={`flex flex-wrap items-center gap-3 px-[15px] py-3.5 ${
+                    index < view.pendingQueue!.length - 1 ? 'border-b-2 border-line' : ''
+                  }`}
+                >
+                  <span className="flex size-[34px] shrink-0 items-center justify-center rounded-[8px] bg-ambersoft text-amberink">
+                    <FileTextIcon size={16} />
                   </span>
-                  <span className="truncate text-[11px] tracking-[-0.023em] text-muted">
-                    {item.meta}
+                  <span className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="truncate text-[12px] font-medium tracking-[-0.023em] text-ink">
+                      {library.title}
+                    </span>
+                    <span className="truncate text-[11px] tracking-[-0.023em] text-muted">
+                      {[library.ownerName, library.sourceType, bytes(library.storageBytes)]
+                        .filter((part) => part && part !== '—')
+                        .join(' · ') || library.publicId}
+                    </span>
                   </span>
-                </span>
-                <ConsoleButton className="h-[30px] border-publine text-brandink">
-                  {t.admin.actions.review}
-                </ConsoleButton>
-              </li>
-            ))}
-          </ul>
+                  <ConsoleButton
+                    href={`/admin/libraries/${library.id}`}
+                    className="h-[30px] border-publine text-brandink"
+                  >
+                    {t.admin.actions.review}
+                  </ConsoleButton>
+                </li>
+              ))}
+            </ul>
+          )}
         </Panel>
       ) : null}
 
       {/* Live activity -- reachable only with the audit capability, since it is
           a window onto the same events the audit log records. */}
-      {can('audit') ? (
+      {can('audit') && view.activity ? (
         <Panel>
           <PanelHead
             title={o.activityTitle}
@@ -220,36 +400,45 @@ export default async function AdminOverviewPage() {
               </Link>
             }
           />
-          <ul className="px-[17px]">
-            {d.activity.map((entry, index) => (
-              <li
-                key={entry.title}
-                className={`flex items-center gap-2.5 py-3.5 ${
-                  index === d.activity.length - 1
-                    ? ''
-                    : 'border-b-2 border-line'
-                }`}
-              >
-                <span
-                  aria-hidden
-                  className={`flex size-[29px] shrink-0 items-center justify-center rounded-[7px] ${ACTIVITY_TONE[entry.tone]}`}
-                >
-                  <span className="size-1.5 rounded-full bg-current" />
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                  <span className="truncate text-[12px] tracking-[-0.023em] text-ink">
-                    {entry.title}
-                  </span>
-                  <span className="truncate text-[11px] tracking-[-0.023em] text-muted">
-                    {entry.meta}
-                  </span>
-                </span>
-                <span className="shrink-0 text-[11px] tracking-[-0.023em] whitespace-nowrap text-muted">
-                  {entry.when}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {view.activity.length === 0 ? (
+            <p className="px-[17px] py-5 text-[12px] tracking-[-0.023em] text-muted">{o.activityEmpty}</p>
+          ) : (
+            <ul className="px-[17px]">
+              {view.activity.map((entry, index) => {
+                const title = actionLabels[entry.action] ?? entry.action;
+                const who = entry.administratorName ?? entry.administratorEmail ?? o.unknownAdmin;
+                return (
+                  <li
+                    key={entry.id}
+                    className={`flex items-center gap-2.5 py-3.5 ${
+                      index === view.activity!.length - 1 ? '' : 'border-b-2 border-line'
+                    }`}
+                  >
+                    <span
+                      aria-hidden
+                      className={`flex size-[29px] shrink-0 items-center justify-center rounded-[7px] ${ACTIVITY_TONE[activityTone(entry)]}`}
+                    >
+                      <span className="size-1.5 rounded-full bg-current" />
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                      <span className="truncate text-[12px] tracking-[-0.023em] text-ink">
+                        {entry.result === 'success' ? title : `${title} · ${o.activityFailed}`}
+                      </span>
+                      <span className="truncate text-[11px] tracking-[-0.023em] text-muted">
+                        {entry.targetId ? `${who} · ${entry.targetId}` : who}
+                      </span>
+                    </span>
+                    <span
+                      title={entry.createdAt.toISOString()}
+                      className="shrink-0 text-[11px] tracking-[-0.023em] whitespace-nowrap text-muted"
+                    >
+                      {ago(now.getTime() - entry.createdAt.getTime(), o)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </Panel>
       ) : null}
 
@@ -259,22 +448,22 @@ export default async function AdminOverviewPage() {
           title={o.healthTitle}
           description={o.healthSubtitle}
           action={
-            <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold tracking-[-0.023em] text-pubink">
-              <span aria-hidden className="size-1.5 rounded-full bg-good" />
-              {o.healthOk}
+            <span
+              className={`inline-flex items-center gap-1.5 text-[12px] font-semibold tracking-[-0.023em] ${
+                attention ? 'text-amberink' : 'text-pubink'
+              }`}
+            >
+              <span aria-hidden className={`size-1.5 rounded-full ${attention ? 'bg-amberink' : 'bg-good'}`} />
+              {attention ? o.healthAttention : o.healthOk}
             </span>
           }
         />
         <ul className="flex flex-col gap-3.5 px-[17px] py-4">
-          {d.health.map((row) => (
+          {health.map((row) => (
             <li key={row.label} className="flex flex-col gap-2">
               <span className="flex items-center justify-between gap-3">
-                <span className="text-[12px] font-semibold tracking-[-0.023em] text-ink">
-                  {row.label}
-                </span>
-                <span className="text-[11px] tracking-[-0.023em] text-muted">
-                  {row.value}
-                </span>
+                <span className="text-[12px] font-semibold tracking-[-0.023em] text-ink">{row.label}</span>
+                <span className="text-[11px] tracking-[-0.023em] text-muted">{row.value}</span>
               </span>
               <Meter value={row.percent} />
             </li>

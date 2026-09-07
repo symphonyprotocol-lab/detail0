@@ -1267,6 +1267,8 @@ export const workflowOperation = pgTable(
     index('workflow_operation_pending_idx')
       .on(t.createdAt)
       .where(sql`${t.status} = 'pending'`),
+    /** "What finished in the last day", the console's health panel. */
+    index('workflow_operation_updated_idx').on(t.updatedAt),
   ],
 );
 
@@ -1289,7 +1291,15 @@ export const requestLog = pgTable(
     latencyMs: integer('latency_ms'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('request_log_workspace_time_idx').on(t.workspaceId, t.createdAt)],
+  (t) => [
+    index('request_log_workspace_time_idx').on(t.workspaceId, t.createdAt),
+    /**
+     * The console's health panel counts the last day's requests across every
+     * workspace. Without a time-only index that is a scan of the busiest
+     * table in the schema on every overview render.
+     */
+    index('request_log_time_idx').on(t.createdAt),
+  ],
 );
 
 export const report = pgTable('report', {

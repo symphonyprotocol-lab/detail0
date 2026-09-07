@@ -22,6 +22,7 @@ export { qrCodeSvg } from './qr-code';
 export { listConsoleUsers, type ConsoleUserRow, type UserStatusFilter } from './list-users';
 export {
   listAuditEntries,
+  recentAuditEntries,
   type AuditList,
   type AuditListInput,
   type AuditResultFilter,
@@ -30,11 +31,21 @@ export {
 export {
   listUserLibraries,
   listClaims,
+  pendingReviewQueue,
   type ConsoleLibraryRow,
   type ConsoleClaimRow,
   type LibraryReviewFilter,
   type ClaimFilter,
 } from './list-libraries';
+export {
+  consoleOverview,
+  healthNeedsAttention,
+  type ConsoleOverview,
+  type OverviewHealth,
+  type OverviewInput,
+  type ReviewQueueState,
+  type WindowedCount,
+} from './overview';
 export {
   listRefreshQueue,
   type RefreshQueue,

@@ -26,6 +26,7 @@ import {
   type BillingStatusFilter,
 } from '@/lib/domain/billing';
 import { billingSummary, listBillingDocuments } from '@/lib/application/billing';
+import { changeBps } from '@/lib/domain/overview';
 import { requireAdminCapability } from '@/lib/http/admin';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import { fill } from '@/lib/i18n/format';
@@ -308,11 +309,11 @@ function methodLabel(method: string | null, b: BillingCopy): string {
  * of dividing by zero.
  */
 function comparison(current: number, previous: number, b: BillingCopy): string {
-  if (previous === 0) return b.stats.revenueNoBaseline;
-  if (current === previous) return b.stats.revenueFlat;
-  const deltaBps = Math.round((Math.abs(current - previous) * 10_000) / Math.abs(previous));
-  const percent = percentFromBps(deltaBps);
-  return current > previous
+  const deltaBps = changeBps(current, previous);
+  if (deltaBps === null) return b.stats.revenueNoBaseline;
+  if (deltaBps === 0) return b.stats.revenueFlat;
+  const percent = percentFromBps(Math.abs(deltaBps));
+  return deltaBps > 0
     ? fill(b.stats.revenueUp, { percent })
     : fill(b.stats.revenueDown, { percent });
 }
