@@ -2,13 +2,13 @@ import Link from 'next/link';
 import { Button, SectionHeading } from '@/components/ui/primitives';
 import { ClaudeIcon, CodexIcon, CursorIcon, McpIcon } from '@/components/ui/brand-icons';
 import { LibraryTable } from '@/components/site/library-table';
+import { McpConnect } from '@/components/site/mcp-connect';
 import {
   ArrowRightIcon,
   ArrowUpRightIcon,
   BracesIcon,
   CircleCheckIcon,
   ClockIcon,
-  CopyIcon,
   KeyIcon,
   PlusIcon,
   SearchIcon,
@@ -27,8 +27,15 @@ const SURFACES = [
   { label: 'MCP', Icon: McpIcon },
 ];
 
+/** Where the public site lives when the deployment does not say. */
+const PUBLIC_ORIGIN = 'https://re0.com';
+
 export default async function HomePage() {
   const t = await getMessages();
+  /* The MCP endpoint a person pastes into their client: the one thing every
+     surface in the hero row shares. Anonymous use rides the trial limit; an
+     API key from the dashboard lifts it (requirement.md 9.3). */
+  const mcpUrl = `${(process.env.APP_BASE_URL ?? PUBLIC_ORIGIN).replace(/\/$/, '')}/mcp`;
   /* The featured table is the live catalogue's head, not copy. */
   const featured = (await listPublicLibraries({ sort: 'popular', limit: 6 })).map((row) => ({
     libraryId: row.publicId,
@@ -58,15 +65,7 @@ export default async function HomePage() {
           </p>
 
           <div className="mt-6 flex w-full flex-wrap items-center gap-2.5">
-            <div className="flex h-12 items-center gap-[92px] rounded-lg border-2 border-termline bg-inkdeep py-0.5 pr-[11px] pl-[18px] shadow-[0_4px_10px_rgba(45,45,83,0.12),0_1px_1px_rgba(45,45,83,0.12)]">
-              <code className="font-mono text-[12px] tracking-[-0.03em] text-[#e4edee]">
-                $ npx re0 setup
-              </code>
-              <span className="flex h-7 items-center gap-1.5 border-l-2 border-[#294043] pr-[9px] pl-[11px] text-[#b8d4d5]">
-                <CopyIcon size={15} />
-                <span className="text-[11px] tracking-[-0.029em]">{t.home.install}</span>
-              </span>
-            </div>
+            <McpConnect url={mcpUrl} copyLabel={t.home.install} copiedLabel={t.home.installCopied} />
             <Link
               href="/login"
               className="inline-flex h-12 items-center justify-center gap-2 rounded-[20px] border-2 border-line bg-card px-5 text-[14px] font-medium tracking-[-0.029em] text-ink shadow-[0_4px_10px_rgba(45,45,83,0.1),0_1px_1px_rgba(45,45,83,0.1)] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-subtle hover:shadow-[0_10px_22px_-8px_rgba(3,26,30,0.24)]"

@@ -54,7 +54,8 @@ export const en: Dictionary = {
     badge: 'Verified, continuously refreshed, traceable',
     title: 'Trustworthy knowledge, built for every AI agent',
     lede: 'Search public knowledge libraries and feed current, versioned, citable context into Claude, Codex, Cursor or an agent of your own.',
-    install: 'Install',
+    install: 'Copy MCP URL',
+    installCopied: 'Copied',
     getKey: 'Get an API key',
     heroPoints: [
       'Public libraries are free to query',
