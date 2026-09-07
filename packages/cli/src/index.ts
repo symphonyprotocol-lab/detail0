@@ -9,7 +9,7 @@
  * write is shown first and confirmed, unless `--yes`. Without `--client`,
  * the clients whose configuration file already exists are chosen.
  *
- * Dependency-free on purpose: the whole program is what `npx re0` downloads.
+ * Dependency-free on purpose: the whole program is what `npx @symphonyprotocollab/re0` downloads.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';

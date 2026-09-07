@@ -1,17 +1,17 @@
-# re0
+# @symphonyprotocollab/re0
 
 Connect Claude Code, Claude Desktop, Cursor and Codex to [Re0](https://re0.com) knowledge libraries over MCP.
 
 ```bash
-npx re0 setup
+npx @symphonyprotocollab/re0 setup
 ```
 
 `setup` finds the MCP clients installed on this machine, shows the exact lines it is about to add to each configuration file, and writes them once you confirm. It adds one server entry named `re0` and touches nothing else.
 
 ```bash
-npx re0 setup --client cursor --client claude-code --key re0_...
-npx re0 setup --client all --yes
-npx re0 remove
+npx @symphonyprotocollab/re0 setup --client cursor --client claude-code --key re0_...
+npx @symphonyprotocollab/re0 setup --client all --yes
+npx @symphonyprotocollab/re0 remove
 ```
 
 | Option | Meaning |
