@@ -44,6 +44,20 @@ export const SELF_OWNED_SOURCE_TYPES: readonly SourceType[] = [
   'notion',
 ];
 
+/**
+ * The mirror of `SELF_OWNED_SOURCE_TYPES`: the source types a claim may name.
+ * A query that has to exclude the rest asks for this list rather than
+ * restating which three have no claim flow. It must stay in step with
+ * `claimMethodsFor` -- a type advertising a method it cannot be claimed
+ * through, or the reverse, is a dead end on the claim form.
+ */
+export const CLAIMABLE_SOURCE_TYPES: readonly SourceType[] = [
+  'github',
+  'website',
+  'llms_txt',
+  'openapi',
+];
+
 export function claimMethodsFor(type: SourceType): readonly ClaimMethod[] {
   switch (type) {
     case 'github':

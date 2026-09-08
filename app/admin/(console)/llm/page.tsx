@@ -43,7 +43,7 @@ function usdFromMicro(micro: number): string {
  * site beyond which kind of model answered.
  */
 export default async function AdminLlmPage() {
-  await requireAdminCapability('plans');
+  await requireAdminCapability('models');
   const [{ locale, t }, { entries, assignment, resolved, history, stats }] = await Promise.all([
     translations(),
     readLlmConfiguration(),

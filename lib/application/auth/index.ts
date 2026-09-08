@@ -15,6 +15,7 @@ export {
   type UserSession,
 } from './resolve-session';
 export { signOut } from './sign-out';
+export { accountProfile, type AccountProfile } from './account-profile';
 export {
   beginGithubConnect,
   checkGithubImport,
@@ -58,3 +59,5 @@ export {
   type NotionPage,
   type NotionPageReader,
 } from './notion-connection';
+export { requireScope } from './api-key';
+export { rotateApiKey, type CreateApiKeyInput } from './manage-api-keys';

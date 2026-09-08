@@ -34,8 +34,9 @@ export async function GET(
   const params = request.nextUrl.searchParams;
   const query = params.get('q')?.slice(0, 200) ?? undefined;
   const status = params.get('status')?.slice(0, 40) ?? undefined;
+  const period = params.get('period')?.slice(0, 7) ?? undefined;
 
-  const csv = await descriptor.build({ query, status });
+  const csv = await descriptor.build({ query, status, period });
 
   /*
    * Bulk extraction of user and billing data is exactly the kind of action
@@ -47,7 +48,7 @@ export async function GET(
     action: 'admin.export',
     targetType: 'console_list',
     targetId: resource,
-    afterValue: { query: query ?? null, status: status ?? null, bytes: csv.length },
+    afterValue: { query: query ?? null, status: status ?? null, period: period ?? null, bytes: csv.length },
     clientAddress:
       clientAddress(request.headers),
     result: 'success',

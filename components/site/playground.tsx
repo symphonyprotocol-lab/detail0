@@ -2,12 +2,20 @@
 
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react';
 
 import { Re0Mark } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import type {
+  PlaygroundAllowance,
   PlaygroundGather,
   PlaygroundModel,
   PlaygroundOutcome,
@@ -45,20 +53,23 @@ import { fill } from '@/lib/i18n/format';
  * `useChat` would post the whole transcript by default. Rule 4 confines the
  * model to the chunks this request retrieved, so replaying earlier turns would
  * hand it exactly the outside knowledge that rule excludes -- and the server
- * does not read them anyway.
+ * does not read them anyway. `pinned` is read at send time, so unpinning
+ * mid-session takes effect on the next question without a new transport.
  */
-const transport = new DefaultChatTransport<PlaygroundUIMessage>({
-  api: '/api/playground',
-  prepareSendMessagesRequest: ({ messages }) => {
-    const last = messages[messages.length - 1];
-    const question = (last?.parts ?? [])
-      .filter((part) => part.type === 'text')
-      .map((part) => part.text)
-      .join(' ')
-      .trim();
-    return { body: { question } };
-  },
-});
+function playgroundTransport(pinned: { current: string | null }) {
+  return new DefaultChatTransport<PlaygroundUIMessage>({
+    api: '/api/playground',
+    prepareSendMessagesRequest: ({ messages }) => {
+      const last = messages[messages.length - 1];
+      const question = (last?.parts ?? [])
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join(' ')
+        .trim();
+      return { body: { question, libraryId: pinned.current } };
+    },
+  });
+}
 
 function AssistantMark() {
   return (
@@ -141,6 +152,7 @@ function WarnCard({ title, body }: { title: string; body: string }) {
 
 /** What one assistant turn accumulated, gathered out of its stream parts. */
 interface Turn {
+  allowance: PlaygroundAllowance | null;
   routing: PlaygroundRouting | null;
   gather: PlaygroundGather | null;
   model: PlaygroundModel | null;
@@ -151,6 +163,7 @@ interface Turn {
 
 function readTurn(message: PlaygroundUIMessage): Turn {
   const turn: Turn = {
+    allowance: null,
     routing: null,
     gather: null,
     model: null,
@@ -159,7 +172,8 @@ function readTurn(message: PlaygroundUIMessage): Turn {
     outcome: null,
   };
   for (const part of message.parts) {
-    if (part.type === 'data-routing') turn.routing = part.data;
+    if (part.type === 'data-allowance') turn.allowance = part.data;
+    else if (part.type === 'data-routing') turn.routing = part.data;
     else if (part.type === 'data-gather') turn.gather = part.data;
     else if (part.type === 'data-model') turn.model = part.data;
     else if (part.type === 'data-sources') turn.sources = part.data.sources;
@@ -224,6 +238,7 @@ function SourceList({
           source={source}
           number={numbers.get(source.chunkId)}
           showLibrary={multiLibrary}
+          codeLabel={t.allowance.codeLabel}
         />
       ))}
       {folded.length > 0 ? (
@@ -241,6 +256,7 @@ function SourceList({
                 source={source}
                 number={numbers.get(source.chunkId)}
                 showLibrary={multiLibrary}
+                codeLabel={t.allowance.codeLabel}
               />
             ))}
           </div>
@@ -250,36 +266,68 @@ function SourceList({
   );
 }
 
+/**
+ * One source, and the fenced code its passage carried (requirement.md 5.1:
+ * the playground shows 代码示例). The code is the chunk's own text, lifted
+ * out by the server as data -- shown verbatim, never interpreted, and folded
+ * so a long snippet does not crowd the citation it belongs to.
+ */
 function SourceLine({
   source,
   number,
   showLibrary,
+  codeLabel,
 }: {
   source: PlaygroundSource;
   number: number | undefined;
   showLibrary: boolean;
+  codeLabel: string;
 }) {
   return (
-    <p className="flex flex-wrap items-baseline gap-1.5 text-[10.5px] text-muted">
-      <span className="rounded bg-cite/12 px-1 font-semibold text-cite">{number}</span>
-      {showLibrary ? (
-        <span
-          className="rounded bg-tray px-1 font-mono text-[10px] text-faint"
-          title={source.libraryId}
+    <div className="flex flex-col gap-1">
+      <p className="flex flex-wrap items-baseline gap-1.5 text-[10.5px] text-muted">
+        <span className="rounded bg-cite/12 px-1 font-semibold text-cite">{number}</span>
+        {showLibrary ? (
+          <span
+            className="rounded bg-tray px-1 font-mono text-[10px] text-faint"
+            title={source.libraryId}
+          >
+            {source.libraryTitle}
+          </span>
+        ) : null}
+        <a
+          href={source.sourceUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="font-semibold text-ink underline-offset-2 hover:underline"
         >
-          {source.libraryTitle}
-        </span>
+          {source.documentTitle}
+        </a>
+        {source.section ? <span>· {source.section}</span> : null}
+      </p>
+      {source.codeBlocks.length > 0 ? (
+        <details className="group ml-6">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10.5px] text-faint hover:text-muted">
+            <span aria-hidden className="transition-transform group-open:rotate-90">
+              ▸
+            </span>
+            {codeLabel}
+            {source.codeBlocks.length > 1 ? ` (${source.codeBlocks.length})` : ''}
+          </summary>
+          <div className="mt-1.5 flex flex-col gap-1.5">
+            {source.codeBlocks.map((block, index) => (
+              <pre
+                key={index}
+                data-lang={block.lang ?? undefined}
+                className="overflow-x-auto rounded-[8px] border border-line/70 bg-tray p-2.5 font-mono text-[11px] leading-[1.6] text-ink"
+              >
+                <code>{block.code}</code>
+              </pre>
+            ))}
+          </div>
+        </details>
       ) : null}
-      <a
-        href={source.sourceUrl}
-        target="_blank"
-        rel="noreferrer noopener"
-        className="font-semibold text-ink underline-offset-2 hover:underline"
-      >
-        {source.documentTitle}
-      </a>
-      {source.section ? <span>· {source.section}</span> : null}
-    </p>
+    </div>
   );
 }
 
@@ -381,7 +429,11 @@ function AssistantTurn({
 
   return (
     <AssistantRow>
-      <ToolCall name="resolve-library-id" params={routingParams} />
+      {/* A pinned exchange never ran resolve-library-id, so it is not shown
+          as if it had: the transcript is the real call sequence. */}
+      {turn.routing.pinned ? null : (
+        <ToolCall name="resolve-library-id" params={routingParams} />
+      )}
       {candidates.map((candidate) => (
         <ToolCall
           key={candidate.libraryId}
@@ -494,10 +546,25 @@ function errorMessage(error: Error | undefined, t: Dictionary['playground']): st
   return t.askError;
 }
 
-export function Playground() {
+export function Playground({
+  /**
+   * A public Library ID to query instead of auto-routing -- the detail page's
+   * "Try in Playground" (`/playground?library=`). Cleared by the visitor
+   * from the chip above the composer.
+   */
+  initialLibrary = null,
+}: {
+  initialLibrary?: string | null;
+}) {
   const { t: messages } = useI18n();
   const t = messages.playground;
   const [question, setQuestion] = useState('');
+  const [pinnedLibrary, setPinnedLibrary] = useState<string | null>(initialLibrary);
+  const pinned = useRef<string | null>(initialLibrary);
+  useEffect(() => {
+    pinned.current = pinnedLibrary;
+  }, [pinnedLibrary]);
+  const transport = useMemo(() => playgroundTransport(pinned), []);
   const scroller = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
 
@@ -512,6 +579,16 @@ export function Playground() {
   });
 
   const busy = status === 'submitted' || status === 'streaming';
+
+  /*
+   * Rule 8: where the visitor stands, from the newest exchange the server
+   * answered. Nothing is shown before the first one -- the count is the
+   * limiter's, and the page does not guess at it.
+   */
+  const allowance = [...turns]
+    .reverse()
+    .map((message) => (message.role === 'assistant' ? readTurn(message).allowance : null))
+    .find((entry) => entry !== null) ?? null;
 
   /*
    * Follow the stream, but only for a reader who is already at the bottom --
@@ -605,6 +682,20 @@ export function Playground() {
         </div>
 
         <form onSubmit={onSubmit} className="p-3.5">
+          {pinnedLibrary ? (
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-muted">
+              <span className="rounded-full bg-brandsoft px-2.5 py-0.5 font-mono text-[10.5px] font-semibold text-brandink">
+                {fill(t.allowance.pinnedTo, { library: pinnedLibrary })}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPinnedLibrary(null)}
+                className="text-[11px] text-faint underline-offset-2 hover:text-ink hover:underline"
+              >
+                {t.allowance.unpin}
+              </button>
+            </div>
+          ) : null}
           <div className="relative rounded-[12px] border-2 border-line bg-field transition-colors focus-within:border-brand">
             <textarea
               ref={composer}
@@ -651,6 +742,32 @@ export function Playground() {
           </div>
         </form>
       </div>
+
+      {allowance ? (
+        <p
+          aria-live="polite"
+          className="mt-3 text-center text-[11.5px] leading-[1.7] text-muted"
+        >
+          {allowance.anonymous ? (
+            <>
+              <span className="font-semibold text-ink">
+                {allowance.remaining !== null && allowance.remaining > 0
+                  ? fill(t.allowance.anonymous, {
+                      remaining: allowance.remaining,
+                      limit: allowance.limit ?? 0,
+                    })
+                  : t.allowance.anonymousExhausted}
+              </span>{' '}
+              {t.allowance.signedInDifference}{' '}
+              <a href="/login" className="font-medium text-brandink underline-offset-2 hover:underline">
+                {t.allowance.signIn}
+              </a>
+            </>
+          ) : (
+            t.allowance.signedIn
+          )}
+        </p>
+      ) : null}
 
       <p className="mt-3.5 text-center text-[11.5px] leading-[1.7] text-faint">
         {t.footnoteLine1}

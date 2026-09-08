@@ -21,7 +21,7 @@
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { IngestionFailure } from '@/lib/domain/ingestion';
 import { retrievalCache } from '@/lib/infrastructure/cache/redis';
-import { uploadedFilesOf } from '@/lib/domain/library';
+import { UPLOAD_SOURCE_TYPES, uploadedFilesOf } from '@/lib/domain/library';
 import { objectKeys } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { defaultDependencies, type IngestionDependencies } from './dependencies';
@@ -81,7 +81,12 @@ export async function purgeLibrary(input: {
     database
       .select({ config: schema.source.config })
       .from(schema.source)
-      .where(and(eq(schema.source.libraryId, library.id), eq(schema.source.type, 'pdf'))),
+      .where(
+        and(
+          eq(schema.source.libraryId, library.id),
+          inArray(schema.source.type, [...UPLOAD_SOURCE_TYPES]),
+        ),
+      ),
   ]);
 
   const keys = [

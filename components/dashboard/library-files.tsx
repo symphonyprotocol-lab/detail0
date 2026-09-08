@@ -10,19 +10,21 @@ import {
 import { PANEL } from '@/components/dashboard/ui';
 import { FileTextIcon, RefreshIcon } from '@/components/ui/icons';
 import type { UpdateLibraryFilesActionResult } from '@/app/dashboard/libraries/[libraryId]/files/actions';
-import { UPLOAD_LIMITS, type UploadedFile } from '@/lib/domain/library';
+import { UPLOAD_LIMITS, type UploadedFile, type UploadSourceType } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
 
 /**
- * A PDF library's files, editable in place: mark listed files for removal,
- * upload new ones, save once. The save posts the manifest of what landed and
- * the ids to drop; the use case confirms both before the source changes and
- * queues the rebuild (`lib/application/libraries/files.ts`).
+ * An upload library's files -- PDFs, or Markdown/MDX when `kind` says so --
+ * editable in place: mark listed files for removal, upload new ones, save
+ * once. The save posts the manifest of what landed and the ids to drop; the
+ * use case confirms both against the source's own kind before the source
+ * changes and queues the rebuild (`lib/application/libraries/files.ts`).
  */
 export function LibraryFiles({
   libraryId,
   files,
+  kind,
   building,
   canEdit,
   action,
@@ -30,6 +32,8 @@ export function LibraryFiles({
 }: {
   libraryId: string;
   files: UploadedFile[];
+  /** What this library holds; the picker and the copy follow it. */
+  kind: UploadSourceType;
   building: boolean;
   canEdit: boolean;
   action: (
@@ -40,9 +44,12 @@ export function LibraryFiles({
 }) {
   const { t } = useI18n();
   const f = t.dashboard.libraryFiles;
+  /* The Markdown lines that differ from the PDF ones; everything else the
+     two kinds say the same way. */
+  const md = kind === 'markdown' ? f.markdown : null;
   const [removed, setRemoved] = useState<Set<string>>(() => new Set());
   const room = Math.max(0, UPLOAD_LIMITS.maxFiles - (files.length - removed.size));
-  const uploads = usePdfUploads(prepare, room);
+  const uploads = usePdfUploads(prepare, room, kind);
   const [state, formAction, pending] = useActionState(action, null);
 
   /* A saved edit comes back as new `files` from the server; what was pending
@@ -84,7 +91,9 @@ export function LibraryFiles({
       <section className="flex flex-col gap-2">
         <h2 className="text-[11px] font-semibold tracking-[-0.023em] text-steel">{f.currentTitle}</h2>
         {files.length === 0 ? (
-          <p className="text-[12px] tracking-[-0.023em] text-muted">{f.currentEmpty}</p>
+          <p className="text-[12px] tracking-[-0.023em] text-muted">
+            {md?.currentEmpty ?? f.currentEmpty}
+          </p>
         ) : (
           <ul className="flex flex-col gap-1.5">
             {files.map((file) => {
@@ -128,7 +137,7 @@ export function LibraryFiles({
         <PdfUploadField
           state={uploads}
           label={f.addTitle}
-          hint={fill(f.addHint, {
+          hint={fill(md?.addHint ?? f.addHint, {
             max: String(UPLOAD_LIMITS.maxFiles),
             size: formatBytes(UPLOAD_LIMITS.maxFileBytes),
           })}

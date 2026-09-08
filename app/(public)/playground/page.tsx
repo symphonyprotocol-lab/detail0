@@ -7,8 +7,12 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: playground.metaTitle, description: playground.metaDescription };
 }
 
-export default async function PlaygroundPage() {
-  const { playground } = await getMessages();
+type Search = { searchParams: Promise<{ library?: string }> };
+
+/** `?library=/owner/repo` pins the transcript to one public library (the detail page's entry). */
+export default async function PlaygroundPage({ searchParams }: Search) {
+  const [{ library }, { playground }] = await Promise.all([searchParams, getMessages()]);
+  const initialLibrary = library && library.startsWith('/') ? library.slice(0, 256) : null;
 
   return (
     <section>
@@ -19,7 +23,7 @@ export default async function PlaygroundPage() {
           {playground.titleLine2}
         </h1>
         <div className="mt-9">
-          <Playground />
+          <Playground initialLibrary={initialLibrary} />
         </div>
       </div>
     </section>

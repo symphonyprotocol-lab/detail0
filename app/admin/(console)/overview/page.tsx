@@ -8,6 +8,7 @@ import {
   Meter,
   Panel,
   PanelHead,
+  Pill,
 } from '@/components/admin/ui';
 import {
   ArrowUpRightIcon,
@@ -16,6 +17,7 @@ import {
   ClockIcon,
   DatabaseIcon,
   FileTextIcon,
+  ReceiptIcon,
   TrendingUpIcon,
   UsersIcon,
 } from '@/components/ui/icons';
@@ -175,6 +177,23 @@ export default async function AdminOverviewPage({
         deltaLabel: o.previousMonth,
         caption: o.previousMonthNone,
       },
+      /*
+       * Paying workspaces and the share of accounts they are. Both need
+       * `billing`; the rate also needs `users`, and reads as unavailable
+       * rather than zero without it.
+       */
+      {
+        need: 'billing',
+        label: o.paid.label,
+        Icon: ReceiptIcon,
+        value: (view.paidWorkspaces ?? 0).toLocaleString('en-US'),
+        changeBps: null,
+        deltaLabel: '',
+        caption:
+          view.conversionBps === null
+            ? o.paid.conversionNone
+            : fill(o.paid.conversion, { rate: percentFromBps(view.conversionBps) }),
+      },
     ] satisfies StatTile[]
   ).filter((tile) => can(tile.need));
 
@@ -219,6 +238,44 @@ export default async function AdminOverviewPage({
           : fill(o.health.reviewValue, { count: review.pending, overdue: review.overdue }),
       percent: review.pending === 0 ? 100 : ((review.pending - review.overdue) / review.pending) * 100,
     },
+  ];
+
+  /*
+   * Configuration facts, not probes: each says whether a service is wired
+   * up, never whether it answered just now. The payment row is the honest
+   * "no": nothing executes a payout until an adapter exists.
+   */
+  const services = view.services;
+  const onOff = (configured: boolean) => (configured ? o.services.on : o.services.off);
+  const serviceRows: { label: string; value: string; tone: 'ok' | 'warn' | 'neutral' }[] = [
+    {
+      label: o.services.llm,
+      value: services.llm.model
+        ? fill(services.llm.keyPresent ? o.services.llmReady : o.services.llmKeyMissing, {
+            model: services.llm.model,
+          })
+        : o.services.llmNone,
+      tone: services.llm.model && services.llm.keyPresent ? 'ok' : 'warn',
+    },
+    {
+      label: o.services.retrieval,
+      value: fill(o.services.retrievalValue, {
+        embeddings: onOff(services.retrieval.embeddings),
+        rerank: onOff(services.retrieval.rerank),
+      }),
+      tone: services.retrieval.embeddings ? 'ok' : 'warn',
+    },
+    {
+      label: o.services.objectStore,
+      value: onOff(services.objectStore),
+      tone: services.objectStore ? 'ok' : 'warn',
+    },
+    {
+      label: o.services.ingestion,
+      value: onOff(services.ingestion),
+      tone: services.ingestion ? 'ok' : 'warn',
+    },
+    { label: o.services.payments, value: o.services.paymentsNone, tone: 'neutral' },
   ];
 
   const rangeHref = (days: OverviewRange) =>
@@ -469,6 +526,24 @@ export default async function AdminOverviewPage({
             </li>
           ))}
         </ul>
+
+        {/* External services -- wired up or not, from the environment and the registry. */}
+        <div className="border-t-2 border-line px-[17px] py-4">
+          <p className="mb-3 text-[11px] font-bold tracking-[0.02em] text-faint">{o.services.title}</p>
+          <ul className="flex flex-col gap-2.5">
+            {serviceRows.map((row) => (
+              <li key={row.label} className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[12px] font-semibold tracking-[-0.023em] text-ink">{row.label}</span>
+                <span className="flex items-center gap-2">
+                  <span className="text-[11px] tracking-[-0.023em] text-muted">{row.value}</span>
+                  <Pill tone={row.tone}>
+                    {row.tone === 'ok' ? o.services.on : row.tone === 'warn' ? o.services.off : o.services.absent}
+                  </Pill>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       </Panel>
     </div>
   );

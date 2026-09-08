@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { ClaimControls } from '@/components/admin/claim-controls';
 import { FilterSelect } from '@/components/admin/list-controls';
 import {
   ConsoleButton,
@@ -6,8 +7,9 @@ import {
   ConsolePageHeader,
   EmptyRow,
   ExportLink,
-  IconButton,
+  IconLink,
   ListToolbar,
+  Pagination,
   Panel,
   Pill,
   TabBar,
@@ -16,12 +18,13 @@ import {
   TH,
   TitleCell,
 } from '@/components/admin/ui';
-import { EllipsisIcon, EyeIcon, ScaleIcon } from '@/components/ui/icons';
+import { EyeIcon, ScaleIcon } from '@/components/ui/icons';
 import { listClaims, type ClaimFilter } from '@/lib/application/administration';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
-import { oneOf, PAGE_SIZE, searchTerm, utcStamp } from '../list-params';
+import { initialsOf, oneOf, PAGE_SIZE, pageNumber, pageWindow, searchTerm, utcStamp } from '../list-params';
+import { revokeClaimAction, ruleDisputeAction } from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).admin.claims.title };
@@ -45,29 +48,47 @@ const CLAIM_TONE: Record<string, 'warn' | 'ok' | 'danger' | 'neutral'> = {
  * which is a fact about the pair rather than a state of the claim. The tab
  * derives it.
  */
+/** A stored enum through its dictionary, with the raw value as the fallback. */
+function label(map: Record<string, string>, key: string): string {
+  return map[key] ?? key;
+}
+
 export default async function AdminClaimsPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const [, params, t] = await Promise.all([
-    requireAdminCapability('libraries'),
+    requireAdminCapability('claims'),
     searchParams,
     getMessages(),
   ]);
   const c = t.admin.claims;
+  const d = t.admin.claimDetail;
   const f = t.admin.filters;
   const query = searchTerm(params.q);
   const status = oneOf(params.status, FILTERS, 'all');
+  const page = pageNumber(params.page);
 
-  const { rows, total, counts } = await listClaims({ query, status, limit: PAGE_SIZE });
+  const { rows, total, counts } = await listClaims({
+    query,
+    status,
+    limit: PAGE_SIZE,
+    offset: (page - 1) * PAGE_SIZE,
+  });
+  const view = pageWindow({ page, total, rows: rows.length });
 
-  const href = (next: ClaimFilter) => {
+  /* One link builder for the tabs and the footer: a tab resets the page. */
+  const link = (next: { status?: ClaimFilter; page?: number }) => {
     const search = new URLSearchParams();
     if (query) search.set('q', query);
-    if (next !== 'all') search.set('status', next);
+    const filter = next.status ?? status;
+    if (filter !== 'all') search.set('status', filter);
+    const target = next.page ?? 1;
+    if (target > 1) search.set('page', String(target));
     return `/admin/claims${search.size > 0 ? `?${search.toString()}` : ''}`;
   };
+  const href = (next: ClaimFilter) => link({ status: next });
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -139,20 +160,38 @@ export default async function AdminClaimsPage({
                     <TitleCell title={claim.libraryTitle} meta={claim.libraryPublicId} />
                   </td>
                   <td className={TD}>{claim.claimantName || '—'}</td>
-                  <td className={`${TD} whitespace-nowrap`}>{claim.method}</td>
+                  <td className={`${TD} whitespace-nowrap`}>{label(d.methods, claim.method)}</td>
                   <td className={`${TD} whitespace-nowrap`}>{utcStamp(claim.openedAt)}</td>
                   <td className={TD}>{claim.currentOwner ?? t.adminDemo.unclaimed}</td>
                   <td className={TD}>
-                    <Pill tone={CLAIM_TONE[claim.status] ?? 'neutral'}>{claim.status}</Pill>
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <Pill tone={CLAIM_TONE[claim.status] ?? 'neutral'}>
+                        {label(d.statuses, claim.status)}
+                      </Pill>
+                      {claim.disputed ? <Pill tone="warn">{d.disputedBadge}</Pill> : null}
+                    </span>
                   </td>
                   <td className={TD}>
                     <span className="flex items-center gap-1.5">
-                      <IconButton label={t.admin.actions.view}>
+                      <IconLink
+                        label={t.admin.actions.view}
+                        href={`/admin/claims/${encodeURIComponent(claim.id)}`}
+                      >
                         <EyeIcon size={14} />
-                      </IconButton>
-                      <IconButton label={t.admin.actions.more}>
-                        <EllipsisIcon size={14} />
-                      </IconButton>
+                      </IconLink>
+                      <ClaimControls
+                        target={{
+                          id: claim.id,
+                          libraryTitle: claim.libraryTitle,
+                          libraryPublicId: claim.libraryPublicId,
+                          claimantName: claim.claimantName || '—',
+                          initial: initialsOf(claim.libraryTitle),
+                        }}
+                        status={claim.status}
+                        disputed={claim.disputed}
+                        ruleAction={ruleDisputeAction}
+                        revokeAction={revokeClaimAction}
+                      />
                     </span>
                   </td>
                 </tr>
@@ -161,11 +200,14 @@ export default async function AdminClaimsPage({
           </table>
         </TableScroller>
 
-        <div className="border-t-2 border-line px-4 py-[11px]">
-          <p className="text-[12px] tracking-[-0.023em] text-muted">
-            {fill(c.showing, { from: rows.length === 0 ? 0 : 1, to: rows.length, total })}
-          </p>
-        </div>
+        <Pagination
+          summary={fill(c.showing, { from: view.from, to: view.to, total })}
+          pages={view.pages}
+          activePage={page}
+          pageCount={view.pageCount}
+          href={(target) => link({ page: target })}
+          labels={t.admin.actions}
+        />
       </Panel>
     </div>
   );

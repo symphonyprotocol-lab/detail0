@@ -8,9 +8,9 @@
  * the bytes never proxy through the app (architecture.md 7). A file that is
  * not this workspace's is a 404, not a 403: the id is not to be confirmed.
  */
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
-import { uploadedFilesOf } from '@/lib/domain/library';
+import { UPLOAD_SOURCE_TYPES, uploadedFilesOf } from '@/lib/domain/library';
 import { currentSession } from '@/lib/http/session';
 import { isObjectStoreConfigured, objectStore } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -33,7 +33,7 @@ export async function GET(
     .innerJoin(schema.library, eq(schema.library.id, schema.source.libraryId))
     .where(
       and(
-        eq(schema.source.type, 'pdf'),
+        inArray(schema.source.type, [...UPLOAD_SOURCE_TYPES]),
         eq(schema.library.ownerWorkspaceId, session.workspace.id),
         isNull(schema.library.deletedAt),
         sql`${schema.source.config} @> ${JSON.stringify({ files: [{ id: fileId }] })}::jsonb`,

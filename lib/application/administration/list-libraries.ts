@@ -186,11 +186,22 @@ export type ClaimFilter = 'all' | 'pending' | 'claimed' | 'revoked' | 'disputed'
 
 /**
  * `claim_status` has no `disputed` value, and should not: requirement.md 7.3
- * defines a dispute as a claim opened on a library that already has an owner,
- * which is a fact about the pair rather than a state of the claim. It is
- * derived here so the tab means what the rule says.
+ * defines a dispute as a claim opened on a library that already has *another*
+ * owner, which is a fact about the pair rather than a state of the claim. It
+ * is derived here so the tab means what the rule says.
+ *
+ * The `<>` clause is the whole of it. Without it the queue counts a claim by
+ * the workspace that already owns the library -- and offers a Grant control
+ * that `ruleDispute` then refuses as "not a dispute", which is the console
+ * disagreeing with itself. `isDisputedClaim` is the same predicate in
+ * TypeScript, for every caller that has the rows rather than the query.
  */
-const DISPUTED = sql`${schema.libraryClaim.status} = 'pending' and ${schema.library.ownerWorkspaceId} is not null`;
+const DISPUTED = sql`${schema.libraryClaim.status} = 'pending'
+  and ${schema.library.ownerWorkspaceId} is not null
+  and ${schema.library.ownerWorkspaceId} <> ${schema.libraryClaim.claimantWorkspaceId}`;
+
+/** The same derivation as `DISPUTED`, per row, so the list can mark one. */
+const IS_DISPUTED = sql<boolean>`(${DISPUTED})`;
 
 export interface ConsoleClaimRow {
   id: string;
@@ -201,9 +212,13 @@ export interface ConsoleClaimRow {
   openedAt: Date;
   currentOwner: string | null;
   status: string;
+  /** Pending on a library that already has an owner: an administrator decides it. */
+  disputed: boolean;
 }
 
-export async function listClaims(input: { query?: string; status?: ClaimFilter; limit?: number } = {}): Promise<{
+export async function listClaims(
+  input: { query?: string; status?: ClaimFilter; limit?: number; offset?: number } = {},
+): Promise<{
   rows: ConsoleClaimRow[];
   total: number;
   counts: Record<string, number>;
@@ -238,12 +253,14 @@ export async function listClaims(input: { query?: string; status?: ClaimFilter; 
         openedAt: schema.libraryClaim.createdAt,
         currentOwner: ownerName,
         claimantName: claimant,
+        disputed: IS_DISPUTED,
       })
       .from(schema.libraryClaim)
       .innerJoin(schema.library, eq(schema.library.id, schema.libraryClaim.libraryId))
       .where(where)
       .orderBy(desc(schema.libraryClaim.createdAt))
-      .limit(input.limit ?? 50),
+      .limit(input.limit ?? 50)
+      .offset(input.offset ?? 0),
     database
       .select({ n: count() })
       .from(schema.libraryClaim)
@@ -266,6 +283,7 @@ export async function listClaims(input: { query?: string; status?: ClaimFilter; 
       ...row,
       claimantName: row.claimantName ?? '',
       currentOwner: row.currentOwner,
+      disputed: Boolean(row.disputed),
     })),
     total: totalRow?.n ?? 0,
     counts: {

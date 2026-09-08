@@ -20,10 +20,13 @@ import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { uuidv7 } from '@/lib/domain/id';
 import {
+  isUploadSourceType,
   mergeUploadedFiles,
   parseUploadManifest,
+  UPLOAD_SOURCE_TYPES,
   uploadedFilesOf,
   type UploadedFile,
+  type UploadSourceType,
 } from '@/lib/domain/library';
 import type { IndexStatus, LifecycleStatus } from '@/lib/domain';
 import type { ObjectStore } from '@/lib/infrastructure/objects/store';
@@ -45,6 +48,8 @@ export interface LibraryFilesView {
     lifecycleStatus: LifecycleStatus;
     indexStatus: IndexStatus;
   };
+  /** Which kind of file the library holds: PDFs, or Markdown/MDX. */
+  kind: UploadSourceType;
   files: UploadedFile[];
   /** True while a build is pending or running, so the page can say so. */
   building: boolean;
@@ -68,13 +73,19 @@ export async function libraryFiles(input: {
       title: schema.library.title,
       lifecycleStatus: schema.library.lifecycleStatus,
       indexStatus: schema.library.indexStatus,
+      type: schema.source.type,
       config: schema.source.config,
     })
     .from(schema.library)
     .innerJoin(schema.source, eq(schema.source.libraryId, schema.library.id))
-    .where(and(ownedPdfLibrary(input.workspaceId, input.libraryId), eq(schema.source.type, 'pdf')))
+    .where(
+      and(
+        ownedPdfLibrary(input.workspaceId, input.libraryId),
+        inArray(schema.source.type, [...UPLOAD_SOURCE_TYPES]),
+      ),
+    )
     .limit(1);
-  if (!row) return null;
+  if (!row || !isUploadSourceType(row.type)) return null;
 
   const open = await openBuild(database, row.id);
   return {
@@ -85,6 +96,7 @@ export async function libraryFiles(input: {
       lifecycleStatus: row.lifecycleStatus,
       indexStatus: row.indexStatus,
     },
+    kind: row.type,
     files: uploadedFilesOf(row.config),
     building: open !== null,
   };
@@ -115,15 +127,31 @@ export async function updateLibraryFiles(
   }
   if (!UUID.test(input.libraryId)) throw new AppError('library_not_found', 'no such library');
 
-  const manifest =
-    input.add === undefined || input.add === null
-      ? { files: [] as UploadedFile[] }
-      : parseUploadManifest(input.add, input.workspaceId);
-  if (!manifest) throw new AppError('invalid_request', 'the upload manifest is not valid');
   const remove = input.remove ?? [];
   if (remove.some((id) => typeof id !== 'string' || !UUID.test(id))) {
     throw new AppError('invalid_request', 'a file id to remove is not valid');
   }
+
+  /* The manifest is read against the source's own kind: a `.md` manifest
+     posted to a PDF library is refused, not stored. */
+  const database = db();
+  const [kind] = await database
+    .select({ type: schema.source.type })
+    .from(schema.library)
+    .innerJoin(schema.source, eq(schema.source.libraryId, schema.library.id))
+    .where(
+      and(
+        ownedPdfLibrary(input.workspaceId, input.libraryId),
+        inArray(schema.source.type, [...UPLOAD_SOURCE_TYPES]),
+      ),
+    )
+    .limit(1);
+  if (!kind || !isUploadSourceType(kind.type)) throw new AppError('library_not_found', 'no such library');
+  const manifest =
+    input.add === undefined || input.add === null
+      ? { files: [] as UploadedFile[] }
+      : parseUploadManifest(input.add, input.workspaceId, kind.type);
+  if (!manifest) throw new AppError('invalid_request', 'the upload manifest is not valid');
   if (manifest.files.length === 0 && remove.length === 0) {
     throw new AppError('invalid_request', 'nothing to change');
   }
@@ -138,7 +166,6 @@ export async function updateLibraryFiles(
     await assertBuildAffordable({ workspaceId: input.workspaceId, fetchesPages: false });
   }
 
-  const database = db();
   return database.transaction(async (tx) => {
     const [locked] = await tx
       .select({ id: schema.library.id })
@@ -150,7 +177,12 @@ export async function updateLibraryFiles(
     const [source] = await tx
       .select({ id: schema.source.id, config: schema.source.config })
       .from(schema.source)
-      .where(and(eq(schema.source.libraryId, locked.id), eq(schema.source.type, 'pdf')))
+      .where(
+        and(
+          eq(schema.source.libraryId, locked.id),
+          inArray(schema.source.type, [...UPLOAD_SOURCE_TYPES]),
+        ),
+      )
       .limit(1);
     if (!source) throw new AppError('library_not_found', 'no such library');
 

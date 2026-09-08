@@ -4,7 +4,7 @@ import { MobileNav } from '@/components/site/mobile-nav';
 import { WorkspaceAvatar } from '@/components/dashboard/workspace-avatar';
 import { Wordmark } from '@/components/site/wordmark';
 import { LogOutIcon } from '@/components/ui/icons';
-import { WORKSPACE_INITIAL } from '@/lib/dashboard/demo-data';
+import { WORKSPACE_INITIAL } from '@/lib/dashboard/snippets';
 import { getMessages } from '@/lib/i18n/server';
 
 /**

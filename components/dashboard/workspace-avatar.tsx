@@ -1,4 +1,4 @@
-import { WORKSPACE_INITIAL } from '@/lib/dashboard/demo-data';
+import { WORKSPACE_INITIAL } from '@/lib/dashboard/snippets';
 
 /**
  * Monogram tile used by both the header pill and the sidebar workspace row.

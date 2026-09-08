@@ -6,7 +6,7 @@
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';
-import { resolveApiKey } from '@/lib/application/auth/api-key';
+import { requireScope, resolveApiKey } from '@/lib/application/auth/api-key';
 import { usageOverview } from '@/lib/application/plans';
 import { errorResponse, newRequestId } from '@/lib/http/respond';
 
@@ -17,6 +17,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const principal = await resolveApiKey(request.headers.get('authorization'));
     if (!principal) throw new AppError('invalid_api_key', 'an API key is required');
+    requireScope(principal, 'usage:read');
 
     const overview = await usageOverview(principal.workspaceId);
     return NextResponse.json(

@@ -232,6 +232,13 @@
       "when": 1788701100000,
       "tag": "0032_console_overview_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1788701200000,
+      "tag": "0033_request_log_tokens_and_key",
+      "breakpoints": true
     }
   ]
 }

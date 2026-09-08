@@ -461,3 +461,131 @@ export async function setUserAccountStatus(
 
   return { status: input.status, sessionsRevoked };
 }
+
+export interface UserRevocation {
+  actor: { administratorId: string; email: string; clientAddress?: string | null };
+  userId: string;
+  /** The session or key, which must belong to that user or their workspaces. */
+  targetId: string;
+  reason: string;
+}
+
+/**
+ * End one of an account's web sessions. requirement.md 5.3, 3.2.
+ *
+ * Narrower than a suspension: the account stays active and every other
+ * session keeps working. The row is looked up by user as well as id, so a
+ * session id pasted from another account's page cannot be revoked through
+ * this one -- the target is the user, and the session is a detail of it.
+ *
+ * Already-revoked and expired sessions are refused as `not_found` rather
+ * than silently re-stamped: an audit entry that says a session was ended
+ * should mean one was.
+ */
+export async function revokeUserSession(input: UserRevocation): Promise<void> {
+  const reason = normalizeReason(input.reason);
+  if (!isUuid(input.userId) || !isUuid(input.targetId)) {
+    throw new AdminChangeRefused('not_found', 'no such session');
+  }
+
+  const database = db();
+  const now = new Date();
+  const [session] = await database
+    .select({
+      id: schema.userSession.id,
+      clientSummary: schema.userSession.clientSummary,
+      expiresAt: schema.userSession.expiresAt,
+      revokedAt: schema.userSession.revokedAt,
+    })
+    .from(schema.userSession)
+    .where(and(eq(schema.userSession.id, input.targetId), eq(schema.userSession.userId, input.userId)))
+    .limit(1);
+
+  if (!session || session.revokedAt !== null || session.expiresAt.getTime() <= now.getTime()) {
+    throw new AdminChangeRefused('not_found', 'no live session with that id for this user');
+  }
+
+  await database
+    .update(schema.userSession)
+    .set({ revokedAt: now })
+    .where(and(eq(schema.userSession.id, session.id), isNull(schema.userSession.revokedAt)));
+
+  await recordAudit({
+    administratorId: input.actor.administratorId,
+    action: 'user.revoke_session',
+    targetType: 'user',
+    targetId: input.userId,
+    reason,
+    beforeValue: { sessionId: session.id, client: session.clientSummary, revokedAt: null },
+    afterValue: { sessionId: session.id, client: session.clientSummary, revokedAt: now.toISOString() },
+    clientAddress: input.actor.clientAddress ?? null,
+    result: 'success',
+  });
+}
+
+/**
+ * Revoke one of an account's API keys. requirement.md 5.3.
+ *
+ * Irreversible, which is why a suspension leaves keys alone
+ * (`setUserAccountStatus`) and this exists separately: an operator who has a
+ * specific leaked or abused key in front of them can end that one on purpose,
+ * with the name and prefix recorded, while the rest of the integration keeps
+ * working. The key must belong to a workspace the user is a member of.
+ */
+export async function revokeUserApiKey(input: UserRevocation): Promise<void> {
+  const reason = normalizeReason(input.reason);
+  if (!isUuid(input.userId) || !isUuid(input.targetId)) {
+    throw new AdminChangeRefused('not_found', 'no such key');
+  }
+
+  const database = db();
+  const now = new Date();
+  const [key] = await database
+    .select({
+      id: schema.apiKey.id,
+      name: schema.apiKey.name,
+      keyPrefix: schema.apiKey.keyPrefix,
+      lastFour: schema.apiKey.lastFour,
+      environment: schema.apiKey.environment,
+      workspaceId: schema.apiKey.workspaceId,
+      revokedAt: schema.apiKey.revokedAt,
+    })
+    .from(schema.apiKey)
+    .innerJoin(
+      schema.workspaceMember,
+      and(
+        eq(schema.workspaceMember.workspaceId, schema.apiKey.workspaceId),
+        eq(schema.workspaceMember.userId, input.userId),
+      ),
+    )
+    .where(eq(schema.apiKey.id, input.targetId))
+    .limit(1);
+
+  if (!key || key.revokedAt !== null) {
+    throw new AdminChangeRefused('not_found', 'no live key with that id for this user');
+  }
+
+  await database
+    .update(schema.apiKey)
+    .set({ revokedAt: now })
+    .where(and(eq(schema.apiKey.id, key.id), isNull(schema.apiKey.revokedAt)));
+
+  const snapshot = {
+    keyId: key.id,
+    name: key.name,
+    key: `${key.keyPrefix}…${key.lastFour}`,
+    environment: key.environment,
+    workspaceId: key.workspaceId,
+  };
+  await recordAudit({
+    administratorId: input.actor.administratorId,
+    action: 'user.revoke_api_key',
+    targetType: 'user',
+    targetId: input.userId,
+    reason,
+    beforeValue: { ...snapshot, revokedAt: null },
+    afterValue: { ...snapshot, revokedAt: now.toISOString() },
+    clientAddress: input.actor.clientAddress ?? null,
+    result: 'success',
+  });
+}

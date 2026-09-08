@@ -12,8 +12,8 @@
  * race -- a create that lands after this decides -- is closed by age: the
  * grace period is far longer than an upload token lives.
  */
-import { eq } from 'drizzle-orm';
-import { abandonedUploadKeys, uploadedFilesOf } from '@/lib/domain/library';
+import { inArray } from 'drizzle-orm';
+import { abandonedUploadKeys, UPLOAD_SOURCE_TYPES, uploadedFilesOf } from '@/lib/domain/library';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { defaultDependencies, type IngestionDependencies } from './dependencies';
 
@@ -40,7 +40,7 @@ export async function purgeAbandonedUploads(input: {
   const sources = await db()
     .select({ config: schema.source.config })
     .from(schema.source)
-    .where(eq(schema.source.type, 'pdf'));
+    .where(inArray(schema.source.type, [...UPLOAD_SOURCE_TYPES]));
   const referenced = new Set(
     sources.flatMap((source) => uploadedFilesOf(source.config).map((file) => file.key)),
   );

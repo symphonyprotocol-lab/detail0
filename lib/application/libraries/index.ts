@@ -7,15 +7,22 @@ export function notImplemented(name: string): never {
 
 export {
   countWorkspaceLibraries,
+  largestWorkspaceLibraryBytes,
   listWorkspaceLibraries,
   type WorkspaceLibraryRow,
 } from './workspace';
 export {
+  anchoredPublicIds,
   countPublicLibraries,
   listPublicLibraries,
   publicLibraryDetail,
+  publicLibraryHeading,
+  CATALOG_PAGE_SIZE,
+  POPULARITY_WINDOW_DAYS,
   type CatalogEntry,
   type PublicLibraryDetail,
+  type PublicLibrarySource,
+  type PublicLibraryVersion,
 } from './catalog';
 export {
   prepareUploads,
@@ -67,3 +74,14 @@ export {
   type DomainChallenge,
   type StartDomainVerificationInput,
 } from './domain-verification';
+export {
+  applyOwnerLifecycleAction,
+  editLibraryMetadata,
+  updateParseScope,
+  type EditLibraryMetadataInput,
+  type EditLibraryMetadataResult,
+  type OwnerLifecycleInput,
+  type OwnerLifecycleResult,
+  type UpdateParseScopeInput,
+  type UpdateParseScopeResult,
+} from './manage';

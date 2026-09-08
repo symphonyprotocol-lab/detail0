@@ -39,9 +39,15 @@ export interface DeleteLibraryTarget {
 export function DeleteLibraryControl({
   action,
   target,
+  variant = 'icon',
+  onDeleted,
 }: {
   action: DeleteLibraryAction;
   target: DeleteLibraryTarget;
+  /** `icon` beside a list row; `button` with its label, for the detail page's toolbar. */
+  variant?: 'icon' | 'button';
+  /** Called when the dialog closes after a successful delete -- the detail page leaves. */
+  onDeleted?: () => void;
 }) {
   const { t } = useI18n();
   const label = t.dashboard.libraries.delete;
@@ -50,24 +56,36 @@ export function DeleteLibraryControl({
 
   return (
     <>
-      <button
-        type="button"
-        aria-label={label}
-        title={label}
-        onClick={() => setOpen(true)}
-        className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-[6px] border-2 border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-rose"
-      >
-        <TrashIcon size={14} />
-      </button>
+      {variant === 'icon' ? (
+        <button
+          type="button"
+          aria-label={label}
+          title={label}
+          onClick={() => setOpen(true)}
+          className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-[6px] border-2 border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-rose"
+        >
+          <TrashIcon size={14} />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex h-[35px] items-center gap-1.5 rounded-[7px] border-2 border-line bg-card px-3 text-[12px] font-medium text-ink transition-colors hover:bg-subtle hover:text-rose"
+        >
+          <TrashIcon size={14} />
+          {label}
+        </button>
+      )}
 
       {open ? (
         <DeleteDialog
           key={attempt}
           action={action}
           target={target}
-          onClose={() => {
+          onClose={(deleted) => {
             setOpen(false);
             setAttempt((value) => value + 1);
+            if (deleted) onDeleted?.();
           }}
         />
       ) : null}
@@ -85,7 +103,7 @@ function DeleteDialog({
 }: {
   action: DeleteLibraryAction;
   target: DeleteLibraryTarget;
-  onClose: () => void;
+  onClose: (deleted: boolean) => void;
 }) {
   const { t } = useI18n();
   const r = t.dashboard.libraries.deleteDialog;
@@ -97,7 +115,7 @@ function DeleteDialog({
 
   return (
     <ConsoleDialog
-      onClose={onClose}
+      onClose={() => onClose(done)}
       busy={pending}
       closeLabel={r.close}
       title={r.title}
@@ -106,7 +124,7 @@ function DeleteDialog({
         done ? (
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => onClose(true)}
             className={`${BUTTON} border-2 border-line bg-card text-ink hover:bg-subtle`}
           >
             {r.close}
@@ -115,7 +133,7 @@ function DeleteDialog({
           <>
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => onClose(false)}
               disabled={dismissBlocked}
               className={`${BUTTON} border-2 border-line bg-card text-ink hover:bg-subtle`}
             >

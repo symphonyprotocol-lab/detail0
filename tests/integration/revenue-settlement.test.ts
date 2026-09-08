@@ -20,6 +20,9 @@ process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
 const { closePeriod } = await import('@/lib/application/revenue');
+const { generateSettlements, listSettlements } = await import(
+  '@/lib/application/administration/settlements'
+);
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 
@@ -27,6 +30,38 @@ const workspaces: string[] = [];
 const libraries: string[] = [];
 const planVersions: string[] = [];
 const periods: string[] = [];
+const publisherAccounts: string[] = [];
+const administratorId = crypto.randomUUID();
+const administratorEmail = `settle-admin-${Date.now()}@example.test`;
+
+async function publisherAccount(workspaceId: string): Promise<string> {
+  const id = uuidv7();
+  publisherAccounts.push(id);
+  await db().insert(schema.publisherAccount).values({
+    id,
+    workspaceId,
+    taxStatus: 'complete',
+    agreementVersion: 'v1',
+  });
+  return id;
+}
+
+/** One paid invoice inside the period, so the pool has something in it. */
+async function revenue(at: Date, workspaceId: string, amountMinor: number): Promise<void> {
+  await db().insert(schema.billingDocument).values({
+    id: uuidv7(),
+    workspaceId,
+    provider: 'stripe',
+    externalId: `inv_${uuidv7()}`,
+    number: `INV-${uuidv7().slice(0, 8)}`,
+    kind: 'subscription' as const,
+    status: 'paid' as const,
+    amountMinor,
+    refundedMinor: 0,
+    issuedAt: at,
+    paidAt: at,
+  });
+}
 
 async function workspace(name: string): Promise<string> {
   const id = crypto.randomUUID();
@@ -116,6 +151,7 @@ describeWithDb('revenue settlement', () => {
   afterAll(async () => {
     const database = db();
     if (libraries.length > 0) {
+      await database.delete(schema.settlement).where(inArray(schema.settlement.libraryId, libraries));
       await database
         .delete(schema.earningEvent)
         .where(inArray(schema.earningEvent.libraryId, libraries));
@@ -126,6 +162,17 @@ describeWithDb('revenue settlement', () => {
     }
     if (periods.length > 0) {
       await database.delete(schema.revenuePeriod).where(inArray(schema.revenuePeriod.id, periods));
+    }
+    await database
+      .delete(schema.auditLog)
+      .where(eq(schema.auditLog.administratorId, administratorId));
+    await database
+      .delete(schema.administrator)
+      .where(eq(schema.administrator.id, administratorId));
+    if (publisherAccounts.length > 0) {
+      await database
+        .delete(schema.publisherAccount)
+        .where(inArray(schema.publisherAccount.id, publisherAccounts));
     }
     if (workspaces.length > 0) {
       await database
@@ -246,6 +293,180 @@ describeWithDb('revenue settlement', () => {
         and(eq(schema.earningEvent.libraryId, suspended), eq(schema.earningEvent.flagged, true)),
       );
     expect(voided).toHaveLength(4);
+  });
+
+  it('materialises statements, defers accountless owners, and audits the run', async () => {
+    periods.push('2021-01');
+    const at = new Date('2021-01-15T00:00:00Z');
+    const reader = await workspace('gen-reader');
+    const ownerA = await workspace('gen-owner-a');
+    const ownerB = await workspace('gen-owner-b');
+    const plan = await planVersion(2_000);
+    const libA1 = await library('gen-a1', ownerA);
+    const libA2 = await library('gen-a2', ownerA);
+    const libB1 = await library('gen-b1', ownerB);
+    /* Only owner A signed the agreement; B's events wait for next time. */
+    await publisherAccount(ownerA);
+    await db().insert(schema.administrator).values({
+      id: administratorId,
+      username: 'Settlement Operator',
+      email: administratorEmail,
+      status: 'active',
+    });
+
+    const call = (libraryId: string, owner: string, n: number) =>
+      calls({ period: '2021-01', at, reader, libraryId, owner, planVersionId: plan, shareRateBps: 2_000, billed: n, earning: n });
+    await call(libA1, ownerA, 6);
+    await call(libA2, ownerA, 4);
+    await call(libB1, ownerB, 10);
+    await revenue(at, reader, 10_000);
+
+    const result = await generateSettlements({
+      actor: { administratorId, email: administratorEmail },
+      periodId: '2021-01',
+      reason: 'monthly statements for 2021-01',
+    });
+
+    // 20 billed, 20 attributable, 2000bps of 10000 = a pool of 2000.
+    expect(result.poolMinor).toBe(2_000);
+    expect(result.totalAttributableCalls).toBe(20);
+    expect(result.alreadyLocked).toBe(false);
+    expect(result.created).toBe(2);
+    expect(result.withoutAccount).toBe(1);
+    expect(result.createdMinor).toBe(1_000);
+
+    const rows = await db()
+      .select()
+      .from(schema.settlement)
+      .where(eq(schema.settlement.periodId, '2021-01'));
+    expect(rows).toHaveLength(2);
+    const byLibrary = new Map(rows.map((row) => [row.libraryId, row]));
+    expect(byLibrary.get(libA1)).toMatchObject({ attributableCalls: 6, amountMinor: 600, status: 'accrued' });
+    expect(byLibrary.get(libA2)).toMatchObject({ attributableCalls: 4, amountMinor: 400, status: 'accrued' });
+    expect(byLibrary.has(libB1)).toBe(false);
+    /* Every statement commits to what it asserts, so it cannot be rewritten. */
+    for (const row of rows) expect(row.statementDigest).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+    /* The one console action that puts a number against a publisher's name
+       leaves an entry naming who did it, why, and what changed. */
+    const [entry] = await db()
+      .select()
+      .from(schema.auditLog)
+      .where(
+        and(
+          eq(schema.auditLog.action, 'settlement.generate'),
+          eq(schema.auditLog.targetId, '2021-01'),
+        ),
+      );
+    expect(entry?.administratorId).toBe(administratorId);
+    expect(entry?.targetType).toBe('revenue_period');
+    expect(entry?.reason).toBe('monthly statements for 2021-01');
+    expect(entry?.result).toBe('success');
+    expect(entry?.beforeValue).toMatchObject({ locked: false, statements: 0 });
+    expect(entry?.afterValue).toMatchObject({
+      locked: true,
+      statements: 2,
+      created: 2,
+      createdMinor: 1_000,
+      withoutAccount: 1,
+      poolMinor: 2_000,
+    });
+
+    /* Idempotent: a second press writes nothing and changes no amount. */
+    const again = await generateSettlements({
+      actor: { administratorId, email: administratorEmail },
+      periodId: '2021-01',
+      reason: 'pressed twice by mistake',
+    });
+    expect(again.alreadyLocked).toBe(true);
+    expect(again.created).toBe(0);
+    expect(again.createdMinor).toBe(0);
+    expect(again.alreadyPresent).toBe(2);
+    const after = await db()
+      .select()
+      .from(schema.settlement)
+      .where(eq(schema.settlement.periodId, '2021-01'));
+    expect(after).toHaveLength(2);
+    expect(new Map(after.map((row) => [row.id, row]))).toEqual(
+      new Map(rows.map((row) => [row.id, row])),
+    );
+
+    /* And once B accepts, only their rows appear -- nothing is lost. */
+    await publisherAccount(ownerB);
+    const third = await generateSettlements({
+      actor: { administratorId, email: administratorEmail },
+      periodId: '2021-01',
+      reason: 'owner b accepted the agreement',
+    });
+    expect(third.created).toBe(1);
+    expect(third.withoutAccount).toBe(0);
+    expect(third.createdMinor).toBe(1_000);
+  });
+
+  it('leaves a period that has not ended alone', async () => {
+    const now = new Date();
+    const current = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+    await expect(
+      generateSettlements({
+        actor: { administratorId, email: administratorEmail },
+        periodId: current,
+        reason: 'too early',
+      }),
+    ).rejects.toMatchObject({ code: 'period_invalid' });
+
+    /* Nothing was locked and nothing was written on the way to the refusal. */
+    const rows = await db()
+      .select()
+      .from(schema.revenuePeriod)
+      .where(eq(schema.revenuePeriod.id, current));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('pages the ledger without repeating or dropping a statement', async () => {
+    periods.push('2021-02');
+    const at = new Date('2021-02-10T00:00:00Z');
+    const reader = await workspace('page-reader');
+    const owner = await workspace('page-owner');
+    const plan = await planVersion(2_000);
+    await publisherAccount(owner);
+
+    /* More than one page, in ONE period: `generateSettlements` inserts the
+       run in a single statement, so every row shares a `created_at`. */
+    const count = 55;
+    for (let index = 0; index < count; index += 1) {
+      const libraryId = await library(`page-${index}`, owner);
+      await calls({ period: '2021-02', at, reader, libraryId, owner, planVersionId: plan, shareRateBps: 2_000, billed: 2, earning: 2 });
+    }
+    await revenue(at, reader, 50_000);
+
+    const generated = await generateSettlements({
+      actor: { administratorId, email: administratorEmail },
+      periodId: '2021-02',
+      reason: 'statements for 2021-02',
+    });
+    expect(generated.created).toBe(count);
+
+    const created = await db()
+      .select({ createdAt: schema.settlement.createdAt })
+      .from(schema.settlement)
+      .where(eq(schema.settlement.periodId, '2021-02'));
+    expect(new Set(created.map((row) => row.createdAt.getTime())).size).toBe(1);
+
+    const first = await listSettlements({ period: '2021-02', limit: 50, offset: 0 });
+    const second = await listSettlements({ period: '2021-02', limit: 50, offset: 50 });
+    expect(first.total).toBe(count);
+    expect(first.rows).toHaveLength(50);
+    expect(second.rows).toHaveLength(count - 50);
+
+    const ids = [...first.rows, ...second.rows].map((row) => row.id);
+    expect(new Set(ids).size).toBe(count);
+    /* The tiebreaker in the flesh: one total order across the page boundary. */
+    expect(ids).toEqual([...ids].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0)));
+    const all = await db()
+      .select({ id: schema.settlement.id })
+      .from(schema.settlement)
+      .where(eq(schema.settlement.periodId, '2021-02'));
+    expect(new Set(ids)).toEqual(new Set(all.map((row) => row.id)));
   });
 
   it('refuses an unfinished or malformed period', async () => {

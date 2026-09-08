@@ -32,7 +32,7 @@ export async function generateMetadata(): Promise<Metadata> {
  * configuration, and it is the same people who tune it.
  */
 export default async function AdminRetrievalPage() {
-  await requireAdminCapability('plans');
+  await requireAdminCapability('models');
   const [{ locale, t }, { current, history }] = await Promise.all([
     translations(),
     readRetrievalConfiguration(),

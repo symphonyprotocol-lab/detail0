@@ -5,13 +5,24 @@
  * request holds.
  */
 import { inArray, sql } from 'drizzle-orm';
-import { evaluatePolicy, type PolicySubject, type PolicyVerdict, type WorkspacePolicy } from '@/lib/domain/policy';
+import {
+  evaluatePolicy,
+  normalizePolicyMode,
+  PRIVATE_SOURCE_TYPE,
+  type PolicySubject,
+  type PolicyVerdict,
+  type WorkspacePolicy,
+} from '@/lib/domain/policy';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
-/** True when the policy cannot refuse anything: skip the fact-gathering. */
+/**
+ * True when the policy cannot refuse anything: skip the fact-gathering.
+ * Read through `normalizePolicyMode`, so a policy carrying thresholds is
+ * never mistaken for an open one merely because its `mode` was never set.
+ */
 export function policyIsOpen(policy: WorkspacePolicy): boolean {
   return (
-    policy.mode === null &&
+    normalizePolicyMode(policy).mode === null &&
     policy.blockedLibraries.length === 0 &&
     Object.values(policy.sourceTypes).every((enabled) => enabled !== false)
   );
@@ -31,20 +42,32 @@ export async function policyVerdicts(
       publicId: schema.library.publicId,
       ownerWorkspaceId: schema.library.ownerWorkspaceId,
       isPlatformLibrary: schema.library.isPlatformLibrary,
+      visibility: schema.library.visibility,
       lastSuccessfulRefreshAt: schema.library.lastSuccessfulRefreshAt,
     })
     .from(schema.library)
     .where(inArray(schema.library.id, libraryIds));
 
   const sources = await database
-    .select({ libraryId: schema.source.libraryId, type: schema.source.type })
+    .select({
+      libraryId: schema.source.libraryId,
+      type: schema.source.type,
+      location: schema.source.location,
+    })
     .from(schema.source)
     .where(inArray(schema.source.libraryId, libraryIds));
   const sourceTypes = new Map<string, string[]>();
+  const sourceHosts = new Map<string, string[]>();
   for (const row of sources) {
     const list = sourceTypes.get(row.libraryId) ?? [];
     list.push(row.type);
     sourceTypes.set(row.libraryId, list);
+    const host = hostOf(row.location);
+    if (host) {
+      const hosts = sourceHosts.get(row.libraryId) ?? [];
+      hosts.push(host);
+      sourceHosts.set(row.libraryId, hosts);
+    }
   }
 
   const scores = await database
@@ -63,7 +86,12 @@ export async function policyVerdicts(
   for (const library of libraries) {
     const subject: PolicySubject = {
       publicId: library.publicId,
-      sourceTypes: sourceTypes.get(library.id) ?? [],
+      /* A private library answers to the `private` switch as well (10.2). */
+      sourceTypes: [
+        ...(sourceTypes.get(library.id) ?? []),
+        ...(library.visibility === 'private' ? [PRIVATE_SOURCE_TYPE] : []),
+      ],
+      domains: sourceHosts.get(library.id) ?? [],
       trustScore: newestScore.get(library.id) ?? 0,
       /* Platform libraries are curated; user libraries are verified by claim. */
       verified: library.isPlatformLibrary || library.ownerWorkspaceId !== null,
@@ -74,6 +102,15 @@ export async function policyVerdicts(
     verdicts.set(library.id, evaluatePolicy(policy, subject));
   }
   return verdicts;
+}
+
+/** The host a URL-shaped source location points at; null for uploads and the like. */
+function hostOf(location: string): string | null {
+  try {
+    return /^[a-z][a-z0-9+.-]*:\/\//i.test(location) ? new URL(location).hostname.toLowerCase() : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The single-library form Context Retrieval uses. */

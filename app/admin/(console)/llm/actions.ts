@@ -53,7 +53,7 @@ export async function updateLlmConfigAction(
   _previous: LlmConfigActionResult | null,
   form: FormData,
 ): Promise<LlmConfigActionResult> {
-  const session = await requireAdminCapability('plans');
+  const session = await requireAdminCapability('models');
   try {
     const bag = await headers();
     await updateLlmConfig({
@@ -111,7 +111,7 @@ export async function updateLlmAssignmentAction(
   _previous: LlmConfigActionResult | null,
   form: FormData,
 ): Promise<LlmConfigActionResult> {
-  const session = await requireAdminCapability('plans');
+  const session = await requireAdminCapability('models');
   try {
     await updateLlmAssignment({
       actor: actorOf(session, await headers()),
@@ -146,7 +146,7 @@ export type LlmProbeActionResult =
  * cannot be run against a configuration the save would refuse.
  */
 export async function testLlmConfigAction(form: FormData): Promise<LlmProbeActionResult> {
-  const session = await requireAdminCapability('plans');
+  const session = await requireAdminCapability('models');
 
   let baseUrl: URL;
   try {

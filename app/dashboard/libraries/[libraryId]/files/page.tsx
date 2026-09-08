@@ -14,7 +14,8 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * The files of one PDF library. A library this workspace does not own, or one
+ * The files of one upload library -- PDFs or Markdown/MDX. A library this
+ * workspace does not own, or one
  * that is not built from uploads, is a 404 -- the same answer as one that
  * does not exist, so nothing is confirmed about anyone else's.
  */
@@ -43,7 +44,7 @@ export default async function DashboardLibraryFilesPage({
             {f.back}
           </Link>
           <h1 className="mt-1.5 text-[25px] leading-[1.5] font-[650] tracking-[-0.045em] text-ink">
-            {f.title}
+            {view.kind === 'markdown' ? f.markdown.title : f.title}
           </h1>
           <p className="text-[13px] leading-[1.5] tracking-[-0.023em] text-muted">
             {fill(f.description, { title: view.library.title })}
@@ -55,6 +56,7 @@ export default async function DashboardLibraryFilesPage({
       <LibraryFiles
         libraryId={view.library.id}
         files={view.files}
+        kind={view.kind}
         building={view.building}
         canEdit={canManageLibraries(session.workspace.role)}
         action={updateLibraryFilesAction}

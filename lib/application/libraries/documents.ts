@@ -61,7 +61,10 @@ export async function listVersionDocuments(input: {
       .leftJoin(schema.chunk, eq(schema.chunk.documentId, schema.document.id))
       .where(scope)
       .groupBy(schema.document.id)
-      .orderBy(asc(schema.document.sourceUrl))
+      /* `source_url` repeats across documents, so it cannot order a page on its
+         own: two rows sharing one url may swap between offsets and be skipped or
+         served twice. The id is unique and settles it. */
+      .orderBy(asc(schema.document.sourceUrl), asc(schema.document.id))
       .limit(input.limit ?? DOCUMENTS_PAGE_SIZE)
       .offset(input.offset ?? 0),
     database.select({ n: count() }).from(schema.document).where(scope),

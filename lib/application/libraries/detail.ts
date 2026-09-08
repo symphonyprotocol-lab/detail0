@@ -11,7 +11,15 @@
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { isQueryable, type IndexStatus, type LifecycleStatus, type Visibility } from '@/lib/domain';
 import { ref } from '@/lib/application/administration/column-ref';
-import { uploadedFilesOf } from '@/lib/domain/library';
+import {
+  isOwnerPause,
+  isRefreshPolicy,
+  isUploadSourceType,
+  parseScopeOf,
+  uploadedFilesOf,
+  type ParseScope,
+  type RefreshPolicy,
+} from '@/lib/domain/library';
 import { BUILD_ENTRYPOINT } from '@/lib/domain/build-billing';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
@@ -35,7 +43,19 @@ export interface WorkspaceLibraryDetail {
   /** A build is pending or running right now. */
   building: boolean;
   currentVersion: { label: string; documents: number; chunks: number; publishedAt: string | null } | null;
-  source: { type: string; location: string; fileCount: number | null } | null;
+  source: {
+    type: string;
+    location: string;
+    fileCount: number | null;
+    /** The owner's parse scope, as stored on the source (requirement.md 7.2 names). */
+    scope: ParseScope;
+    /** The stored cadence; null when the source has none or it is unreadable. */
+    refreshPolicy: RefreshPolicy | null;
+  } | null;
+  /** The current version is indexed; a resubmission needs one. */
+  hasReadyVersion: boolean;
+  /** True when the library is suspended by its owner's own pause. */
+  pausedByOwner: boolean;
   versions: {
     id: string;
     label: string;
@@ -57,7 +77,7 @@ export interface WorkspaceLibraryDetail {
     createdAt: string;
     updatedAt: string;
   }[];
-  reviews: { outcome: string | null; feedback: string[]; decidedAt: string | null }[];
+  reviews: { stage: string; outcome: string | null; feedback: string[]; decidedAt: string | null }[];
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -105,7 +125,12 @@ export async function workspaceLibraryDetail(input: {
 
   const [sources, versions, operations, reviews, [open]] = await Promise.all([
     database
-      .select({ type: schema.source.type, location: schema.source.location, config: schema.source.config })
+      .select({
+        type: schema.source.type,
+        location: schema.source.location,
+        config: schema.source.config,
+        refreshPolicy: schema.source.refreshPolicy,
+      })
       .from(schema.source)
       .where(eq(schema.source.libraryId, record.id))
       .orderBy(schema.source.id)
@@ -146,6 +171,7 @@ export async function workspaceLibraryDetail(input: {
       .limit(HISTORY_LIMIT),
     database
       .select({
+        stage: schema.libraryReview.stage,
         outcome: schema.libraryReview.outcome,
         feedback: schema.libraryReview.feedback,
         decidedAt: schema.libraryReview.decidedAt,
@@ -170,6 +196,7 @@ export async function workspaceLibraryDetail(input: {
   const iso = (value: Date | null) => value?.toISOString() ?? null;
   const current = versions.find((version) => version.id === record.currentVersionId) ?? null;
   const source = sources[0] ?? null;
+  const cadence = source?.refreshPolicy.cadence;
 
   return {
     id: record.id,
@@ -193,9 +220,13 @@ export async function workspaceLibraryDetail(input: {
       ? {
           type: source.type,
           location: source.location,
-          fileCount: source.type === 'pdf' ? uploadedFilesOf(source.config).length : null,
+          fileCount: isUploadSourceType(source.type) ? uploadedFilesOf(source.config).length : null,
+          scope: parseScopeOf(source.config),
+          refreshPolicy: isRefreshPolicy(cadence) ? cadence : null,
         }
       : null,
+    hasReadyVersion: current?.indexStatus === 'ready',
+    pausedByOwner: record.lifecycleStatus === 'suspended' && isOwnerPause(reviews[0]),
     versions: versions.map((version) => ({
       id: version.id,
       label: version.label,

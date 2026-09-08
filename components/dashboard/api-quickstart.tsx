@@ -2,14 +2,18 @@
 
 import { useState } from 'react';
 import { CopyButton } from '@/components/dashboard/copy-button';
-import { dashboardCopy } from '@/lib/dashboard/demo-data';
+import type { QuickstartTab } from '@/lib/dashboard/snippets';
 import { useI18n } from '@/lib/i18n/client';
 
-/** REST quickstart with request/response samples -- design source frame `lRoBh`. */
-export function ApiQuickstart() {
+/**
+ * REST quickstart with request/response samples -- design source frame
+ * `lRoBh`. The tabs are built on the server from the deployment's base URL
+ * and one of the workspace's own libraries (`quickstartTabs` in
+ * lib/dashboard/demo-data); this component only switches between them.
+ */
+export function ApiQuickstart({ tabs }: { tabs: [QuickstartTab, ...QuickstartTab[]] }) {
   const { t } = useI18n();
   const o = t.dashboard.overview;
-  const tabs = dashboardCopy(t).quickstartTabs;
   const [activeId, setActiveId] = useState(tabs[0].id);
   const active = tabs.find((tab) => tab.id === activeId) ?? tabs[0];
 

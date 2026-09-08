@@ -1,4 +1,5 @@
 import type { UIMessage } from 'ai';
+import type { CodeBlock } from '@/lib/domain/code-blocks';
 
 /**
  * The shape of the playground's UI message stream, shared by the route that
@@ -21,6 +22,8 @@ export interface PlaygroundSource {
   /** Which library the passage came from: the answer may draw on several. */
   libraryId: string;
   libraryTitle: string;
+  /** The passage's fenced code, as data (requirement.md 5.1: 代码示例). */
+  codeBlocks: CodeBlock[];
 }
 
 /** What the scatter-gather read, per routed candidate (retrieval/gather.ts). */
@@ -45,6 +48,23 @@ export interface PlaygroundRouting {
   libraryTitle: string | null;
   version: string | null;
   requestId: string;
+  /**
+   * The caller named the library (the detail page's fixed entry), so no
+   * resolve-library-id ran: the transcript shows one query-docs only.
+   */
+  pinned: boolean;
+}
+
+/**
+ * Where the caller stands after this exchange (requirement.md 5.1 rule 8).
+ * Anonymous: the trial window's count. Signed in or keyed: metered by the
+ * workspace's quota instead, one Call per exchange, and no window at all.
+ */
+export interface PlaygroundAllowance {
+  anonymous: boolean;
+  limit: number | null;
+  remaining: number | null;
+  windowSeconds: number | null;
 }
 
 /** Which configured model is answering, and whether a paid plan would offer another. */
@@ -61,6 +81,7 @@ export type PlaygroundUIMessage = UIMessage<
   never,
   {
     routing: PlaygroundRouting;
+    allowance: PlaygroundAllowance;
     gather: PlaygroundGather;
     model: PlaygroundModel;
     sources: { sources: PlaygroundSource[] };

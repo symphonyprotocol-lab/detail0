@@ -7,16 +7,26 @@
  */
 
 export type AdminCapability =
-  'users' | 'libraries' | 'platformLibraries' | 'plans' | 'billing' | 'administrators' | 'audit';
+  | 'users'
+  | 'libraries'
+  | 'platformLibraries'
+  | 'plans'
+  | 'models'
+  | 'billing'
+  | 'administrators'
+  | 'audit'
+  | 'claims';
 
 export const ADMIN_CAPABILITIES: readonly AdminCapability[] = [
   'users',
   'libraries',
   'platformLibraries',
   'plans',
+  'models',
   'billing',
   'administrators',
   'audit',
+  'claims',
 ];
 
 export type AdminRoleId = 'super' | 'operator' | 'reviewer' | 'support';
@@ -31,7 +41,27 @@ export const ADMIN_ROLE_IDS: readonly AdminRoleId[] = ['super', 'operator', 'rev
  */
 const ROLE_CAPABILITIES: Record<AdminRoleId, readonly AdminCapability[]> = {
   super: ADMIN_CAPABILITIES,
-  operator: ['users', 'libraries', 'platformLibraries', 'plans', 'billing'],
+  /*
+   * `models` is the playground's model registry and retrieval's tunables
+   * (architecture.md 9.2, 9.5). It used to ride on `plans` because both are
+   * "product configuration", but a plan version is a price and a model entry
+   * is a provider endpoint that spends money on every call -- so the two are
+   * named apart here, and a future role can be given one without the other.
+   *
+   * `claims` is ownership: ruling a dispute, transferring and revoking
+   * (requirement.md 5.3, 7.3.5) rewrite `library.owner_workspace_id`, which
+   * decides who is paid. That is an operator's decision, not a reviewer's --
+   * a reviewer judges whether content may ship, never whose it is.
+   */
+  operator: [
+    'users',
+    'libraries',
+    'platformLibraries',
+    'plans',
+    'models',
+    'billing',
+    'claims',
+  ],
   /*
    * `libraries` and `platformLibraries` are separate capabilities because
    * requirement.md 3.1 gives them to different people: a Reviewer decides
@@ -241,6 +271,10 @@ export const ADMIN_CHANGE_ERRORS = [
   'weak_password',
   'reason_required',
   'already_enrolled',
+  /** A settlement period that is not a past `YYYY-MM`. */
+  'period_invalid',
+  /** MFA can only be reset on an active, enrolled account. */
+  'not_enrolled',
 ] as const;
 
 export type AdminChangeError = (typeof ADMIN_CHANGE_ERRORS)[number];
@@ -316,4 +350,159 @@ export type UserAccountStatus = (typeof USER_ACCOUNT_STATUSES)[number];
 
 export function isUserAccountStatus(value: unknown): value is UserAccountStatus {
   return typeof value === 'string' && (USER_ACCOUNT_STATUSES as readonly string[]).includes(value);
+}
+
+/* ------------------------------------------------ settlement statements */
+
+/**
+ * Where a locked period's pool goes, as statement rows -- the console's
+ * "generate statements" step, kept pure so the rules can be pinned without
+ * a database (publisher-revenue-share.md 3.3, 3.4, 8).
+ *
+ * The inputs are what the ledger holds: the frozen period figures, the
+ * unflagged earning events grouped by owner and library, the publisher
+ * accounts that exist, and the statements already written for the period.
+ * The output is only what is missing. Running it twice over the same ledger
+ * therefore plans nothing the second time, which is the idempotency the
+ * console action depends on -- the button can be pressed again after a
+ * publisher finally accepts the agreement, and only that publisher's rows
+ * appear.
+ *
+ * Allocation is linear in attributable calls with the floor taken per
+ * library, so the sum of a period's statements never exceeds its pool and
+ * every row is recomputable from the events plus the period row. Nothing is
+ * weighted by Trust Score (publisher-revenue-share.md 6.2).
+ */
+export interface SettlementPlanInput {
+  period: { id: string; poolMinor: number; totalAttributableCalls: number; currency: string };
+  /** Unflagged events per (owner workspace, library). */
+  groups: { ownerWorkspaceId: string; libraryId: string; calls: number }[];
+  /** Workspace id -> publisher account id, for every owner with an account. */
+  accounts: ReadonlyMap<string, string>;
+  /** Library ids that already carry a statement for this period. */
+  existing: ReadonlySet<string>;
+}
+
+export interface PlannedStatement {
+  periodId: string;
+  publisherAccountId: string;
+  libraryId: string;
+  attributableCalls: number;
+  amountMinor: number;
+  currency: string;
+}
+
+export interface SettlementPlan {
+  rows: PlannedStatement[];
+  /** Libraries whose owner has no publisher account yet; their events wait. */
+  withoutAccount: number;
+  /** Libraries that already had a statement and were left alone. */
+  alreadyPresent: number;
+}
+
+export function planSettlementStatements(input: SettlementPlanInput): SettlementPlan {
+  const rows: PlannedStatement[] = [];
+  let withoutAccount = 0;
+  let alreadyPresent = 0;
+
+  const total = input.period.totalAttributableCalls;
+  for (const group of input.groups) {
+    if (group.calls <= 0) continue;
+    if (input.existing.has(group.libraryId)) {
+      alreadyPresent += 1;
+      continue;
+    }
+    const publisherAccountId = input.accounts.get(group.ownerWorkspaceId);
+    if (!publisherAccountId) {
+      withoutAccount += 1;
+      continue;
+    }
+    rows.push({
+      periodId: input.period.id,
+      publisherAccountId,
+      libraryId: group.libraryId,
+      attributableCalls: group.calls,
+      amountMinor:
+        total <= 0 ? 0 : Math.floor((input.period.poolMinor * group.calls) / total),
+      currency: input.period.currency,
+    });
+  }
+
+  return { rows, withoutAccount, alreadyPresent };
+}
+
+/** `YYYY-MM`, and a month that has ended: a period cannot be settled mid-way. */
+export function isSettleablePeriod(periodId: string, now: Date): boolean {
+  const match = /^(\d{4})-(\d{2})$/.exec(periodId);
+  if (!match) return false;
+  const month = Number(match[2]);
+  if (month < 1 || month > 12) return false;
+  const end = Date.UTC(Number(match[1]), month, 1);
+  return end <= now.getTime();
+}
+
+/**
+ * When a locked period's statements leave the hold window
+ * (publisher-revenue-share.md 3.4): the refund and chargeback window counted
+ * from the lock, not from the calls.
+ */
+export function holdEndsAt(lockedAt: Date, holdDays: number): Date {
+  return new Date(lockedAt.getTime() + holdDays * 24 * 60 * 60 * 1000);
+}
+
+/* ------------------------------------------------------- audit value diff */
+
+/**
+ * One leaf that differs between an audit entry's before and after values.
+ * `before` or `after` is `undefined` when the path exists on one side only.
+ */
+export interface AuditValueChange {
+  path: string;
+  before: unknown;
+  after: unknown;
+}
+
+/** Objects are walked; arrays and scalars are leaves, compared whole. */
+function flattenValue(value: unknown, prefix: string, into: Map<string, unknown>): void {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) {
+      into.set(prefix || '.', value);
+      return;
+    }
+    for (const [key, child] of entries) {
+      flattenValue(child, prefix ? `${prefix}.${key}` : key, into);
+    }
+    return;
+  }
+  into.set(prefix || '.', value);
+}
+
+/**
+ * The compact diff the audit screen shows: every leaf path whose value
+ * differs between the two snapshots, in the order the paths first appear
+ * (before's keys, then after's additions). Same-valued leaves are left out
+ * so a row that changed one field reads as one line, not the whole record.
+ *
+ * Leaves are compared by their JSON form, which is also how `auditHash`
+ * sees them -- so what this reports as unchanged is what the chain hashed as
+ * unchanged.
+ */
+export function diffAuditValues(before: unknown, after: unknown): AuditValueChange[] {
+  const left = new Map<string, unknown>();
+  const right = new Map<string, unknown>();
+  if (before !== undefined && before !== null) flattenValue(before, '', left);
+  if (after !== undefined && after !== null) flattenValue(after, '', right);
+
+  const changes: AuditValueChange[] = [];
+  const seen = new Set<string>();
+  for (const path of [...left.keys(), ...right.keys()]) {
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const a = left.get(path);
+    const b = right.get(path);
+    if (left.has(path) && right.has(path) && JSON.stringify(a) === JSON.stringify(b)) continue;
+    changes.push({ path, before: a, after: b });
+  }
+  return changes;
 }

@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import {
   changeAdministratorRole,
   inviteAdministrator,
+  resetAdministratorMfa,
   revokeAdministratorSessions,
   setAdministratorStatus,
 } from '@/lib/application/administration';
@@ -22,8 +23,8 @@ import { clientAddress } from '@/lib/http/client-address';
  */
 export interface ActionResult {
   ok: boolean;
-  error?: AdminChangeError;
-  /** Set by invite: the one-time enrolment path, shown once and never stored. */
+  error?: Exclude<AdminChangeError, 'period_invalid'>;
+  /** Set by invite and MFA reset: the one-time enrolment path, shown once and never stored. */
   enrolmentPath?: string;
 }
 
@@ -33,7 +34,9 @@ async function actorAddress(): Promise<string | null> {
 }
 
 function refused(error: unknown): ActionResult {
-  if (error instanceof AdminChangeRefused) return { ok: false, error: error.code };
+  if (error instanceof AdminChangeRefused && error.code !== 'period_invalid') {
+    return { ok: false, error: error.code };
+  }
   console.error(
     `administrator change failed: ${error instanceof Error ? error.message : 'unknown'}`,
   );
@@ -128,6 +131,28 @@ export async function revokeSessionsAction(
     });
     revalidatePath('/admin/administrators');
     return { ok: true };
+  } catch (error) {
+    return refused(error);
+  }
+}
+
+export async function resetMfaAction(
+  _previous: ActionResult | null,
+  form: FormData,
+): Promise<ActionResult> {
+  const session = await requireAdminCapability('administrators');
+  try {
+    const { enrolmentPath } = await resetAdministratorMfa({
+      actor: {
+        administratorId: session.administratorId,
+        email: session.email,
+        clientAddress: await actorAddress(),
+      },
+      administratorId: String(form.get('administratorId') ?? ''),
+      reason: String(form.get('reason') ?? ''),
+    });
+    revalidatePath('/admin/administrators');
+    return { ok: true, enrolmentPath };
   } catch (error) {
     return refused(error);
   }

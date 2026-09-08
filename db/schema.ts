@@ -1285,10 +1285,18 @@ export const requestLog = pgTable(
      * The query text is deliberately absent (architecture.md 17.1).
      */
     libraryPublicId: text('library_public_id'),
-    /** 'rest' | 'web' -- which door the request came through. */
+    /** 'rest' | 'mcp' | 'web' -- which door the request came through. */
     entrypoint: text('entrypoint'),
     statusCode: integer('status_code').notNull(),
     latencyMs: integer('latency_ms'),
+    /** Tokens served, as the usage event counts them. Null when nothing was. */
+    returnedTokens: integer('returned_tokens'),
+    /**
+     * The key that authenticated the request, so the screen can show its
+     * masked prefix. No foreign key, like the library above: the log must
+     * outlive whatever it names, and a key row is only ever revoked anyway.
+     */
+    apiKeyId: uuid('api_key_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

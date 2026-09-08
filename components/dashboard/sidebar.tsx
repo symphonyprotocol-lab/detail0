@@ -13,7 +13,7 @@ import {
   SettingsIcon,
   ShieldCheckIcon,
 } from '@/components/ui/icons';
-import { WORKSPACE_INITIAL } from '@/lib/dashboard/demo-data';
+import { WORKSPACE_INITIAL } from '@/lib/dashboard/snippets';
 import { useI18n } from '@/lib/i18n/client';
 
 /** Workspace rail -- design source frame `E4GWD`, aside `itqF4`. */

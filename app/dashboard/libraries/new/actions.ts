@@ -18,7 +18,7 @@ import {
   type PreparedUpload,
 } from '@/lib/application/libraries';
 import type { DomainVerificationFailure } from '@/lib/domain/domain-verification';
-import { isConnectedSourceType, UPLOAD_LIMITS } from '@/lib/domain/library';
+import { isConnectedSourceType, isUploadSourceType, UPLOAD_LIMITS } from '@/lib/domain/library';
 import { requireSession } from '@/lib/http/session';
 
 /**
@@ -36,6 +36,7 @@ export interface CreateLibraryResult {
     | 'taken'
     | 'limit'
     | 'quota'
+    | 'denied'
     | 'unavailable'
     | 'github'
     | 'notion'
@@ -59,10 +60,10 @@ export async function createWorkspaceLibraryAction(
     const visibility = form.get('visibility') === 'private' ? 'private' : 'public';
 
     /* The wizard posts an empty manifest field when no file was uploaded;
-       that is an empty PDF library, filled in from its files page. */
+       that is an empty upload library, filled in from its files page. */
     let uploads: unknown;
     const posted = String(form.get('uploads') ?? '');
-    if (sourceType === 'pdf' && posted !== '') {
+    if (isUploadSourceType(sourceType) && posted !== '') {
       try {
         uploads = JSON.parse(posted);
       } catch {
@@ -109,6 +110,12 @@ export async function createWorkspaceLibraryAction(
     if (error instanceof AppError && error.code === 'claim_verification_failed') {
       return { ok: false, error: 'unverified', reason: verificationReason(error.reason) };
     }
+    /* requirement.md 3.3: only an owner or admin creates a library. The page
+       says so before the wizard starts, but the action is a public endpoint
+       and a refusal here is a refusal, not an outage. */
+    if (error instanceof AppError && error.code === 'access_denied') {
+      return { ok: false, error: 'denied' };
+    }
     if (error instanceof AppError && error.code === 'library_limit_exceeded') {
       return { ok: false, error: 'limit' };
     }
@@ -127,8 +134,8 @@ export async function createWorkspaceLibraryAction(
 }
 
 /**
- * Room in the store for the PDFs the wizard is about to upload: one upload
- * ticket per file. The browser uploads straight to storage, so a 20 MB
+ * Room in the store for the files the wizard is about to upload -- PDFs, or
+ * Markdown/MDX when `kind` says so: one upload ticket per file. The browser uploads straight to storage, so a 20 MB
  * manual never passes through a server action and its body limit.
  * Returns a coarse code like the create action; the size limit is repeated
  * in the result so the wizard can say it without a second round trip.
@@ -144,6 +151,7 @@ export interface PrepareUploadResult {
 export async function prepareUploadAction(
   files: { name: string; size: number }[],
   batchId?: string,
+  kind?: string,
 ): Promise<PrepareUploadResult> {
   /* Shared with the library files page, which hands the same action to the
      same uploader; the session is what matters, not the page. */
@@ -158,6 +166,8 @@ export async function prepareUploadAction(
       role: session.workspace.role,
       files: files.map((file) => ({ name: String(file?.name ?? ''), size: Number(file?.size) })),
       batchId: typeof batchId === 'string' ? batchId : undefined,
+      /* Anything but a known kind is a PDF: the default the store always took. */
+      kind: isUploadSourceType(kind) ? kind : 'pdf',
     });
     return { ok: true, maxFileBytes, ...prepared };
   } catch (error) {

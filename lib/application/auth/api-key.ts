@@ -8,6 +8,12 @@
  */
 import { and, asc, eq } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
+import {
+  API_KEY_MANAGEMENT_SCOPE,
+  hasScope,
+  normaliseScopes,
+  type ApiKeyScope,
+} from '@/lib/domain/api-key';
 import { isAccountUsable } from '@/lib/domain/auth';
 import { hmacSha256 } from '@/lib/infrastructure/crypto/tokens';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -18,7 +24,29 @@ export interface ApiKeyPrincipal {
   apiKeyId: string;
   workspaceId: string;
   environment: string;
+  /** Normalised: legacy `retrieval` rows already read as the full set. */
   scopes: string[];
+}
+
+/**
+ * The scope gate. A key is a workspace credential narrowed to what its owner
+ * chose at creation (requirement.md 5.2); a request outside that set is
+ * `access_denied` (requirement.md 11: workspace, scope or access rule), never
+ * `invalid_api_key` -- the key is real, it just cannot do this.
+ *
+ * Only Bearer keys carry scopes. A session or an anonymous caller has none to
+ * check, so `null`/`undefined` scopes pass: the caller was admitted by some
+ * other gate.
+ */
+export function requireScope(
+  principal: { scopes?: readonly string[] | null } | null | undefined,
+  needed: ApiKeyScope | typeof API_KEY_MANAGEMENT_SCOPE,
+): void {
+  const scopes = principal?.scopes;
+  if (!scopes) return;
+  if (!hasScope(scopes, needed)) {
+    throw new AppError('access_denied', `this API key lacks the ${needed} scope`);
+  }
 }
 
 export async function hashApiKey(key: string): Promise<string> {
@@ -93,6 +121,6 @@ export async function resolveApiKey(authorization: string | null): Promise<ApiKe
     apiKeyId: row.id,
     workspaceId: row.workspaceId,
     environment: row.environment,
-    scopes: row.scopes,
+    scopes: normaliseScopes(row.scopes),
   };
 }

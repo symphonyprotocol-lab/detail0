@@ -12,10 +12,19 @@ import {
 } from '@/components/dashboard/ui';
 import { PlusIcon, TerminalIcon } from '@/components/ui/icons';
 import { listApiKeys } from '@/lib/application/auth';
-import { countWorkspaceLibraries } from '@/lib/application/libraries';
-import { INSTALL_COMMAND } from '@/lib/dashboard/demo-data';
+import { listPublicLibraries, listWorkspaceLibraries } from '@/lib/application/libraries';
+import { periodLastDay, workspaceBilling } from '@/lib/application/plans';
+import {
+  API_KEY_PLACEHOLDER,
+  EXAMPLE_LIBRARY_ID,
+  installCommand,
+  mcpEndpoint,
+  quickstartTabs,
+} from '@/lib/dashboard/snippets';
+import { usdHeadline } from '@/lib/domain/plans';
 import { workspaceUsage } from '@/lib/http/dashboard';
-import { requireSession } from '@/lib/http/session';
+import { appBaseUrl, requireSession } from '@/lib/http/session';
+import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -27,8 +36,10 @@ const CHART_DAYS = 10;
 /**
  * The overview, on the ledger: quota and volume from the rebuilt usage
  * summary (architecture.md 11.1), library and key counts from the rows
- * themselves. The install and quickstart panels stay copy -- they document
- * the product, not this workspace.
+ * themselves, the plan and this period's cost from the workspace's Plan
+ * Version (requirement.md 4.1, 4.3). The install and quickstart panels are
+ * built for this deployment and this workspace: the real base URL, the real
+ * MCP endpoint and one of the workspace's own libraries.
  */
 export default async function DashboardOverviewPage() {
   const [session, { locale, t }] = await Promise.all([
@@ -38,11 +49,36 @@ export default async function DashboardOverviewPage() {
   const o = t.dashboard.overview;
   const workspaceId = session.workspace.id;
 
-  const [overview, keys, libraryCount] = await Promise.all([
+  const [overview, keys, libraries, billing] = await Promise.all([
     workspaceUsage(workspaceId),
     listApiKeys(workspaceId),
-    countWorkspaceLibraries(workspaceId),
+    listWorkspaceLibraries(workspaceId),
+    workspaceBilling(workspaceId),
   ]);
+
+  /*
+   * The examples query something the reader can actually call: their own
+   * first library, or the most popular public one when they have none yet.
+   * The catalogue is read only in that case, and a catalogue with nothing
+   * published falls back to a well-known id rather than an empty string.
+   */
+  const own = libraries[0] ?? null;
+  const catalogue = own ? null : ((await listPublicLibraries({ sort: 'popular', limit: 1 }))[0] ?? null);
+  const example = own
+    ? { libraryId: own.publicId, title: own.title }
+    : catalogue
+      ? { libraryId: catalogue.publicId, title: catalogue.title }
+      : { libraryId: EXAMPLE_LIBRARY_ID, title: 'Next.js' };
+
+  const baseUrl = appBaseUrl();
+  const install = installCommand(baseUrl);
+  const endpoint = mcpEndpoint(baseUrl);
+  const tabs = quickstartTabs({
+    baseUrl,
+    libraryId: example.libraryId,
+    title: example.title,
+    labels: { search: o.live.tabSearch, context: o.live.tabContext },
+  });
 
   const number = new Intl.NumberFormat(locale);
   const stats: {
@@ -63,7 +99,7 @@ export default async function DashboardOverviewPage() {
     },
     {
       label: o.stats.libraries,
-      value: number.format(libraryCount),
+      value: number.format(libraries.length),
       caption: o.stats.librariesCaption,
     },
     {
@@ -94,6 +130,29 @@ export default async function DashboardOverviewPage() {
 
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
   const dateTime = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
+  /* The ledger's periods are UTC days; formatted in the server's timezone
+     they slide by one. The settings screen prints the same period. */
+  const utcDate = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' });
+
+  /*
+   * The plan and the cost, side by side. `periodEnd` is exclusive on the
+   * ledger, so the printed range ends on the day before it -- "1 – 30 Sep",
+   * not "1 Sep – 1 Oct".
+   */
+  const { plan, cost } = billing;
+  const planPrice = plan.priceMinor === 0 ? o.live.planFree : fill(o.live.planPrice, { price: usdHeadline(plan.priceMinor) });
+  const costBreakdown =
+    cost.packsBought > 0
+      ? fill(o.live.costBreakdown, {
+          plan: usdHeadline(cost.planMinor),
+          packs: cost.packsBought,
+          packsPrice: usdHeadline(cost.packsMinor),
+        })
+      : fill(o.live.costBreakdownNoPacks, { plan: usdHeadline(cost.planMinor) });
+  const costPeriod = fill(o.live.costPeriod, {
+    start: utcDate.format(plan.periodStart),
+    end: utcDate.format(periodLastDay(plan.periodEnd)),
+  });
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -110,15 +169,21 @@ export default async function DashboardOverviewPage() {
         }
       />
 
-      {/* Metric strip -- design source `J5PPjZ`. */}
-      <section className={`${PANEL} grid grid-cols-2 gap-y-5 p-5 sm:grid-cols-4 sm:gap-y-0`}>
+      {/*
+        * Metric strip -- design source `J5PPjZ`. One column per tile: the
+        * grid was four wide while `stats` built five, so the fifth dropped to
+        * a row of its own and took the "every cell but the first" divider
+        * with it, drawing a rule against nothing. The column count and the
+        * length of `stats` are the same number and have to stay so.
+        */}
+      <section className={`${PANEL} grid grid-cols-2 gap-y-5 p-5 md:grid-cols-5 md:gap-y-0`}>
         {stats.map((stat, index) => (
           <article
             key={stat.label}
             /* One divider between columns: every odd cell when wrapped to two, every cell but the first on wide. */
             className={`flex flex-col pr-[18px] ${
               index % 2 === 1 ? 'border-l-2 border-line pl-5' : 'pl-1'
-            } ${index === 0 ? 'sm:border-l-0 sm:pl-1' : 'sm:border-l-2 sm:border-line sm:pl-5'}`}
+            } ${index === 0 ? 'md:border-l-0 md:pl-1' : 'md:border-l-2 md:border-line md:pl-5'}`}
           >
             <p className="text-[11px] tracking-[0.03em] text-muted">{stat.label}</p>
             <p className="mt-1.5 text-[20px] leading-[1.5] font-semibold tracking-[-0.02em] text-ink">
@@ -136,6 +201,43 @@ export default async function DashboardOverviewPage() {
             )}
           </article>
         ))}
+      </section>
+
+      {/* Plan and cost -- requirement.md 5.2 概览: 当前套餐, 当前费用. */}
+      <section className="grid gap-[18px] lg:grid-cols-2">
+        <article className={`${PANEL} flex flex-col gap-2 p-[30px]`}>
+          <p className="text-[11px] tracking-[0.03em] text-muted">{o.live.planTitle}</p>
+          <p className="flex items-baseline gap-2">
+            <span className="text-[22px] leading-[1.4] font-semibold tracking-[-0.02em] text-ink">
+              {plan.planName}
+            </span>
+            <span className="text-[13px] tracking-[-0.023em] text-muted">{planPrice}</span>
+          </p>
+          <p className="text-[12px] tracking-[-0.023em] text-steel">
+            {fill(o.live.planAllowance, { calls: number.format(plan.monthlyCalls) })}
+          </p>
+          <div className="mt-auto pt-2">
+            <ArrowLink href="/pricing">{o.live.planManage}</ArrowLink>
+          </div>
+        </article>
+
+        <article className={`${PANEL} flex flex-col gap-2 p-[30px]`}>
+          <p className="text-[11px] tracking-[0.03em] text-muted">{o.live.costTitle}</p>
+          <p className="flex items-baseline gap-2">
+            <span className="text-[22px] leading-[1.4] font-semibold tracking-[-0.02em] text-ink">
+              {usdHeadline(cost.totalMinor)}
+            </span>
+            <span className="text-[13px] tracking-[-0.023em] text-muted">{costPeriod}</span>
+          </p>
+          <p className="text-[12px] tracking-[-0.023em] text-steel">{costBreakdown}</p>
+          {/* Said plainly: without a provider this is arithmetic, not an invoice. */}
+          {billing.paymentConnected ? null : (
+            <p className="text-[12px] tracking-[-0.023em] text-amber">{o.live.costUnbilled}</p>
+          )}
+          <div className="mt-auto pt-2">
+            <ArrowLink href="/dashboard/settings#billing">{o.live.costLink}</ArrowLink>
+          </div>
+        </article>
       </section>
 
       {/* Call volume -- design source `C06o6`. */}
@@ -220,7 +322,7 @@ export default async function DashboardOverviewPage() {
         </div>
       </section>
 
-      {/* Install -- design source `QabFh`. */}
+      {/* Install -- design source `QabFh`. The CLI command, then the endpoint it writes. */}
       <section className={`${PANEL} flex flex-col gap-[13px] p-[30px]`}>
         <PanelHeading
           title={o.installTitle}
@@ -229,15 +331,29 @@ export default async function DashboardOverviewPage() {
         <div className="flex h-[52px] items-center gap-2.5 rounded-lg bg-terminal px-3.5">
           <TerminalIcon size={16} className="text-brand" />
           <code className="flex-1 truncate font-mono text-[13px] tracking-[-0.023em] text-white">
-            {INSTALL_COMMAND}
+            {install}
           </code>
           <CopyButton
-            value={INSTALL_COMMAND}
+            value={install}
             label={o.installCommandLabel}
             className="text-[#aebec0] hover:bg-white/10"
           />
         </div>
+        <div className="flex h-[44px] items-center gap-2.5 rounded-lg bg-[#f1f5f4] px-3.5">
+          <span className="shrink-0 text-[11px] tracking-[-0.023em] text-muted">
+            {o.live.mcpEndpointLabel}
+          </span>
+          <code className="flex-1 truncate font-mono text-[12px] tracking-[-0.023em] text-steel">
+            {endpoint}
+          </code>
+          <CopyButton
+            value={endpoint}
+            label={o.live.mcpEndpointLabel}
+            className="text-muted hover:bg-mutedbg"
+          />
+        </div>
         <p className="text-[12px] tracking-[-0.023em] text-muted">
+          {fill(o.live.keyPlaceholderNote, { placeholder: API_KEY_PLACEHOLDER })}{' '}
           {o.installManualLead}
           <Link href="/docs" className="text-brandink underline-offset-2 hover:underline">
             {o.installManualLink}
@@ -250,9 +366,12 @@ export default async function DashboardOverviewPage() {
       <section className={`${PANEL} flex flex-col p-[30px]`}>
         <PanelHeading
           title={o.quickstartTitle}
-          description={o.quickstartDescription}
+          description={`${o.quickstartDescription} ${fill(
+            own ? o.live.exampleLibraryOwn : o.live.exampleLibraryCatalog,
+            { libraryId: example.libraryId },
+          )}`}
         />
-        <ApiQuickstart />
+        <ApiQuickstart tabs={tabs} />
       </section>
     </div>
   );

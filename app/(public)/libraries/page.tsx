@@ -2,7 +2,13 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Button, SectionHeading } from '@/components/ui/primitives';
 import { LibraryTable, type LibraryTableEntry } from '@/components/site/library-table';
-import { countPublicLibraries, listPublicLibraries } from '@/lib/application/libraries';
+import {
+  anchoredPublicIds,
+  CATALOG_PAGE_SIZE,
+  countPublicLibraries,
+  listPublicLibraries,
+  POPULARITY_WINDOW_DAYS,
+} from '@/lib/application/libraries';
 import { groupNestedIds, parentPublicId } from '@/lib/domain/library';
 import { resolveLibrary } from '@/lib/application/retrieval/resolve-library';
 import { fill } from '@/lib/i18n/format';
@@ -13,7 +19,17 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: c.metaTitle, description: c.metaDescription };
 }
 
-type Search = { searchParams: Promise<{ q?: string; sort?: string }> };
+type Search = { searchParams: Promise<{ q?: string; sort?: string; page?: string }> };
+
+/** `/libraries?sort=…&q=…&page=…`, with the defaults left off. */
+function directoryHref(input: { sort: 'popular' | 'recent'; query: string; page: number }): string {
+  const params = new URLSearchParams();
+  if (input.sort === 'recent') params.set('sort', 'recent');
+  if (input.query) params.set('q', input.query);
+  if (input.page > 1) params.set('page', String(input.page));
+  const qs = params.toString();
+  return qs ? `/libraries?${qs}` : '/libraries';
+}
 
 /**
  * The public directory, on the real rows. Browsing lists routable libraries
@@ -21,21 +37,41 @@ type Search = { searchParams: Promise<{ q?: string; sort?: string }> };
  * content-based resolve the MCP tool uses (architecture.md 9.6), so what the
  * directory finds is exactly what an agent would find. Server-side and
  * unmetered: resolve never counts a Call.
+ *
+ * Both branches fill the same table, so both have to fill every column of it
+ * from a real row. The resolver ranks by relevance and says nothing about
+ * anchoring, so the anchor flags are looked up for the ids it returned rather
+ * than assumed absent -- otherwise the same library reads "unanchored" when
+ * found by search and "anchored" when browsed.
  */
 export default async function CatalogPage({ searchParams }: Search) {
-  const [{ q, sort }, { locale, t }] = await Promise.all([searchParams, translations()]);
+  const [{ q, sort, page: pageParam }, { locale, t }] = await Promise.all([
+    searchParams,
+    translations(),
+  ]);
   const c = t.catalog;
 
   const query = (q ?? '').trim().slice(0, 200);
   const recent = sort === 'recent';
+  const order = recent ? 'recent' : 'popular';
   const number = new Intl.NumberFormat(locale);
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
+
+  /* The count is the directory's, not the search's: a search is one page of
+     the resolver's ranked matches and is not paged. */
+  const totalCount = await countPublicLibraries();
+  const pages = Math.max(1, Math.ceil(totalCount / CATALOG_PAGE_SIZE));
+  const requested = Number.parseInt(pageParam ?? '1', 10);
+  const page = Number.isFinite(requested) ? Math.min(Math.max(1, requested), pages) : 1;
 
   let entries: LibraryTableEntry[];
   if (query) {
     const resolved = await resolveLibrary(
       { workspaceId: null, apiKeyId: null, requestId: crypto.randomUUID(), anonymous: true },
       { query },
+    );
+    const anchored = await anchoredPublicIds(
+      resolved.results.map((candidate) => candidate.libraryId),
     );
     entries = resolved.results.map((candidate) => ({
       libraryId: candidate.libraryId,
@@ -44,10 +80,14 @@ export default async function CatalogPage({ searchParams }: Search) {
       trustScore: candidate.trustScore,
       chunks: number.format(candidate.chunks),
       updated: date.format(new Date(candidate.updatedAt)),
-      anchored: false,
+      anchored: anchored.has(candidate.libraryId),
     }));
   } else {
-    const rows = await listPublicLibraries({ sort: recent ? 'recent' : 'popular' });
+    const rows = await listPublicLibraries({
+      sort: order,
+      limit: CATALOG_PAGE_SIZE,
+      offset: (page - 1) * CATALOG_PAGE_SIZE,
+    });
     /*
      * Nested libraries follow the library they sit under (requirement.md 6.1:
      * `/websites/ethereum/whitepaper` groups under `/websites/ethereum`), in
@@ -64,13 +104,15 @@ export default async function CatalogPage({ searchParams }: Search) {
         trustScore: row.trustScore,
         chunks: number.format(row.totalChunks),
         updated: row.updatedAt ? date.format(new Date(row.updatedAt)) : '—',
-        anchored: false,
+        anchored: row.anchored,
         nestedUnder: parent !== null && present.has(parent) ? parent : null,
       };
     });
   }
 
-  const total = number.format(await countPublicLibraries());
+  const total = number.format(totalCount);
+  const first = query ? (entries.length > 0 ? 1 : 0) : (page - 1) * CATALOG_PAGE_SIZE + 1;
+  const last = query ? entries.length : Math.min(totalCount, page * CATALOG_PAGE_SIZE);
 
   return (
     <section className="mx-auto w-full max-w-[1080px] px-5 pt-11 pb-16">
@@ -113,7 +155,7 @@ export default async function CatalogPage({ searchParams }: Search) {
         </form>
         <div className="flex h-[46px] items-center gap-1 rounded-lg border-2 border-line bg-card p-1">
           <Link
-            href={query ? `/libraries?q=${encodeURIComponent(query)}` : '/libraries'}
+            href={directoryHref({ sort: 'popular', query, page: 1 })}
             className={`rounded-md px-3 py-1.5 text-[12px] font-medium ${
               recent ? 'text-muted' : 'bg-brandsoft text-brandink'
             }`}
@@ -121,9 +163,7 @@ export default async function CatalogPage({ searchParams }: Search) {
             {c.popular}
           </Link>
           <Link
-            href={
-              query ? `/libraries?sort=recent&q=${encodeURIComponent(query)}` : '/libraries?sort=recent'
-            }
+            href={directoryHref({ sort: 'recent', query, page: 1 })}
             className={`rounded-md px-3 py-1.5 text-[12px] font-medium ${
               recent ? 'bg-brandsoft text-brandink' : 'text-muted'
             }`}
@@ -134,7 +174,16 @@ export default async function CatalogPage({ searchParams }: Search) {
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-[12px]">
-        <p className="text-muted">{fill(c.totalLine, { total })}</p>
+        <p className="text-muted">
+          {query
+            ? fill(c.directory.searchResults, { query })
+            : fill(c.totalLine, {
+                total,
+                sort: recent
+                  ? c.directory.sortedRecent
+                  : fill(c.directory.sortedPopular, { days: POPULARITY_WINDOW_DAYS }),
+              })}
+        </p>
         <p className="text-faint">{c.freeNote}</p>
       </div>
 
@@ -144,8 +193,37 @@ export default async function CatalogPage({ searchParams }: Search) {
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <p className="text-[12px] text-muted">
-          {fill(c.rangeLine, { shown: entries.length, total })}
+          {fill(c.directory.range, {
+            from: number.format(first),
+            to: number.format(last),
+            total: query ? number.format(entries.length) : total,
+          })}
         </p>
+        {!query && pages > 1 ? (
+          <nav aria-label={fill(c.directory.page, { page, pages })} className="flex items-center gap-2 text-[12px]">
+            {page > 1 ? (
+              <Link
+                href={directoryHref({ sort: order, query, page: page - 1 })}
+                className="rounded-md border-2 border-line bg-card px-3 py-1.5 font-medium text-ink hover:bg-subtle"
+              >
+                {c.previous}
+              </Link>
+            ) : (
+              <span className="rounded-md border-2 border-line px-3 py-1.5 text-faint">{c.previous}</span>
+            )}
+            <span className="px-1 text-muted">{fill(c.directory.page, { page, pages })}</span>
+            {page < pages ? (
+              <Link
+                href={directoryHref({ sort: order, query, page: page + 1 })}
+                className="rounded-md border-2 border-line bg-card px-3 py-1.5 font-medium text-ink hover:bg-subtle"
+              >
+                {c.next}
+              </Link>
+            ) : (
+              <span className="rounded-md border-2 border-line px-3 py-1.5 text-faint">{c.next}</span>
+            )}
+          </nav>
+        ) : null}
       </div>
     </section>
   );

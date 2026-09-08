@@ -4,9 +4,23 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { DeleteLibraryControl, type DeleteLibraryAction } from '@/components/dashboard/library-delete';
+import { ReviewPipeline } from '@/components/dashboard/library-manage';
+import { RebuildLibraryControl, type RebuildLibraryAction } from '@/components/dashboard/library-rebuild';
 import { Badge, PANEL, SearchField, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
 import { ArrowRightIcon, FileTextIcon } from '@/components/ui/icons';
+import type { ReviewPipelineEntry } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
+
+/**
+ * Which of the list's buckets a row falls in. The design's four-way status
+ * marker (`StatusTone`) is kept for the label; the bucket splits the
+ * `blocked` tone in two, because requirement.md 5.2 asks for a 需修改 filter
+ * of its own and a suspended library is not one the owner can fix by
+ * editing.
+ */
+export type LibraryBucket = 'live' | 'pending' | 'changes' | 'blocked' | 'exempt';
+
+export type LibraryFilter = 'all' | 'public' | 'private' | 'pending' | 'changes' | 'blocked';
 
 /** One row of the live list, mapped by the page from the workspace's rows. */
 export interface LibraryListRow {
@@ -19,12 +33,19 @@ export interface LibraryListRow {
   /** StatusLabel tone + its translated label, derived from lifecycle+index. */
   status: StatusTone;
   statusLabel: string;
+  bucket: LibraryBucket;
   updated: string;
   initial: string;
-  /** The files page of a PDF library; null for every other source. */
+  /** The files page of an upload library; null for every other source. */
   filesHref: string | null;
-  /** A reviewer's feedback the owner has to act on, already translated. */
+  /** The files link's label -- PDF or Markdown -- when there is one. */
+  filesLabel: string | null;
+  /** A reviewer's feedback the owner has to act on, untranslated. */
   note: string | null;
+  /** Where a public library stands in the publishing pipeline; null when it is not in it. */
+  pipeline: ReviewPipelineEntry[] | null;
+  /** Rebuild is not offered: archived, or a build cannot be paid for. */
+  rebuildDisabled: boolean;
 }
 
 /** Deterministic tile colour from the slug: stable across renders and rows. */
@@ -35,47 +56,68 @@ function tileColor(slug: string): string {
   return TILE_COLORS[hash % TILE_COLORS.length]!;
 }
 
+function matches(row: LibraryListRow, filter: LibraryFilter): boolean {
+  switch (filter) {
+    case 'all':
+      return true;
+    case 'public':
+    case 'private':
+      return row.scope === filter;
+    default:
+      return row.bucket === filter;
+  }
+}
+
 /**
  * Library table with its toolbar -- design source frame `fiSE2`, live rows.
  *
- * `deleteAction` is offered only to a member who may delete (requirement.md
- * 3.3: owners and admins); the action re-checks the role, so the prop decides
- * what is drawn, not what is allowed.
+ * `deleteAction` and `rebuildAction` are offered only to a member who may
+ * manage libraries (requirement.md 3.3: owners and admins); each action
+ * re-checks the role, so the props decide what is drawn, not what is
+ * allowed. Everyone else gets the read-only view requirement.md 5.2 asks for.
  */
 export function LibraryList({
   rows: allRows,
   deleteAction,
+  rebuildAction,
 }: {
   rows: LibraryListRow[];
   deleteAction?: DeleteLibraryAction;
+  rebuildAction?: RebuildLibraryAction;
 }) {
   const { locale, t } = useI18n();
   const l = t.dashboard.libraries;
+  const m = l.manage;
   const number = useMemo(() => new Intl.NumberFormat(locale), [locale]);
-  const [filter, setFilter] = useState<'all' | StatusTone>('all');
+  const [filter, setFilter] = useState<LibraryFilter>('all');
   const [term, setTerm] = useState('');
 
-  const filters: { id: 'all' | StatusTone; label: string }[] = [
+  /* requirement.md 5.2: 全部 / 公开 / 私有 / 审核中 / 需修改, plus the paused
+     and failed bucket so nothing an owner has to act on is unreachable. */
+  const filters: { id: LibraryFilter; label: string }[] = [
     { id: 'all', label: l.filters.all },
-    { id: 'live', label: l.filters.live },
-    { id: 'pending', label: l.filters.pending },
-    { id: 'blocked', label: l.filters.blocked },
+    { id: 'public', label: m.filters.public },
+    { id: 'private', label: m.filters.private },
+    { id: 'pending', label: m.filters.pending },
+    { id: 'changes', label: m.filters.changes },
+    { id: 'blocked', label: m.filters.blocked },
   ];
 
   /* Room on the right for the controls that sit beside a row: the files
-     link of a PDF library and the delete button. */
-  const controls = (deleteAction ? 1 : 0) + (allRows.some((row) => row.filesHref) ? 1 : 0);
-  const controlPad = controls === 2 ? 'pr-[104px]' : controls === 1 ? 'pr-[64px]' : '';
+     link of an upload library, refresh, and delete. */
+  const controls =
+    (deleteAction ? 1 : 0) + (rebuildAction ? 1 : 0) + (allRows.some((row) => row.filesHref) ? 1 : 0);
+  const controlPad =
+    controls === 3 ? 'pr-[144px]' : controls === 2 ? 'pr-[104px]' : controls === 1 ? 'pr-[64px]' : '';
 
   const rows = useMemo(() => {
     const needle = term.trim().toLowerCase();
     return allRows.filter((library) => {
-      const matchesFilter = filter === 'all' || library.status === filter;
       const matchesTerm =
         needle === '' ||
         library.title.toLowerCase().includes(needle) ||
         library.slug.toLowerCase().includes(needle);
-      return matchesFilter && matchesTerm;
+      return matches(library, filter) && matchesTerm;
     });
   }, [filter, term, allRows]);
 
@@ -85,7 +127,7 @@ export function LibraryList({
         <div className="flex min-w-[220px] flex-1 items-center">
           <SearchField placeholder={l.searchPlaceholder} value={term} onChange={setTerm} />
         </div>
-        <div className="flex gap-0 rounded-[7px] bg-mutedbg p-[3px]">
+        <div className="flex flex-wrap gap-0 rounded-[7px] bg-mutedbg p-[3px]">
           {filters.map((option) => (
             <button
               key={option.id}
@@ -103,6 +145,12 @@ export function LibraryList({
           ))}
         </div>
       </div>
+
+      {!deleteAction && !rebuildAction ? (
+        <p className="border-b-2 border-line px-[18px] py-2.5 text-[11px] tracking-[-0.023em] text-muted">
+          {m.readOnly}
+        </p>
+      ) : null}
 
       <div className="overflow-x-auto">
         <div className="min-w-[620px]">
@@ -137,11 +185,6 @@ export function LibraryList({
                       {library.slug}
                       {library.version ? ` · ${library.version}` : ''}
                     </span>
-                    {library.note ? (
-                      <span className="truncate text-[10px] tracking-[-0.023em] text-rose" title={library.note}>
-                        {library.note}
-                      </span>
-                    ) : null}
                   </span>
                 </span>
 
@@ -162,8 +205,8 @@ export function LibraryList({
                 <ArrowRightIcon size={14} className="text-muted" />
               </>
             );
-            /* Room on the right for the delete control, which sits beside the
-               row rather than inside it -- see DeleteLibraryControl. */
+            /* Room on the right for the controls, which sit beside the row
+               rather than inside it -- see DeleteLibraryControl. */
             const rowClass = `grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center border-t-2 border-line px-[18px] py-[19px] ${controlPad}`;
 
             return (
@@ -174,29 +217,49 @@ export function LibraryList({
                 >
                   {cells}
                 </Link>
+                {/* requirement.md 5.2: a public library shows its review
+                    steps, the expected time and the reviewer's feedback. */}
+                {library.pipeline || library.note ? (
+                  <div className="border-t border-line/60 bg-subtle/60 px-[18px] py-2.5 pl-[62px]">
+                    {library.pipeline ? (
+                      <ReviewPipeline entries={library.pipeline} note={library.note} compact />
+                    ) : (
+                      <p className="text-[10.5px] leading-[1.5] tracking-[-0.023em] text-rose">
+                        {library.note}
+                      </p>
+                    )}
+                  </div>
+                ) : null}
                 {controls > 0 ? (
-                  <span className="absolute top-1/2 right-[18px] flex -translate-y-1/2 items-center gap-2">
+                  <span className="absolute top-[19px] right-[18px] flex h-[34px] items-center gap-2">
                     {library.filesHref ? (
                       <Link
                         href={library.filesHref}
-                        aria-label={l.files}
-                        title={l.files}
+                        aria-label={library.filesLabel ?? l.files}
+                        title={library.filesLabel ?? l.files}
                         className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-[6px] border-2 border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-ink"
                       >
                         <FileTextIcon size={14} />
                       </Link>
                     ) : null}
+                    {rebuildAction ? (
+                      <RebuildLibraryControl
+                        libraryId={library.id}
+                        action={rebuildAction}
+                        disabled={library.rebuildDisabled}
+                      />
+                    ) : null}
                     {deleteAction ? (
                       <DeleteLibraryControl
-                      action={deleteAction}
-                      target={{
-                        id: library.id,
-                        publicId: library.slug,
-                        title: library.title,
-                        initial: library.initial,
-                        color: tileColor(library.slug),
-                      }}
-                    />
+                        action={deleteAction}
+                        target={{
+                          id: library.id,
+                          publicId: library.slug,
+                          title: library.title,
+                          initial: library.initial,
+                          color: tileColor(library.slug),
+                        }}
+                      />
                     ) : null}
                   </span>
                 ) : null}

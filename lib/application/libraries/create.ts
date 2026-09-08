@@ -23,10 +23,14 @@ import { uuidv7 } from '@/lib/domain/id';
 import {
   idNamespace,
   isConnectedSourceType,
+  isUploadSourceType,
+  libraryDescription,
+  libraryLanguage,
   normalizeLocation,
   normalizePublicId,
   parseIndexDepth,
   parseUploadManifest,
+  PlatformLibraryRefused,
   uploadPrefix,
   type ConnectedSourceType,
   type UploadedFile,
@@ -56,17 +60,17 @@ export interface CreateWorkspaceLibraryInput {
   title: string;
   visibility: 'public' | 'private';
   sourceType: ConnectedSourceType;
-  /** Ignored for pdf, whose location is where its uploads sit. */
+  /** Ignored for pdf and markdown, whose location is where their uploads sit. */
   location: string;
   /** Ignored for github, whose id is the repository. */
   slug: string;
   /**
-   * For pdf only: the manifest the wizard posted after uploading, as parsed
-   * JSON. Checked against this workspace's key prefix and against the store
-   * before a row is written, because a form post can say anything. Absent,
-   * or a manifest with no files, creates an empty PDF library: the files
-   * come later through `updateLibraryFiles`, and no build is queued until
-   * they do.
+   * For pdf and markdown only: the manifest the wizard posted after
+   * uploading, as parsed JSON. Checked against this workspace's key prefix
+   * and against the store before a row is written, because a form post can
+   * say anything. Absent, or a manifest with no files, creates an empty
+   * upload library: the files come later through `updateLibraryFiles`, and
+   * no build is queued until they do.
    */
   uploads?: unknown;
   /** For llms_txt only: how many levels of nested indexes to follow. */
@@ -91,7 +95,7 @@ export interface CreateWorkspaceLibraryInput {
 export interface CreateWorkspaceLibraryResult {
   libraryId: string;
   publicId: string;
-  /** The queued first build. Null for a PDF library created without files. */
+  /** The queued first build. Null for an upload library created without files. */
   operationId: string | null;
 }
 
@@ -109,25 +113,45 @@ export async function createWorkspaceLibrary(
   if (title.length === 0 || title.length > 120) {
     throw new AppError('invalid_request', 'a library needs a title (1-120 characters)');
   }
+
+  /*
+   * The same rule the metadata form applies (`editWorkspaceLibrary`), not a
+   * second set of numbers: the wizard's `maxLength` attributes are a courtesy
+   * to the person typing, and the action behind them is a public endpoint.
+   * Without this a description longer than the edit path allows was stored,
+   * published, and then unsavable through the only form that could shorten it.
+   */
+  let description: string | null;
+  let language: string | null;
+  try {
+    description = libraryDescription(input.description);
+    language = libraryLanguage(input.language);
+  } catch (error) {
+    if (error instanceof PlatformLibraryRefused) {
+      throw new AppError('invalid_request', 'the description or language is longer than allowed');
+    }
+    throw error;
+  }
   if (!isConnectedSourceType(input.sourceType)) {
     throw new AppError('invalid_request', 'unsupported source type');
   }
 
   /*
-   * A pdf source's location is derived, not typed: the prefix its files were
-   * uploaded under. Each file is confirmed to exist in the store at the size
-   * the manifest claims, so a build never starts on an upload that failed
-   * halfway or a manifest a client edited.
+   * An upload source's location is derived, not typed: the prefix its files
+   * were uploaded under. Each file is confirmed to exist in the store at the
+   * size the manifest claims, so a build never starts on an upload that
+   * failed halfway or a manifest a client edited.
    */
+  const isUpload = isUploadSourceType(input.sourceType);
   let uploaded: UploadedFile[] = [];
   let location: string | null;
   /* What the source row remembers besides its location. */
   let sourceConfig: Record<string, unknown> = {};
-  if (input.sourceType === 'pdf') {
+  if (isUploadSourceType(input.sourceType)) {
     const manifest =
       input.uploads === undefined || input.uploads === null
         ? { batchId: uuidv7(), files: [] }
-        : parseUploadManifest(input.uploads, input.workspaceId);
+        : parseUploadManifest(input.uploads, input.workspaceId, input.sourceType);
     if (!manifest) {
       throw new AppError('invalid_request', 'the upload manifest is not valid');
     }
@@ -177,7 +201,7 @@ export async function createWorkspaceLibrary(
     });
     location = check.location;
     sourceConfig = { pageId: check.pageId, [NOTION_SOURCE_USER_KEY]: input.userId };
-  } else if (input.sourceType === 'pdf') {
+  } else if (isUpload) {
     sourceConfig = { files: uploaded };
   } else if (input.sourceType === 'llms_txt') {
     sourceConfig = { indexDepth: parseIndexDepth(input.indexDepth) };
@@ -210,7 +234,7 @@ export async function createWorkspaceLibrary(
    * whose first build can only fail. Read before the lock, like the limit:
    * the reservation itself is taken by the worker under the lock.
    */
-  if (input.sourceType !== 'pdf' || uploaded.length > 0) {
+  if (!isUpload || uploaded.length > 0) {
     await assertBuildAffordable({
       workspaceId: input.workspaceId,
       fetchesPages: requiresDomainVerification(input.sourceType),
@@ -220,9 +244,9 @@ export async function createWorkspaceLibrary(
 
   const libraryId = uuidv7();
   const sourceId = uuidv7();
-  /* Nothing to build yet for an empty PDF library; `source_empty` from a
+  /* Nothing to build yet for an empty upload library; `source_empty` from a
      build that could only fail is not information the operator lacks. */
-  const operationId = input.sourceType === 'pdf' && uploaded.length === 0 ? null : uuidv7();
+  const operationId = isUpload && uploaded.length === 0 ? null : uuidv7();
 
   try {
     await database.transaction(async (tx) => {
@@ -261,8 +285,8 @@ export async function createWorkspaceLibrary(
         id: libraryId,
         publicId,
         title,
-        description: input.description?.trim() || null,
-        language: input.language?.trim() || null,
+        description,
+        language,
         ownerWorkspaceId: input.workspaceId,
         isPlatformLibrary: false,
         visibility: input.visibility,

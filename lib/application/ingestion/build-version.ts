@@ -56,7 +56,11 @@ import {
   PROFILE_VERSION,
   profileSearchText,
 } from '@/lib/domain/profile';
-import { isConnectedSourceType, type ConnectedSourceType } from '@/lib/domain/library';
+import {
+  isConnectedSourceType,
+  withDeclaredParseScope,
+  type ConnectedSourceType,
+} from '@/lib/domain/library';
 import { notionSourceUserId } from '@/lib/domain/notion';
 import { notionTokenFor } from '@/lib/application/auth/notion-connection';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -286,6 +290,27 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       config: source.config,
       credential: await sourceCredential(source.type, source.config),
     });
+    /*
+     * What `re0.json` scoped this fetch to is stamped onto the source row, in
+     * the file's own field names, so the library page can show the scope the
+     * index obeyed (requirement.md 5.1) without re-reading the repository.
+     *
+     * `withDeclaredParseScope` decides whether that stamp may land: the
+     * owner's dashboard scope writes the same keys and outranks the file, and
+     * a source with no `re0.json` declares nothing, so stamping it
+     * unconditionally erased a saved scope on the next build. Null means
+     * leave the row alone.
+     */
+    const declared = withDeclaredParseScope(source.config, {
+      folders: snapshot.config.folders,
+      excludeFolders: snapshot.config.excludeFolders,
+    });
+    if (declared) {
+      await database
+        .update(schema.source)
+        .set({ config: declared })
+        .where(eq(schema.source.id, source.id));
+    }
     const files: SourceFile[] = snapshot.files.map((file) => ({
       ...file,
       path: `${prefix(index, source.id)}${file.path}`,

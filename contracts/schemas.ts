@@ -70,15 +70,20 @@ export const libraryIdSchema = z
   });
 
 /**
- * A policy list entry: a library id, or a prefix -- `/websites/ethereum/*`
- * covers that library and everything nested under it.
+ * A policy list entry (lib/domain/policy.ts `parsePolicyEntry`): a library
+ * id, optionally `/…/*` to cover what nests under it; an organisation as
+ * `/owner/*`; or a domain such as `docs.example.com`.
  */
 export const libraryIdPatternSchema = z
   .string()
   .max(258)
-  .regex(/^\/[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*){1,5}(\/\*)?$/i, {
-    message: 'library entry must be a library id, optionally ending in /* to cover nested libraries',
-  });
+  .regex(
+    /^(\/[a-z0-9][a-z0-9._-]*((\/[a-z0-9][a-z0-9._-]*){1,5}(\/\*)?|\/\*)|([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62})$/i,
+    {
+      message:
+        'policy entry must be a library id (optionally ending in /*), an organisation as /owner/*, or a domain',
+    },
+  );
 
 // --- Retrieval. Two-stage: resolve-library-id then query-docs. ---
 
@@ -230,6 +235,11 @@ export const policyReasonSchema = z.enum([
   'unverified_library',
   'below_trust_threshold',
   'stale_library',
+  'below_star_threshold',
+  'unlicensed_library',
+  'below_backlink_threshold',
+  'below_referring_domain_threshold',
+  'below_traffic_threshold',
 ]);
 
 export const workspacePolicySchema = z.object({
@@ -239,6 +249,11 @@ export const workspacePolicySchema = z.object({
     requireVerified: z.boolean(),
     minTrustScore: z.number().int().min(0).max(100).nullable(),
     maxAgeDays: z.number().int().positive().nullable(),
+    minStars: z.number().int().nonnegative().nullable(),
+    requireLicense: z.boolean(),
+    minBacklinks: z.number().int().nonnegative().nullable(),
+    minReferringDomains: z.number().int().nonnegative().nullable(),
+    minOrganicTraffic: z.number().int().nonnegative().nullable(),
   }),
   blockedLibraries: z.array(libraryIdPatternSchema),
   exceptedLibraries: z.array(libraryIdPatternSchema),
@@ -269,6 +284,11 @@ export const policyPatchSchema = z.object({
       requireVerified: z.boolean().optional(),
       minTrustScore: z.number().int().min(0).max(100).nullable().optional(),
       maxAgeDays: z.number().int().positive().nullable().optional(),
+      minStars: z.number().int().nonnegative().nullable().optional(),
+      requireLicense: z.boolean().optional(),
+      minBacklinks: z.number().int().nonnegative().nullable().optional(),
+      minReferringDomains: z.number().int().nonnegative().nullable().optional(),
+      minOrganicTraffic: z.number().int().nonnegative().nullable().optional(),
     })
     .optional(),
   blocked: libraryIdListPatchSchema.optional(),

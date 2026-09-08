@@ -19,12 +19,43 @@ import { strictRateLimit } from '@/lib/infrastructure/cache/strict-rate-limit';
  * Wide enough to try the product, narrow enough that scraping the corpus
  * anonymously costs more than signing up.
  */
-const ANONYMOUS_RATE_RULE: RateLimitRule = { limit: 30, windowSeconds: 3_600 };
+export const ANONYMOUS_RATE_RULE: RateLimitRule = { limit: 30, windowSeconds: 3_600 };
 
+/**
+ * What an anonymous caller has left of the trial window, counted after this
+ * request. requirement.md 5.1 rule 8: the playground must show the remaining
+ * count, so the limiter's verdict rides along with the caller instead of
+ * being dropped on the floor once it said yes.
+ */
+export interface TrialAllowance {
+  limit: number;
+  remaining: number;
+  windowSeconds: number;
+}
+
+/** A caller plus, for an anonymous one, where it stands against the trial limit. */
+export type RetrievalCaller = CallerContext & { trial: TrialAllowance | null };
+
+/** Response headers carrying the trial allowance; none for a keyed or signed-in caller. */
+export function trialHeaders(trial: TrialAllowance | null): Record<string, string> {
+  if (!trial) return {};
+  return {
+    'x-re0-trial-limit': String(trial.limit),
+    'x-re0-trial-remaining': String(trial.remaining),
+    'x-re0-trial-window': String(trial.windowSeconds),
+  };
+}
+
+/**
+ * `entrypoint` is what the usage event and request log record: `rest` for
+ * the /v1 routes, `mcp` for the MCP endpoint. The scope check happens at the
+ * route, which knows which scope its operation needs (`requireScope`).
+ */
 export async function retrievalCaller(
   request: NextRequest,
   requestId: string,
-): Promise<CallerContext> {
+  entrypoint: 'rest' | 'mcp' = 'rest',
+): Promise<RetrievalCaller> {
   const principal = await resolveApiKey(request.headers.get('authorization'));
 
   if (principal) {
@@ -33,6 +64,9 @@ export async function retrievalCaller(
       apiKeyId: principal.apiKeyId,
       requestId,
       anonymous: false,
+      scopes: principal.scopes,
+      entrypoint,
+      trial: null,
     };
   }
 
@@ -44,7 +78,18 @@ export async function retrievalCaller(
     throw new AppError('rate_limited', 'anonymous limit reached; retry later or use an API key');
   }
 
-  return { workspaceId: null, apiKeyId: null, requestId, anonymous: true };
+  return {
+    workspaceId: null,
+    apiKeyId: null,
+    requestId,
+    anonymous: true,
+    entrypoint,
+    trial: {
+      limit: ANONYMOUS_RATE_RULE.limit,
+      remaining: verdict.remaining,
+      windowSeconds: ANONYMOUS_RATE_RULE.windowSeconds,
+    },
+  };
 }
 
 /**
@@ -63,7 +108,7 @@ export async function retrievalCaller(
 export async function playgroundCaller(
   request: NextRequest,
   requestId: string,
-): Promise<CallerContext> {
+): Promise<RetrievalCaller> {
   const principal = await resolveApiKey(request.headers.get('authorization'));
   if (principal) {
     return {
@@ -71,6 +116,9 @@ export async function playgroundCaller(
       apiKeyId: principal.apiKeyId,
       requestId,
       anonymous: false,
+      scopes: principal.scopes,
+      entrypoint: 'web',
+      trial: null,
     };
   }
 
@@ -81,8 +129,16 @@ export async function playgroundCaller(
     },
   );
   if (session) {
-    return { workspaceId: session.workspace.id, apiKeyId: null, requestId, anonymous: false };
+    return {
+      workspaceId: session.workspace.id,
+      apiKeyId: null,
+      requestId,
+      anonymous: false,
+      entrypoint: 'web',
+      trial: null,
+    };
   }
 
-  return retrievalCaller(request, requestId);
+  const caller = await retrievalCaller(request, requestId);
+  return { ...caller, entrypoint: 'web' };
 }

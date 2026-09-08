@@ -94,9 +94,26 @@ async function apiGet<T>(path: string, token: string): Promise<T> {
   }
 
   if (!response.ok) {
-    throw new AuthFailure('oauth_failed', `github ${path} returned ${response.status}`);
+    await response.body?.cancel();
+    throw new AuthFailure(
+      githubStatusFailure(response.status),
+      `github ${path} returned ${response.status}`,
+    );
   }
   return (await response.json()) as T;
+}
+
+/**
+ * Which kind of "no" a status is.
+ *
+ * `404` and `401` are GitHub answering: the resource is not visible to this
+ * token, or the token is not good. Everything else -- `403` (which is how a
+ * secondary rate limit arrives), `429`, and any 5xx -- is GitHub not
+ * answering, and a caller that treats it as a verdict draws a conclusion
+ * nobody reached. Network faults and timeouts are already `provider_unavailable`.
+ */
+function githubStatusFailure(status: number): 'oauth_failed' | 'provider_unavailable' {
+  return status === 404 || status === 401 ? 'oauth_failed' : 'provider_unavailable';
 }
 
 interface GithubUser {
@@ -340,4 +357,117 @@ export async function readRepository(
     token,
   );
   return record ? repositoryFrom(record) : null;
+}
+
+/* ------------------------------------------------------------ claim grants */
+
+/**
+ * The same code exchange, keeping the token for one more read.
+ *
+ * Used only by the ownership claim: requirement.md 7.3.2 verifies a GitHub
+ * repository by asking GitHub, with the user's own token, what permission
+ * they hold on it. The token comes back to the caller for exactly that read
+ * and is dropped afterwards -- nothing here or there persists it.
+ */
+export async function exchangeForGrant(input: {
+  code: string;
+  redirectUri: string;
+}): Promise<{ token: string; subject: string }> {
+  const token = await accessToken(input.code, input.redirectUri);
+  const profile = await apiGet<GithubUser>('/user', token);
+  return { token, subject: String(profile.id) };
+}
+
+export interface RepositoryPermissions {
+  /** GitHub's own id for the repository, the stable half of the identity. */
+  id: number;
+  fullName: string;
+  homepage: string | null;
+  permissions: { admin?: boolean; maintain?: boolean; push?: boolean; pull?: boolean } | null;
+}
+
+/**
+ * What the token holder may do on one repository, as GitHub reports it.
+ *
+ * `permissions` is present only for an authenticated caller and describes
+ * that caller; a repository the token cannot see answers 404, which is
+ * returned as null rather than raised so the claim can record a stable
+ * failure code without echoing GitHub's answer (requirement.md 7.3.7).
+ *
+ * Only that answer is null. A rate limit, a 5xx or a timeout raises
+ * `provider_unavailable`, because "we could not ask" is not "you do not have
+ * permission" -- and the claim counts failed checks, so conflating the two
+ * spends attempts on GitHub's bad afternoon.
+ */
+export async function repositoryGrant(
+  token: string,
+  location: string,
+): Promise<RepositoryPermissions | null> {
+  const [owner, name] = location.split('/');
+  if (!owner || !name) return null;
+  try {
+    const repository = await apiGet<{
+      id: number;
+      full_name: string;
+      homepage: string | null;
+      permissions?: RepositoryPermissions['permissions'];
+    }>(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`, token);
+    return {
+      id: repository.id,
+      fullName: repository.full_name,
+      homepage: repository.homepage,
+      permissions: repository.permissions ?? null,
+    };
+  } catch (error) {
+    if (error instanceof AuthFailure && error.loginError === 'oauth_failed') return null;
+    throw error;
+  }
+}
+
+/**
+ * A public repository's home page, read without any credential.
+ *
+ * The DNS and well-known fallbacks for a GitHub source verify the
+ * repository's *home domain* (requirement.md 7.3.2), and the repository is the
+ * only authority on what that is.
+ *
+ * Null means the repository is not there or names no home page. A transient
+ * fault raises `provider_unavailable` instead: the caller's next step is to
+ * try again, not to tell the user their source does not match.
+ */
+export async function publicRepositoryHomepage(location: string): Promise<string | null> {
+  const [owner, name] = location.split('/');
+  if (!owner || !name) return null;
+  let response: Response;
+  try {
+    response = await fetch(
+      `${API_URL}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
+      {
+        headers: {
+          accept: 'application/vnd.github+json',
+          'x-github-api-version': '2022-11-28',
+          'user-agent': 're0',
+          ...(process.env.GITHUB_INGESTION_TOKEN
+            ? { authorization: `Bearer ${process.env.GITHUB_INGESTION_TOKEN}` }
+            : {}),
+        },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+        cache: 'no-store',
+      },
+    );
+  } catch {
+    throw new AuthFailure('provider_unavailable', 'github repository lookup unreachable');
+  }
+  if (!response.ok) {
+    await response.body?.cancel();
+    /* Same split as `repositoryGrant`: "no such repository" is an answer, a
+       rate limit or a 5xx is not, and only the answer may become a verdict. */
+    if (githubStatusFailure(response.status) === 'oauth_failed') return null;
+    throw new AuthFailure(
+      'provider_unavailable',
+      `github repository lookup returned ${response.status}`,
+    );
+  }
+  const body = (await response.json()) as { homepage?: string | null };
+  return body.homepage ?? null;
 }

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Button, SectionHeading } from '@/components/ui/primitives';
 import { ClaudeIcon, CodexIcon, CursorIcon, McpIcon } from '@/components/ui/brand-icons';
+import { DirectorySearch } from '@/components/site/directory-search';
 import { LibraryTable } from '@/components/site/library-table';
 import { McpConnect } from '@/components/site/mcp-connect';
 import {
@@ -11,11 +12,12 @@ import {
   ClockIcon,
   KeyIcon,
   PlusIcon,
-  SearchIcon,
   ShieldCheckIcon,
   SparklesIcon,
+  SquareTerminalIcon,
 } from '@/components/ui/icons';
-import { listPublicLibraries } from '@/lib/application/libraries';
+import { listPublicLibraries, POPULARITY_WINDOW_DAYS } from '@/lib/application/libraries';
+import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
 
 /** Vendor logomarks where the surface has one; the design source's glyph otherwise. */
@@ -44,7 +46,7 @@ export default async function HomePage() {
     trustScore: row.trustScore,
     chunks: row.totalChunks.toLocaleString('en-US'),
     updated: row.updatedAt ? new Date(row.updatedAt).toISOString().slice(0, 10) : '—',
-    anchored: false,
+    anchored: row.anchored,
   }));
   return (
     <>
@@ -73,6 +75,33 @@ export default async function HomePage() {
               <KeyIcon />
               {t.home.getKey}
             </Link>
+            <Link
+              href="/playground"
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-[20px] border-2 border-line bg-card px-5 text-[14px] font-medium tracking-[-0.029em] text-ink shadow-[0_4px_10px_rgba(45,45,83,0.1),0_1px_1px_rgba(45,45,83,0.1)] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-subtle hover:shadow-[0_10px_22px_-8px_rgba(3,26,30,0.24)]"
+            >
+              <SparklesIcon size={16} />
+              {t.home.cli.tryOnline}
+            </Link>
+          </div>
+
+          {/* The CLI (packages/cli): one command that writes the MCP entry
+              into every client on the machine, for people who would rather
+              not paste the endpoint by hand. */}
+          <div className="mt-6 flex w-full flex-col gap-2.5">
+            <p className="flex items-center gap-2 text-[12px] font-[650] tracking-[-0.029em] text-ink">
+              <SquareTerminalIcon size={15} className="text-brand" />
+              {t.home.cli.title}
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <McpConnect
+                url={t.home.cli.command}
+                copyLabel={t.home.cli.copy}
+                copiedLabel={t.home.cli.copied}
+              />
+              <p className="max-w-[46ch] text-[11px] leading-[1.6] tracking-[-0.029em] text-muted">
+                {t.home.cli.note}
+              </p>
+            </div>
           </div>
 
           <ul className="mt-5 flex w-full flex-wrap items-center gap-x-5 gap-y-2 text-[11px] tracking-[-0.029em] text-muted">
@@ -104,32 +133,36 @@ export default async function HomePage() {
 
         <div className="mt-6">
           <div className="flex flex-wrap items-start gap-3 pb-[18px]">
-            <label className="flex h-[46px] min-w-0 flex-1 items-center gap-2.5 rounded-lg border-2 border-line bg-card/60 px-[15px] py-0.5 shadow-[0_4px_10px_rgba(45,45,83,0.06)]">
-              <SearchIcon size={18} className="text-muted" />
-              <input
-                placeholder={t.home.searchPlaceholder}
-                className="min-w-0 flex-1 bg-transparent text-[13px] tracking-[-0.025em] text-ink outline-none placeholder:text-muted/70"
-              />
-              <kbd className="flex h-[34px] shrink-0 items-center rounded-[5px] border-2 border-line bg-mutedbg px-1.5 text-[16px] text-muted">
-                ⌘ K
-              </kbd>
-            </label>
+            <DirectorySearch
+              placeholder={t.home.searchPlaceholder}
+              submitLabel={t.home.cli.searchSubmit}
+            />
+            {/* The featured table is the popular head; both toggles open the
+                full directory in that order. */}
             <div className="flex h-[46px] shrink-0 items-center rounded-lg border-2 border-line bg-card/60 p-[5px]">
-              <span className="flex h-9 items-center gap-1.5 rounded-md bg-brandsoft px-3 text-[12px] font-[550] tracking-[-0.027em] text-brandink">
+              <Link
+                href="/libraries?sort=popular"
+                className="flex h-9 items-center gap-1.5 rounded-md bg-brandsoft px-3 text-[12px] font-[550] tracking-[-0.027em] text-brandink"
+              >
                 <SparklesIcon size={15} />
                 {t.home.popular}
-              </span>
-              <span className="flex h-9 items-center gap-1.5 rounded-md px-3 text-[12px] font-[550] tracking-[-0.027em] text-muted">
+              </Link>
+              <Link
+                href="/libraries?sort=recent"
+                className="flex h-9 items-center gap-1.5 rounded-md px-3 text-[12px] font-[550] tracking-[-0.027em] text-muted transition-colors hover:bg-subtle hover:text-ink"
+              >
                 <ClockIcon size={15} />
                 {t.home.recentlyUpdated}
-              </span>
+              </Link>
             </div>
           </div>
 
           <LibraryTable entries={featured} showAnchor={false} />
 
           <div className="flex flex-wrap items-center justify-between gap-3 px-0.5 pt-3.5 text-[11px] tracking-[-0.029em]">
-            <p className="text-muted">{t.home.sampleNote}</p>
+            <p className="text-muted">
+              {fill(t.home.sampleNote, { count: featured.length, days: POPULARITY_WINDOW_DAYS })}
+            </p>
             <Link
               href="/libraries"
               className="flex items-center gap-[5px] font-semibold text-brandink hover:underline"

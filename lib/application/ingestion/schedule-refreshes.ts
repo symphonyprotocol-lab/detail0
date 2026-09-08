@@ -51,7 +51,11 @@ export interface ScheduledSource {
  * Archived libraries are left out: `requestPlatformLibraryRefresh` refuses
  * them, and the scheduler should not do by timer what the button may not.
  */
-export async function refreshSchedule(now: Date = new Date()): Promise<ScheduledSource[]> {
+export async function refreshSchedule(
+  now: Date = new Date(),
+  /** One library's sources only -- the library page's freshness panel. */
+  only?: { libraryId: string },
+): Promise<ScheduledSource[]> {
   const database = db();
 
   const sources = await database
@@ -73,6 +77,7 @@ export async function refreshSchedule(now: Date = new Date()): Promise<Scheduled
         eq(schema.library.isPlatformLibrary, true),
         isNull(schema.library.deletedAt),
         ne(schema.library.lifecycleStatus, 'archived'),
+        ...(only ? [eq(schema.library.id, only.libraryId)] : []),
       ),
     )
     .orderBy(schema.library.publicId, schema.source.id);

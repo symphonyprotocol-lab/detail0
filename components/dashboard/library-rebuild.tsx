@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect } from 'react';
-import { RefreshIcon, SpinnerIcon } from '@/components/ui/icons';
+import { CircleCheckIcon, CircleXIcon, RefreshIcon, SpinnerIcon } from '@/components/ui/icons';
 import type { RebuildLibraryActionResult } from '@/app/dashboard/libraries/[libraryId]/actions';
 import { useI18n } from '@/lib/i18n/client';
 
@@ -49,6 +49,70 @@ export function RebuildLibraryButton({
           }`}
         >
           {state.ok ? a.rebuildQueued : state.error === 'quota' ? a.rebuildQuota : a.rebuildFailed}
+        </span>
+      ) : null}
+    </form>
+  );
+}
+
+export type RebuildLibraryAction = (
+  previous: RebuildLibraryActionResult | null,
+  form: FormData,
+) => Promise<RebuildLibraryActionResult>;
+
+/**
+ * The list's per-row refresh: the same action as the detail page's Rebuild
+ * button, drawn as an icon beside the row (next to files and delete) with
+ * its one-line result shown under the row rather than in a dialog --
+ * requirement.md 5.2 asks for a definite result, not a ceremony.
+ */
+export function RebuildLibraryControl({
+  libraryId,
+  action,
+  disabled = false,
+}: {
+  libraryId: string;
+  action: RebuildLibraryAction;
+  disabled?: boolean;
+}) {
+  const { t } = useI18n();
+  const m = t.dashboard.libraries.manage;
+  const [state, formAction, pending] = useActionState(action, null);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (state?.ok) router.refresh();
+  }, [state, router]);
+
+  const message = state
+    ? state.ok
+      ? m.refreshQueued
+      : state.error === 'quota'
+        ? m.refreshQuota
+        : m.refreshFailed
+    : null;
+
+  return (
+    <form action={formAction} className="relative flex items-center">
+      <input type="hidden" name="libraryId" value={libraryId} />
+      <button
+        type="submit"
+        aria-label={m.refresh}
+        title={m.refresh}
+        disabled={disabled || pending}
+        className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-[6px] border-2 border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-ink disabled:opacity-40"
+      >
+        {pending ? <SpinnerIcon size={14} className="motion-safe:animate-spin" /> : <RefreshIcon size={14} />}
+      </button>
+      {message ? (
+        <span
+          role="status"
+          className={`absolute top-full right-0 z-10 mt-1 flex w-max max-w-[240px] items-start gap-1.5 rounded-[6px] border-2 border-line bg-card px-2 py-1.5 text-left text-[10.5px] leading-[1.45] tracking-[-0.023em] shadow-[0_4px_10px_rgba(45,45,83,0.06)] ${
+            state?.ok ? 'text-brandink' : 'text-rose'
+          }`}
+        >
+          {state?.ok ? <CircleCheckIcon size={13} className="mt-px shrink-0" /> : <CircleXIcon size={13} className="mt-px shrink-0" />}
+          {message}
         </span>
       ) : null}
     </form>

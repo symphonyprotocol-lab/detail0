@@ -29,6 +29,12 @@ export interface ConsoleAuditRow {
   originDigest: string | null;
   reason: string | null;
   result: string;
+  /**
+   * The snapshots the action recorded (requirement.md 5.3: values before and
+   * after). Null when the action had nothing to snapshot, e.g. a sign-in.
+   */
+  beforeValue: unknown;
+  afterValue: unknown;
 }
 
 export interface AuditListInput {
@@ -56,6 +62,8 @@ const AUDIT_ROW = {
   originDigest: schema.auditLog.ipDigest,
   reason: schema.auditLog.reason,
   result: schema.auditLog.result,
+  beforeValue: schema.auditLog.beforeValue,
+  afterValue: schema.auditLog.afterValue,
   administratorName: schema.administrator.username,
   administratorEmail: schema.administrator.email,
 };
@@ -137,6 +145,8 @@ function normalize(row: {
   originDigest: string | null;
   reason: string | null;
   result: string;
+  beforeValue: unknown;
+  afterValue: unknown;
   administratorName: string | null;
   administratorEmail: string | null;
 }): ConsoleAuditRow {
@@ -150,5 +160,7 @@ function normalize(row: {
     originDigest: row.originDigest,
     reason: row.reason,
     result: row.result,
+    beforeValue: row.beforeValue ?? null,
+    afterValue: row.afterValue ?? null,
   };
 }

@@ -1,6 +1,6 @@
 /**
  * Use cases behind the administrators screen: list, invite, enrol, change role,
- * change status, revoke sessions.
+ * change status, revoke sessions, reset the second factor.
  *
  * requirement.md 5.3 asks for least-privilege roles, invitation, deactivation
  * and enforced MFA, and requires every sensitive action to record the operator,
@@ -478,6 +478,109 @@ export async function revokeAdministratorSessions(input: {
   });
 
   return revoked.length;
+}
+
+export interface MfaResetResult {
+  /** Shown once; only its digest is stored. Same shape as an invitation. */
+  enrolmentPath: string;
+  expiresAt: Date;
+  revokedSessions: number;
+}
+
+/**
+ * Clear an administrator's second factor and send them back through
+ * enrolment.
+ *
+ * A lost authenticator has no self-service recovery on purpose: MFA is
+ * mandatory (requirement.md 3.2), so the only way back in is another super
+ * administrator vouching for the person, which is what this is. It clears
+ * the sealed secret, ends every console session, returns the account to
+ * `invited` and mints a fresh single-use enrolment link -- the same path a new
+ * administrator takes, so the account cannot become `active` again without
+ * proving a working second factor (`completeEnrolment`).
+ *
+ * Refused on oneself: an administrator who resets their own factor and loses
+ * the link is locked out with nobody entitled to let them back in -- the same
+ * reasoning as `refuseSelfChange`. Ask a colleague.
+ */
+export async function resetAdministratorMfa(input: {
+  actor: Actor;
+  administratorId: string;
+  reason: string;
+}): Promise<MfaResetResult> {
+  const reason = normalizeReason(input.reason);
+  refuseSelfChange(input.actor.administratorId, input.administratorId);
+
+  const target = await loadTarget(input.administratorId);
+  if (target.status !== 'active') {
+    throw new AdminChangeRefused(
+      'not_enrolled',
+      'only an active, enrolled administrator has a second factor to reset',
+    );
+  }
+
+  const now = new Date();
+  const token = randomToken();
+  const expiresAt = inviteExpiryFrom(now);
+  let revokedSessions = 0;
+
+  await db().transaction(async (tx) => {
+    /*
+     * Conditional on the row still being `active`, so two operators resetting
+     * the same account cannot both mint a link: the second updates nothing
+     * and is told the account is no longer enrolled.
+     */
+    const reset = await tx
+      .update(schema.administrator)
+      .set({
+        mfaSecret: null,
+        mfaEnrolledAt: null,
+        mfaLastCounter: null,
+        status: 'invited',
+        inviteTokenHash: await inviteTokenHash(token),
+        inviteExpiresAt: expiresAt,
+        invitedBy: input.actor.administratorId,
+        failedAttempts: 0,
+        lockedUntil: null,
+      })
+      .where(and(eq(schema.administrator.id, target.id), eq(schema.administrator.status, 'active')))
+      .returning({ id: schema.administrator.id });
+    if (reset.length === 0) {
+      throw new AdminChangeRefused('not_enrolled', 'that administrator is no longer enrolled');
+    }
+
+    /* requirement.md 3.2: a cleared factor takes effect now, not at expiry. */
+    const revoked = await tx
+      .update(schema.adminSession)
+      .set({ revokedAt: now })
+      .where(
+        and(
+          eq(schema.adminSession.administratorId, target.id),
+          isNull(schema.adminSession.revokedAt),
+        ),
+      )
+      .returning({ id: schema.adminSession.id });
+    revokedSessions = revoked.length;
+  });
+
+  await recordAudit({
+    administratorId: input.actor.administratorId,
+    action: 'admin.reset_mfa',
+    targetType: 'administrator',
+    targetId: target.email,
+    reason,
+    beforeValue: { status: target.status, mfaEnrolled: true },
+    afterValue: {
+      status: 'invited',
+      mfaEnrolled: false,
+      revokedSessions,
+      inviteExpiresAt: expiresAt.toISOString(),
+    },
+    clientAddress: input.actor.clientAddress ?? null,
+    result: 'success',
+  });
+
+  return { enrolmentPath: `/admin/enroll?token=${token}`, expiresAt, revokedSessions };
 }
 
 export interface EnrolmentOffer {

@@ -9,7 +9,7 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { NextRequest } from 'next/server';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -31,6 +31,9 @@ const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 const { GET: policiesGet, PATCH: policiesPatch } = await import('@/app/api/v1/policies/route');
+const { applyWorkspacePolicy, patchPolicy, pinPolicy, policyVerdictFor, policyVerdicts, previewWorkspacePolicy } =
+  await import('@/lib/application/policies');
+const { OPEN_POLICY } = await import('@/lib/domain/policy');
 
 const actor = { administratorId: null as unknown as string, email: 'ops@example.test' };
 const created: string[] = [];
@@ -174,6 +177,119 @@ async function workspaceWithKey(): Promise<{ workspaceId: string; key: string }>
   return { workspaceId, key };
 }
 
+/** A workspace row and nothing else: the policy store needs no plan or key. */
+async function bareWorkspace(): Promise<string> {
+  const workspaceId = crypto.randomUUID();
+  workspaces.push(workspaceId);
+  await db().insert(schema.workspace).values({ id: workspaceId, name: 'policy-normalize' });
+  return workspaceId;
+}
+
+/** The stored row, which is what the evaluator will read on the next request. */
+async function storedVersion(versionId: string) {
+  const [row] = await db()
+    .select()
+    .from(schema.policyVersion)
+    .where(eq(schema.policyVersion.id, versionId));
+  return row;
+}
+
+/**
+ * A routable library, inserted directly: the preview count is a statement
+ * about stored facts, so the fixture states them rather than building them.
+ */
+async function plainLibrary(input: {
+  publicId: string;
+  visibility: 'public' | 'private';
+  ownerWorkspaceId?: string | null;
+  isPlatformLibrary?: boolean;
+  sourceType?: string;
+  location?: string;
+  trustScore?: number;
+  lastSuccessfulRefreshAt?: Date | null;
+  indexStatus?: 'ready' | 'failed';
+  currentVersion?: boolean;
+}): Promise<string> {
+  const database = db();
+  const libraryId = crypto.randomUUID();
+  created.push(libraryId);
+  await database.insert(schema.library).values({
+    id: libraryId,
+    publicId: input.publicId,
+    title: `Preview fixture ${input.publicId}`,
+    ownerWorkspaceId: input.ownerWorkspaceId ?? null,
+    isPlatformLibrary: input.isPlatformLibrary ?? false,
+    visibility: input.visibility,
+    lifecycleStatus: 'published',
+    indexStatus: input.indexStatus ?? 'ready',
+    lastSuccessfulRefreshAt: input.lastSuccessfulRefreshAt ?? null,
+  });
+  if (input.currentVersion !== false) {
+    const versionId = uuidv7();
+    await database.insert(schema.libraryVersion).values({
+      id: versionId,
+      libraryId,
+      label: '20200101-aaaaaaaa',
+      sourceDigest: 'digest',
+      parserVersion: 'test',
+      chunkerVersion: 'test',
+      embeddingModel: 'test',
+      indexStatus: 'ready',
+    });
+    await database
+      .update(schema.library)
+      .set({ currentVersionId: versionId })
+      .where(eq(schema.library.id, libraryId));
+  }
+  if (input.sourceType) {
+    await database.insert(schema.source).values({
+      id: uuidv7(),
+      libraryId,
+      type: input.sourceType as 'website',
+      location: input.location ?? 'https://example.test/fixture',
+    });
+  }
+  if (input.trustScore !== undefined) {
+    await database.insert(schema.libraryScore).values({
+      id: uuidv7(),
+      libraryId,
+      algorithmVersion: 'test',
+      trustScore: input.trustScore,
+      benchmarkScore: 0,
+    });
+  }
+  return libraryId;
+}
+
+/**
+ * The same question `countReachableLibraries` answers, asked of the evaluator
+ * itself: every routable candidate the workspace could reach, run through
+ * `evaluatePolicy`. The SQL preview and this must agree exactly -- a
+ * disagreement is the console showing a number retrieval will not honour.
+ */
+async function reachableByEvaluator(
+  workspaceId: string,
+  policy: Parameters<typeof policyVerdicts>[0],
+): Promise<number> {
+  const rows = await db()
+    .select({ id: schema.library.id })
+    .from(schema.library)
+    .where(
+      sql`${schema.library.deletedAt} is null
+        and ${schema.library.lifecycleStatus} = 'published'
+        and ${schema.library.indexStatus} = 'ready'
+        and ${schema.library.currentVersionId} is not null
+        and (${schema.library.visibility} = 'public'
+          or (${schema.library.visibility} = 'private'
+            and ${schema.library.ownerWorkspaceId} = ${workspaceId}))`,
+    );
+  const verdicts = await policyVerdicts(
+    policy,
+    rows.map((row) => row.id),
+  );
+  return [...verdicts.values()].filter((verdict) => verdict.allowed).length;
+}
+
 function patchRequest(key: string, body: unknown): NextRequest {
   return new NextRequest('https://api.example.test/api/v1/policies', {
     method: 'PATCH',
@@ -185,6 +301,33 @@ function patchRequest(key: string, body: unknown): NextRequest {
 describeWithDb('policy engine', () => {
   afterAll(async () => {
     const database = db();
+    if (created.length > 0) {
+      await database
+        .update(schema.library)
+        .set({ currentVersionId: null })
+        .where(inArray(schema.library.id, created));
+      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.libraryId, created));
+      await database
+        .delete(schema.libraryProfileVector)
+        .where(inArray(schema.libraryProfileVector.libraryId, created));
+      await database
+        .delete(schema.libraryProfile)
+        .where(inArray(schema.libraryProfile.libraryId, created));
+      await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, created));
+      await database.delete(schema.document).where(inArray(schema.document.libraryId, created));
+      await database
+        .delete(schema.libraryVersion)
+        .where(inArray(schema.libraryVersion.libraryId, created));
+      await database
+        .delete(schema.libraryScore)
+        .where(inArray(schema.libraryScore.libraryId, created));
+      await database.delete(schema.source).where(inArray(schema.source.libraryId, created));
+      await database
+        .delete(schema.libraryAlias)
+        .where(inArray(schema.libraryAlias.libraryId, created));
+      await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, created));
+      await database.delete(schema.library).where(inArray(schema.library.id, created));
+    }
     if (workspaces.length > 0) {
       const versions = await database
         .select({ id: schema.policyVersion.id })
@@ -219,33 +362,336 @@ describeWithDb('policy engine', () => {
         .delete(schema.planVersion)
         .where(inArray(schema.planVersion.id, planVersions));
     }
-    if (created.length > 0) {
-      await database
-        .update(schema.library)
-        .set({ currentVersionId: null })
-        .where(inArray(schema.library.id, created));
-      await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.libraryId, created));
-      await database
-        .delete(schema.libraryProfileVector)
-        .where(inArray(schema.libraryProfileVector.libraryId, created));
-      await database
-        .delete(schema.libraryProfile)
-        .where(inArray(schema.libraryProfile.libraryId, created));
-      await database.delete(schema.chunk).where(inArray(schema.chunk.libraryId, created));
-      await database.delete(schema.document).where(inArray(schema.document.libraryId, created));
-      await database
-        .delete(schema.libraryVersion)
-        .where(inArray(schema.libraryVersion.libraryId, created));
-      await database
-        .delete(schema.libraryScore)
-        .where(inArray(schema.libraryScore.libraryId, created));
-      await database.delete(schema.source).where(inArray(schema.source.libraryId, created));
-      await database
-        .delete(schema.libraryAlias)
-        .where(inArray(schema.libraryAlias.libraryId, created));
-      await database.delete(schema.auditLog).where(inArray(schema.auditLog.targetId, created));
-      await database.delete(schema.library).where(inArray(schema.library.id, created));
+  });
+
+  it('stores an explicit quality mode for a draft that only carried a threshold', async () => {
+    const workspaceId = await bareWorkspace();
+
+    const response = await patchPolicy(
+      workspaceId,
+      { quality: { minTrustScore: 40 } },
+      `req_${crypto.randomUUID()}`,
+    );
+    expect(response.policy.mode).toBe('quality');
+
+    /* The row, not the return value: this is what the next request reads. */
+    const row = await storedVersion(response.policyVersionId!);
+    expect(row?.mode).toBe('quality');
+    expect(row?.qualityFilters).toMatchObject({ minTrustScore: 40 });
+
+    /* Read back and evaluated: the threshold the screen showed now bites. */
+    const pinned = await pinPolicy(workspaceId);
+    expect(pinned.policy.mode).toBe('quality');
+    const stamp = Date.now();
+    const low = await plainLibrary({
+      publicId: `/normalize-${stamp}/low`,
+      visibility: 'public',
+      sourceType: 'website',
+      trustScore: 10,
+    });
+    const high = await plainLibrary({
+      publicId: `/normalize-${stamp}/high`,
+      visibility: 'public',
+      sourceType: 'website',
+      trustScore: 90,
+    });
+    await expect(policyVerdictFor(pinned.policy, low)).resolves.toMatchObject({
+      allowed: false,
+      reason: 'below_trust_threshold',
+    });
+    await expect(policyVerdictFor(pinned.policy, high)).resolves.toMatchObject({ allowed: true });
+  });
+
+  it('stores an explicit quality mode for an always-allow entry alone', async () => {
+    const workspaceId = await bareWorkspace();
+    const response = await patchPolicy(
+      workspaceId,
+      { excepted: { add: ['/websites/anything'] } },
+      `req_${crypto.randomUUID()}`,
+    );
+    expect((await storedVersion(response.policyVersionId!))?.mode).toBe('quality');
+  });
+
+  it('keeps a null mode for a policy that constrains nothing', async () => {
+    const workspaceId = await bareWorkspace();
+    const response = await patchPolicy(
+      workspaceId,
+      { blocked: { add: ['/websites/nope'] } },
+      `req_${crypto.randomUUID()}`,
+    );
+    /* A blocklist is not a quality policy: it refuses by name, in any mode. */
+    expect(response.policy.mode).toBeNull();
+    expect((await storedVersion(response.policyVersionId!))?.mode).toBeNull();
+    expect((await pinPolicy(workspaceId)).policy.mode).toBeNull();
+  });
+
+  it('never rewrites an explicit select policy', async () => {
+    const workspaceId = await bareWorkspace();
+    const response = await patchPolicy(
+      workspaceId,
+      {
+        mode: 'select',
+        allowed: { add: ['/websites/only-this'] },
+        /* A leftover threshold from the quality controls must not promote it. */
+        quality: { minTrustScore: 70 },
+        excepted: { add: ['/websites/excepted'] },
+      },
+      `req_${crypto.randomUUID()}`,
+    );
+    expect(response.policy.mode).toBe('select');
+    expect((await storedVersion(response.policyVersionId!))?.mode).toBe('select');
+    expect((await pinPolicy(workspaceId)).policy.mode).toBe('select');
+  });
+
+  it('heals a legacy version stored with a null mode beside its thresholds', async () => {
+    const workspaceId = await bareWorkspace();
+    const legacyId = uuidv7();
+    await db().insert(schema.policyVersion).values({
+      id: legacyId,
+      workspaceId,
+      mode: null,
+      sourceTypes: {},
+      qualityFilters: { minTrustScore: 60 },
+      appliedAt: new Date(),
+    });
+
+    /* Read as what it enforces, without the row being rewritten under it. */
+    const pinned = await pinPolicy(workspaceId);
+    expect(pinned.versionId).toBe(legacyId);
+    expect(pinned.policy.mode).toBe('quality');
+    expect((await storedVersion(legacyId))?.mode).toBeNull();
+
+    const stamp = Date.now();
+    const low = await plainLibrary({
+      publicId: `/legacy-${stamp}/low`,
+      visibility: 'public',
+      sourceType: 'website',
+      trustScore: 5,
+    });
+    await expect(policyVerdictFor(pinned.policy, low)).resolves.toMatchObject({
+      allowed: false,
+      reason: 'below_trust_threshold',
+    });
+
+    /* The next patch mints a version that says so explicitly. */
+    const next = await patchPolicy(workspaceId, { blocked: { add: ['/websites/x'] } }, 'req_heal');
+    expect((await storedVersion(next.policyVersionId!))?.mode).toBe('quality');
+    expect((await storedVersion(next.policyVersionId!))?.qualityFilters).toMatchObject({
+      minTrustScore: 60,
+    });
+  });
+
+  it('leaves the previous version byte for byte, and a pinned request with it', async () => {
+    const workspaceId = await bareWorkspace();
+    const stamp = Date.now();
+    const library = await plainLibrary({
+      publicId: `/immutable-${stamp}/lib`,
+      visibility: 'public',
+      sourceType: 'website',
+      trustScore: 30,
+    });
+
+    const first = await patchPolicy(workspaceId, { quality: { minTrustScore: 10 } }, 'req_v1');
+    const v1Row = await storedVersion(first.policyVersionId!);
+    /* The request that started here keeps this policy for its whole life. */
+    const pinnedByRequest = await pinPolicy(workspaceId);
+
+    const second = await patchPolicy(workspaceId, { quality: { minTrustScore: 90 } }, 'req_v2');
+    expect(second.policyVersionId).not.toBe(first.policyVersionId);
+
+    /* The old row is untouched and still readable. */
+    expect(await storedVersion(first.policyVersionId!)).toEqual(v1Row);
+    expect(v1Row?.qualityFilters).toMatchObject({ minTrustScore: 10 });
+
+    /* The in-flight request still resolves against what it pinned. */
+    await expect(policyVerdictFor(pinnedByRequest.policy, library)).resolves.toMatchObject({
+      allowed: true,
+    });
+    /* A request starting now pins the newer one and refuses. */
+    const nowPinned = await pinPolicy(workspaceId);
+    expect(nowPinned.versionId).toBe(second.policyVersionId);
+    await expect(policyVerdictFor(nowPinned.policy, library)).resolves.toMatchObject({
+      allowed: false,
+      reason: 'below_trust_threshold',
+    });
+  });
+
+  it('previews exactly the libraries the evaluator admits', async () => {
+    const stamp = Date.now();
+    const workspaceId = await bareWorkspace();
+    const org = `Vercel${stamp}`;
+
+    /* A mixed set: public and private, above and below the threshold,
+       list-covered and not, and four different source types. */
+    await plainLibrary({
+      publicId: `/${org}/next.js`,
+      visibility: 'public',
+      sourceType: 'github',
+      location: 'https://github.com/vercel/next.js',
+      trustScore: 80,
+    });
+    await plainLibrary({
+      publicId: `/preview-${stamp}/docs`,
+      visibility: 'public',
+      sourceType: 'website',
+      location: 'https://docs.example-preview.test/guide',
+      trustScore: 20,
+    });
+    await plainLibrary({
+      publicId: `/preview-${stamp}/mine`,
+      visibility: 'private',
+      ownerWorkspaceId: workspaceId,
+      sourceType: 'pdf',
+      location: 'upload://fixture.pdf',
+      trustScore: 95,
+    });
+    await plainLibrary({
+      publicId: `/preview-${stamp}/notion`,
+      visibility: 'public',
+      sourceType: 'notion',
+      location: 'https://notion.so/fixture',
+      trustScore: 55,
+    });
+    await plainLibrary({
+      publicId: `/preview-${stamp}/blocked`,
+      visibility: 'public',
+      sourceType: 'website',
+      location: 'https://blocked-preview.test/x',
+      trustScore: 70,
+    });
+    /* Not routable: neither the count nor the evaluator's candidate set. */
+    await plainLibrary({
+      publicId: `/preview-${stamp}/unready`,
+      visibility: 'public',
+      sourceType: 'website',
+      trustScore: 99,
+      indexStatus: 'failed',
+    });
+    /* Someone else's private library: invisible to this workspace either way. */
+    const otherWorkspace = await bareWorkspace();
+    await plainLibrary({
+      publicId: `/preview-${stamp}/theirs`,
+      visibility: 'private',
+      ownerWorkspaceId: otherWorkspace,
+      sourceType: 'website',
+      trustScore: 99,
+    });
+
+    const drafts: Record<string, typeof OPEN_POLICY> = {
+      open: OPEN_POLICY,
+      trust: { ...OPEN_POLICY, mode: 'quality', quality: { ...OPEN_POLICY.quality, minTrustScore: 50 } },
+      trustWithException: {
+        ...OPEN_POLICY,
+        mode: 'quality',
+        quality: { ...OPEN_POLICY.quality, minTrustScore: 50 },
+        exceptedLibraries: [`/preview-${stamp}/docs`],
+      },
+      /* Case folding: a typed `vercel` entry must reach `/Vercel/next.js`. */
+      selectOrganisation: {
+        ...OPEN_POLICY,
+        mode: 'select',
+        allowedLibraries: [`/${org.toLowerCase()}/*`],
+      },
+      blockedByName: {
+        ...OPEN_POLICY,
+        blockedLibraries: [`/preview-${stamp}/blocked`],
+      },
+      blockedByDomain: {
+        ...OPEN_POLICY,
+        blockedLibraries: ['example-preview.test'],
+      },
+      noNotionNoPrivate: {
+        ...OPEN_POLICY,
+        sourceTypes: { notion: false, private: false },
+      },
+      verifiedOnly: { ...OPEN_POLICY, mode: 'quality', quality: { ...OPEN_POLICY.quality, requireVerified: true } },
+    };
+
+    for (const [name, draft] of Object.entries(drafts)) {
+      const previewed = await previewWorkspacePolicy({ workspaceId, draft });
+      const evaluated = await reachableByEvaluator(workspaceId, draft);
+      expect(`${name}: ${previewed}`).toBe(`${name}: ${evaluated}`);
     }
+
+    /* And the case-folded allowlist really does reach the mixed-case id. */
+    const selected = await previewWorkspacePolicy({
+      workspaceId,
+      draft: drafts.selectOrganisation,
+    });
+    expect(selected).toBe(1);
+  });
+
+  it('previews a freshness threshold the way the evaluator ages a library', async () => {
+    const stamp = Date.now();
+    const workspaceId = await bareWorkspace();
+    await plainLibrary({
+      publicId: `/fresh-${stamp}/yesterday`,
+      visibility: 'public',
+      sourceType: 'website',
+      trustScore: 50,
+      lastSuccessfulRefreshAt: new Date(Date.now() - 1 * 86_400_000),
+    });
+    await plainLibrary({
+      publicId: `/fresh-${stamp}/last-month`,
+      visibility: 'public',
+      sourceType: 'website',
+      trustScore: 50,
+      lastSuccessfulRefreshAt: new Date(Date.now() - 30 * 86_400_000),
+    });
+    /* Never refreshed: an unknown age passes, in SQL and in the evaluator. */
+    await plainLibrary({
+      publicId: `/fresh-${stamp}/never`,
+      visibility: 'public',
+      sourceType: 'website',
+      trustScore: 50,
+    });
+
+    for (const maxAgeDays of [1, 7, 365]) {
+      const draft = {
+        ...OPEN_POLICY,
+        mode: 'quality' as const,
+        quality: { ...OPEN_POLICY.quality, maxAgeDays },
+      };
+      const previewed = await previewWorkspacePolicy({ workspaceId, draft });
+      const evaluated = await reachableByEvaluator(workspaceId, draft);
+      expect(`${maxAgeDays}d: ${previewed}`).toBe(`${maxAgeDays}d: ${evaluated}`);
+    }
+  });
+
+  it('applies a console draft as one patch, and refuses a role that may not', async () => {
+    const workspaceId = await bareWorkspace();
+    const base = { ...OPEN_POLICY };
+    const draft = {
+      ...OPEN_POLICY,
+      /* The screen never asked for a mode; the threshold is the whole edit. */
+      quality: { ...OPEN_POLICY.quality, minTrustScore: 65 },
+    };
+
+    await expect(
+      applyWorkspacePolicy({ workspaceId, role: 'viewer', base, draft }),
+    ).rejects.toMatchObject({ code: 'access_denied' });
+    await expect(
+      applyWorkspacePolicy({ workspaceId, role: 'developer', base, draft }),
+    ).rejects.toMatchObject({ code: 'access_denied' });
+    expect(await db().select().from(schema.policyVersion).where(eq(schema.policyVersion.workspaceId, workspaceId))).toHaveLength(0);
+
+    const applied = await applyWorkspacePolicy({ workspaceId, role: 'admin', base, draft });
+    expect(applied.policy.mode).toBe('quality');
+    expect((await storedVersion(applied.versionId!))?.mode).toBe('quality');
+
+    /* An unchanged draft is not an edit: no second version is minted. */
+    const again = await applyWorkspacePolicy({
+      workspaceId,
+      role: 'owner',
+      base: applied.policy,
+      draft: applied.policy,
+    });
+    expect(again.versionId).toBe(applied.versionId);
+    const rows = await db()
+      .select()
+      .from(schema.policyVersion)
+      .where(eq(schema.policyVersion.workspaceId, workspaceId));
+    expect(rows).toHaveLength(1);
   });
 
   it('mints immutable versions through PATCH and reads them back', async () => {

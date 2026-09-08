@@ -11,15 +11,14 @@ import {
   prepareUploadAction,
   startDomainVerificationAction,
 } from './actions';
-import { Badge, IconTile, PANEL } from '@/components/dashboard/ui';
-import { LockIcon, ShieldCheckIcon } from '@/components/ui/icons';
+import { PANEL } from '@/components/dashboard/ui';
 import { listImportablePages, listImportableRepositories } from '@/lib/application/auth';
+import { canManageLibraries } from '@/lib/application/libraries';
 import { quoteBuild } from '@/lib/application/plans';
 import { fill } from '@/lib/i18n/format';
 import { isGithubConnectOutcome } from '@/lib/domain/github';
 import { isNotionConnectOutcome } from '@/lib/domain/notion';
 import { isNotionOAuthConfigured } from '@/lib/infrastructure/identity/notion';
-import { dashboardCopy } from '@/lib/dashboard/demo-data';
 import { getMessages } from '@/lib/i18n/server';
 import { requireSession } from '@/lib/http/session';
 
@@ -89,7 +88,34 @@ export default async function DashboardAddLibraryPage({
   const session = await requireSession('/dashboard/libraries/new');
   const t = await getMessages();
   const n = t.dashboard.newLibrary;
-  const reviewSteps = dashboardCopy(t).reviewSteps;
+
+  /*
+   * requirement.md 3.3 gives library management to owners and admins, and
+   * `createWorkspaceLibrary` refuses anyone else. Said here rather than four
+   * steps later: a viewer who filled the whole wizard in learned only at the
+   * submit button that none of it could be saved.
+   */
+  if (!canManageLibraries(session.workspace.role)) {
+    return (
+      <div className="flex flex-col gap-4">
+        <header className="flex flex-col gap-[5px]">
+          <Link
+            href="/dashboard/libraries"
+            className="text-[12px] tracking-[-0.023em] text-brandink transition-colors hover:text-brand"
+          >
+            {n.back}
+          </Link>
+          <h1 className="mt-1.5 text-[25px] leading-[1.5] font-[650] tracking-[-0.045em] text-ink">
+            {n.denied.title}
+          </h1>
+        </header>
+        <section className={`${PANEL} p-6`}>
+          <p className="text-[13px] leading-[1.5] tracking-[-0.023em] text-muted">{n.denied.body}</p>
+        </section>
+      </div>
+    );
+  }
+
   const [github, notion, quote] = await Promise.all([
     githubImportState(session.user.id),
     notionImportState(session.user.id),
@@ -121,12 +147,14 @@ export default async function DashboardAddLibraryPage({
             {n.description}
           </p>
         </div>
-        <Badge tone="neutral">{n.draftSaved}</Badge>
       </header>
 
+      {/* The wizard carries its own draft badge and review pipeline: both
+          say what is actually true of this attempt, which only it knows. */}
       <ImportWizard
         action={createWorkspaceLibraryAction}
         prepare={prepareUploadAction}
+        workspaceId={session.workspace.id}
         github={github}
         githubOutcome={isGithubConnectOutcome(outcome) ? outcome : null}
         notion={notion}
@@ -159,43 +187,6 @@ export default async function DashboardAddLibraryPage({
           </li>
           {quote.mode === 'shadow' ? <li className="text-muted">{cost.shadow}</li> : null}
         </ul>
-      </aside>
-
-      {/* Review pipeline -- design source frame `ISF8H`. */}
-      <aside className={`${PANEL} flex flex-col gap-4 p-6`}>
-        <div className="flex items-center gap-2.5">
-          <IconTile>
-            <ShieldCheckIcon size={18} />
-          </IconTile>
-          <div className="flex flex-col gap-[3px]">
-            <p className="text-[15px] leading-[1.4] tracking-[-0.025em] text-ink">
-              {n.reviewTitle}
-            </p>
-            <p className="text-[11px] tracking-[-0.023em] text-muted">{n.reviewDescription}</p>
-          </div>
-        </div>
-
-        <ol className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          {reviewSteps.map((entry, index) => (
-            <li key={entry.title} className="flex flex-col gap-2">
-              <span
-                aria-hidden
-                className="flex size-6 items-center justify-center rounded-full bg-brandsoft text-[11px] text-brandink"
-              >
-                {index + 1}
-              </span>
-              <span className="text-[12px] tracking-[-0.023em] text-ink">{entry.title}</span>
-              <span className="text-[10px] leading-[1.5] tracking-[-0.023em] text-muted">
-                {entry.note}
-              </span>
-            </li>
-          ))}
-        </ol>
-
-        <p className="flex items-center gap-1.5 border-t-2 border-line pt-3.5 text-[11px] tracking-[-0.023em] text-muted">
-          <LockIcon size={13} />
-          {n.privateSkips}
-        </p>
       </aside>
     </div>
   );

@@ -7,6 +7,8 @@ import {
   Notice,
   PANEL,
   PageHeader,
+  StatusLabel,
+  type StatusTone,
 } from '@/components/dashboard/ui';
 import {
   ArrowRightIcon,
@@ -19,12 +21,19 @@ import {
   LinkIcon,
   MailIcon,
   NotionIcon,
+  ReceiptIcon,
   ShieldCheckIcon,
 } from '@/components/ui/icons';
 import Link from 'next/link';
 import { disconnectGithubAction, disconnectNotionAction } from './actions';
-import { githubConnectionFor, notionConnectionFor } from '@/lib/application/auth';
-import { dashboardCopy } from '@/lib/dashboard/demo-data';
+import { accountProfile, githubConnectionFor, notionConnectionFor } from '@/lib/application/auth';
+import { listBillingDocuments } from '@/lib/application/billing';
+import { countWorkspaceLibraries, largestWorkspaceLibraryBytes } from '@/lib/application/libraries';
+import { isPaymentConnected, periodLastDay, workspacePlanVersion } from '@/lib/application/plans';
+import type { BillingDocumentStatus } from '@/lib/domain/billing';
+import { BYTES_PER_MB, bytesToMb, usdHeadline } from '@/lib/domain/plans';
+import { workspaceInitial } from '@/lib/domain/auth';
+import { workspaceUsage } from '@/lib/http/dashboard';
 import { isGithubConnectOutcome } from '@/lib/domain/github';
 import { isNotionConnectOutcome } from '@/lib/domain/notion';
 import { currentLocale, getMessages } from '@/lib/i18n/server';
@@ -35,6 +44,24 @@ import { requireSession } from '@/lib/http/session';
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).dashboard.settings.metaTitle };
 }
+
+/** The most recent documents the card lists; the provider's console has the rest. */
+const BILLING_ROWS = 12;
+
+/**
+ * The dot beside a document's status. Money in is live, money owed is
+ * pending, money that failed to arrive is blocked, and a document that no
+ * longer asks for anything -- refunded, voided -- is exempt.
+ */
+const BILLING_STATUS_TONE: Record<BillingDocumentStatus, StatusTone> = {
+  draft: 'pending',
+  open: 'pending',
+  paid: 'live',
+  failed: 'blocked',
+  uncollectible: 'blocked',
+  refunded: 'exempt',
+  void: 'exempt',
+};
 
 /** Card header: icon tile, title and sub-line, with an optional trailing slot. */
 function CardHead({
@@ -153,15 +180,109 @@ export default async function DashboardSettingsPage({
   searchParams: Promise<{ github?: string; notion?: string }>;
 }) {
   const session = await requireSession('/dashboard/settings');
-  const [t, locale, params, github, notion] = await Promise.all([
+  const workspaceId = session.workspace.id;
+  const [
+    t,
+    locale,
+    params,
+    github,
+    notion,
+    profile,
+    planVersion,
+    overview,
+    libraryCount,
+    largestBytes,
+    billing,
+  ] = await Promise.all([
     getMessages(),
     currentLocale(),
     searchParams,
     githubConnectionFor(session.user.id),
     notionConnectionFor(session.user.id),
+    accountProfile(session.user.id),
+    workspacePlanVersion(workspaceId),
+    workspaceUsage(workspaceId),
+    countWorkspaceLibraries(workspaceId),
+    largestWorkspaceLibraryBytes(workspaceId),
+    listBillingDocuments({ workspaceId, limit: BILLING_ROWS }),
   ]);
   const g = t.dashboard.settings;
-  const { account, plan, billingPeriod, usageMeters } = dashboardCopy(t);
+  const number = new Intl.NumberFormat(locale);
+  const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
+
+  /* The session already proved the user row exists; the profile read only
+     adds the join date and linked providers on top of it. */
+  const account = {
+    name: profile?.displayName ?? session.user.displayName,
+    initials: workspaceInitial(profile?.displayName ?? session.user.displayName),
+    email: profile?.email ?? session.user.email,
+    provider:
+      (profile?.providers ?? [])
+        .map((id) => g.providerNames[id as keyof typeof g.providerNames] ?? id)
+        .join(' · ') || '—',
+    joined: profile ? date.format(profile.createdAt) : '—',
+  };
+
+  const planNotes: Record<string, string> = g.planNotes;
+  const plan = {
+    /* The name comes from the same read as the price, the allowance and the
+       limits below it. Printing the session's copy beside this one's figures
+       is what let a lapsed subscription show "Pro" over Free's numbers; now
+       there is nothing left to disagree with. */
+    name: planVersion.planName,
+    price: usdHeadline(planVersion.priceMinor),
+    period: g.planPeriodMonth,
+    note: planNotes[planVersion.planId] ?? '',
+    perks: [
+      fill(g.planPerks.libraries, { count: number.format(planVersion.libraryLimit) }),
+      fill(g.planPerks.librarySize, { mb: number.format(bytesToMb(planVersion.librarySizeBytesLimit)) }),
+      fill(g.planPerks.calls, { count: number.format(planVersion.monthlyCalls) }),
+      fill(g.planPerks.apiKeys, { count: number.format(planVersion.apiKeyLimit) }),
+    ],
+  };
+
+  /*
+   * The window is half-open and stored in UTC; the last day inside it is what
+   * a person calls the end. `periodLastDay` is that subtraction and the UTC
+   * formatter keeps the server's timezone out of it -- the overview screen
+   * prints the same period from the same two, and used to print a different
+   * day for it.
+   */
+  const utcDate = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' });
+  const billingPeriod = fill(g.billingPeriod, {
+    start: utcDate.format(new Date(overview.periodStart)),
+    end: utcDate.format(periodLastDay(new Date(overview.periodEnd))),
+  });
+
+  const percent = (used: number, limit: number) =>
+    limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+  const largestMb = largestBytes / BYTES_PER_MB;
+  const usageMeters = [
+    {
+      ...g.meters.libraries,
+      value: fill(g.meters.libraries.value, {
+        used: number.format(libraryCount),
+        limit: number.format(planVersion.libraryLimit),
+      }),
+      percent: percent(libraryCount, planVersion.libraryLimit),
+    },
+    {
+      ...g.meters.largest,
+      value: fill(g.meters.largest.value, {
+        used: largestMb < 10 ? largestMb.toFixed(1) : number.format(Math.round(largestMb)),
+        limit: number.format(bytesToMb(planVersion.librarySizeBytesLimit)),
+      }),
+      percent: percent(largestBytes, planVersion.librarySizeBytesLimit),
+    },
+    {
+      ...g.meters.calls,
+      value: fill(g.meters.calls.value, {
+        used: number.format(overview.callsThisPeriod),
+        limit: number.format(overview.planAllowance),
+      }),
+      percent: percent(overview.callsThisPeriod, overview.planAllowance),
+    },
+  ];
 
   const outcome = isGithubConnectOutcome(params.github)
     ? { provider: g.connectionGithub, code: params.github }
@@ -177,6 +298,16 @@ export default async function DashboardSettingsPage({
     reconnect: g.connectionReconnect,
     disconnect: g.connectionDisconnect,
   };
+
+  /*
+   * Amounts print in the document's own currency: the mirror keeps whatever
+   * the provider settled in (requirement.md 4.3), and relabelling a franc as
+   * a dollar would be a lie about a receipt.
+   */
+  const money = (minor: number, currency: string) =>
+    new Intl.NumberFormat(locale, { style: 'currency', currency }).format(minor / 100);
+  const issued = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
+  const paymentConnected = isPaymentConnected();
 
   const profileRows = [
     { label: g.email, value: account.email, Icon: MailIcon },
@@ -210,9 +341,9 @@ export default async function DashboardSettingsPage({
             </span>
             <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
               <span className="text-[14px] tracking-[-0.023em] text-ink">{account.name}</span>
-              <span className="text-[11px] tracking-[-0.023em] text-muted">{account.kind}</span>
+              <span className="text-[11px] tracking-[-0.023em] text-muted">{g.accountKind}</span>
             </span>
-            <span className="text-[11px] tracking-[-0.023em] text-brand">{account.verified}</span>
+            <span className="text-[11px] tracking-[-0.023em] text-brand">{g.emailVerified}</span>
           </div>
 
           <dl className="flex-1 px-5">
@@ -350,12 +481,92 @@ export default async function DashboardSettingsPage({
         </div>
       </section>
 
+      {/*
+        Billing -- requirement.md 5.2 设置. A read-only mirror of the Payment
+        Provider's documents for this workspace, the same rows the console
+        shows platform-wide; until a provider is connected there are none.
+      */}
+      <section id="billing" className={`${PANEL} overflow-hidden p-0.5`}>
+        <CardHead
+          icon={<ReceiptIcon size={17} />}
+          title={g.billing.title}
+          description={g.billing.description}
+        />
+        {billing.rows.length === 0 ? (
+          <p className="px-5 py-6 text-center text-[12px] tracking-[-0.023em] text-muted">
+            {g.billing.empty}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] border-collapse text-left">
+              <thead>
+                <tr className="border-b-2 border-line">
+                  {g.billing.columns.map((head) => (
+                    <th
+                      key={head}
+                      scope="col"
+                      className="px-5 py-3 text-[11px] font-normal tracking-[-0.023em] text-muted"
+                    >
+                      {head}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {billing.rows.map((row, index) => (
+                  <tr
+                    key={row.id}
+                    className={index < billing.rows.length - 1 ? 'border-b-2 border-line' : ''}
+                  >
+                    <td className="px-5 py-3.5 text-[12px] font-semibold tracking-[-0.023em] text-steel">
+                      {row.number}
+                    </td>
+                    <td className="px-5 py-3.5 text-[12px] tracking-[-0.023em] text-steel">
+                      {g.billing.kinds[row.kind]}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <StatusLabel tone={BILLING_STATUS_TONE[row.status]}>
+                        {g.billing.statuses[row.status]}
+                      </StatusLabel>
+                    </td>
+                    <td className="px-5 py-3.5 text-[12px] tracking-[-0.023em] text-steel">
+                      {money(row.amountMinor, row.currency)}
+                      {row.refundedMinor > 0 ? (
+                        <span className="block text-[11px] text-muted">
+                          {fill(g.billing.refunded, {
+                            amount: money(row.refundedMinor, row.currency),
+                          })}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-5 py-3.5 text-[12px] tracking-[-0.023em] text-steel">
+                      {issued.format(row.issuedAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {paymentConnected ? null : (
+          <footer className="flex items-center gap-2 border-t-2 border-line px-5 py-3.5">
+            <ShieldCheckIcon size={14} className="shrink-0 text-muted" />
+            <p className="text-[11px] tracking-[-0.023em] text-muted">{g.billing.unbilled}</p>
+          </footer>
+        )}
+      </section>
+
       <Notice
         tone="brand"
         icon={<CircleDollarSignIcon size={17} />}
         title={g.billingNoticeTitle}
         body={g.billingNoticeBody}
-        action={<ArrowLink href="/contact">{g.billingNoticeLink}</ArrowLink>}
+        action={
+          <span className="flex flex-wrap items-center gap-4">
+            <ArrowLink href="#billing">{g.billing.noticeLink}</ArrowLink>
+            <ArrowLink href="/contact">{g.billingNoticeLink}</ArrowLink>
+          </span>
+        }
       />
     </div>
   );

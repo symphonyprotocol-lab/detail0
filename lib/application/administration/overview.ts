@@ -27,8 +27,13 @@ import {
   type OverviewRange,
 } from '@/lib/domain/overview';
 import { PLAN_CURRENCY } from '@/lib/domain/plans';
+import { isIngestionConfigured } from '@/lib/application/ingestion/dependencies';
+import { isLlmKeyPresent } from '@/lib/infrastructure/ai/llm';
+import { isObjectStoreConfigured } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { recentAuditEntries, type ConsoleAuditRow } from './list-audit';
+import { activeLlmConfig } from './manage-llm-config';
+import { retrievalProviderStatus } from './manage-retrieval-config';
 import {
   pendingReviewQueue,
   REVIEW_STATUSES,
@@ -61,6 +66,27 @@ export interface OverviewHealth {
   review: ReviewQueueState;
 }
 
+/**
+ * Whether the services the platform leans on are wired up (requirement.md
+ * 5.3: 服务状态). Every field is a configuration fact read from the
+ * environment or the registry -- nothing here calls a provider, so the page
+ * cannot spend money or hang on a slow endpoint just by being opened. The
+ * console's LLM screen has the live probe for when an operator wants one.
+ */
+export interface OverviewServices {
+  /** The model a subscriber's request resolves to, and whether its key is set. */
+  llm: { model: string | null; keyPresent: boolean };
+  retrieval: { embeddings: boolean; rerank: boolean };
+  objectStore: boolean;
+  /** Embeddings and storage together: whether a version could be built at all. */
+  ingestion: boolean;
+  /**
+   * Always false: there is no payment adapter yet (publisher-revenue-share.md
+   * stage 3), so payouts cannot execute. Stated rather than omitted.
+   */
+  payments: false;
+}
+
 export interface ConsoleOverview {
   range: OverviewRange;
   /** Present with the `users` capability. */
@@ -77,6 +103,8 @@ export interface ConsoleOverview {
    * Needs both `users` and `billing`.
    */
   conversionBps: number | null;
+  /** Workspaces on a paid plan right now. Present with the `billing` capability. */
+  paidWorkspaces: number | null;
   /** Present with the `libraries` capability. */
   libraries: WindowedCount | null;
   pendingQueue: ConsoleLibraryRow[] | null;
@@ -86,6 +114,7 @@ export interface ConsoleOverview {
   activity: ConsoleAuditRow[] | null;
   /** Open to every administrator: aggregate counts, nothing personal. */
   health: OverviewHealth;
+  services: OverviewServices;
 }
 
 export interface OverviewInput {
@@ -148,6 +177,7 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
     [indexRow],
     [buildRow],
     [reviewRow],
+    subscriberModel,
   ] = await Promise.all([
     can('users')
       ? database.select(windowed(schema.user.createdAt)).from(schema.user).then((rows) => rows[0])
@@ -262,6 +292,16 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
       })
       .from(schema.library)
       .where(pendingUserLibrary),
+    /*
+     * The registry read cannot take the page down: a service row that says
+     * "unknown" is honest, a landing page that 500s over it is not.
+     */
+    activeLlmConfig(null, 'subscriber').catch((error: unknown) => {
+      console.warn(
+        `overview: llm registry unavailable: ${error instanceof Error ? error.message : 'unknown'}`,
+      );
+      return null;
+    }),
   ]);
 
   const growth = userDays
@@ -281,6 +321,7 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
     growthIncludesPaid: paidDays !== null,
     conversionBps:
       userRow && paidWorkspaces !== null ? shareBps(paidWorkspaces, userRow.total) : null,
+    paidWorkspaces,
     libraries: libraryRow ?? null,
     pendingQueue,
     revenue,
@@ -303,6 +344,16 @@ export async function consoleOverview(input: OverviewInput): Promise<ConsoleOver
         oldestWaitingMs: oldest ? Math.max(0, now.getTime() - oldest.getTime()) : null,
         overdue: reviewRow?.overdue ?? 0,
       },
+    },
+    services: {
+      llm: {
+        model: subscriberModel?.model ?? null,
+        keyPresent: subscriberModel ? isLlmKeyPresent(subscriberModel.apiKeyEnv) : false,
+      },
+      retrieval: retrievalProviderStatus(),
+      objectStore: isObjectStoreConfigured(),
+      ingestion: isIngestionConfigured(),
+      payments: false,
     },
   };
 }

@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
+import { unstable_cache } from 'next/cache';
 import Link from 'next/link';
 import { Card, Chip, SectionHeading } from '@/components/ui/primitives';
 import { CircleCheckIcon, ClockIcon, ShieldCheckIcon } from '@/components/ui/icons';
+import { platformStatus, type ComponentStatus } from '@/lib/application/status';
 import { fill } from '@/lib/i18n/format';
-import type { Dictionary } from '@/lib/i18n/dictionary';
-import { getMessages } from '@/lib/i18n/server';
+import { getMessages, translations } from '@/lib/i18n/server';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { status } = await getMessages();
@@ -12,69 +13,115 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * Placeholder status data for the public status page.
- *
- * Real availability has to come from the platform's own monitoring, which does
- * not exist yet (architecture.md 21). Every component listed here maps to a
- * surface that is actually in scope; swap this module for a metrics query once
- * monitoring is wired. Names and prose live in the dictionaries -- only the
- * measurements are here.
+ * The figures come from the platform's own tables (lib/application/status.ts)
+ * and cost a few aggregate queries, so they are computed at most once every
+ * few minutes and shared by every visitor. The page itself stays dynamic (the
+ * locale is read from the request), which is why the cache sits on the use
+ * case rather than on the segment. "Last checked" is when the figures were
+ * computed. The cache serialises, so the two dates come back as strings and
+ * are rehydrated here.
  */
-const CHECKED_AT = '2026-08-25 09:40 (UTC+8)';
+const REVALIDATE_SECONDS = 300;
 
-const WINDOW_DAYS = 90;
+const cachedStatus = unstable_cache(() => platformStatus(), ['public-status'], {
+  revalidate: REVALIDATE_SECONDS,
+});
 
-type Health = 'ok' | 'degraded';
-
-/** `dips` holds the days-ago offsets that were not fully healthy. */
-interface ComponentFacts {
-  id: keyof Dictionary['status']['components'];
-  health: Health;
-  uptime: string;
-  dips: number[];
+async function currentStatus() {
+  const raw = await cachedStatus();
+  return {
+    ...raw,
+    checkedAt: new Date(raw.checkedAt),
+    refresh: {
+      ...raw.refresh,
+      nextDueAt: raw.refresh.nextDueAt ? new Date(raw.refresh.nextDueAt) : null,
+    },
+  };
 }
 
-const COMPONENT_FACTS: ComponentFacts[] = [
-  { id: 'retrieval', health: 'ok', uptime: '99.98%', dips: [41] },
-  { id: 'mcp', health: 'ok', uptime: '99.96%', dips: [27, 41] },
-  { id: 'indexing', health: 'degraded', uptime: '99.81%', dips: [0, 1, 14, 53, 54, 55] },
-  { id: 'console', health: 'ok', uptime: '100.00%', dips: [] },
-  { id: 'claims', health: 'ok', uptime: '99.95%', dips: [33] },
-  { id: 'anchoring', health: 'ok', uptime: '99.90%', dips: [7, 62, 63] },
-  { id: 'metering', health: 'ok', uptime: '99.99%', dips: [] },
-];
-
-interface IncidentFacts {
-  id: keyof Dictionary['status']['incidents'];
-  date: string;
-  scope: keyof Dictionary['status']['components'];
-  resolved: boolean;
+/** A basis-point share as a percentage with two decimals. */
+function percent(bps: number, locale: string): string {
+  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(bps / 100)}%`;
 }
-
-const INCIDENT_FACTS: IncidentFacts[] = [
-  { id: 'backlog', date: '2026-08-24', scope: 'indexing', resolved: false },
-  { id: 'handshake', date: '2026-08-11', scope: 'mcp', resolved: true },
-  { id: 'anchorDelay', date: '2026-07-14', scope: 'anchoring', resolved: true },
-  { id: 'latency', date: '2026-06-23', scope: 'retrieval', resolved: true },
-];
 
 export default async function StatusPage() {
-  const { status: st } = await getMessages();
+  const [{ locale, t }, status] = await Promise.all([translations(), currentStatus()]);
+  const st = t.status;
+  const live = st.live;
+  const number = new Intl.NumberFormat(locale);
+  const dateTime = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
+  const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
 
-  const components = COMPONENT_FACTS.map((facts) => ({ ...facts, ...st.components[facts.id] }));
-  const incidents = INCIDENT_FACTS.map((facts) => ({
-    ...facts,
-    ...st.incidents[facts.id],
-    scopeName: st.components[facts.scope].name,
+  const components = status.components.map((component) => ({
+    ...component,
+    ...live.components[component.id],
   }));
-  const degraded = components.filter((c) => c.health !== 'ok');
+  const degraded = components.filter((component) => component.health === 'degraded');
+
+  const healthChip = (health: ComponentStatus['health']) =>
+    health === 'ok' ? (
+      <Chip tone="good">{st.healthOk}</Chip>
+    ) : health === 'degraded' ? (
+      <Chip tone="warn">{st.healthDegraded}</Chip>
+    ) : (
+      <Chip>{live.healthUnknown}</Chip>
+    );
+
+  /* The line under a component's name: what today's rows say, per surface. */
+  const todayLine = (component: (typeof components)[number]): string[] => {
+    switch (component.id) {
+      case 'retrieval':
+        return [
+          fill(live.todayRequests, { count: number.format(component.today.requests ?? 0) }),
+          ...(component.today.p95Ms !== null && component.today.p95Ms !== undefined
+            ? [fill(live.p95, { ms: number.format(component.today.p95Ms) })]
+            : []),
+        ];
+      case 'indexing':
+        return [
+          fill(live.todayOperations, {
+            finished: number.format(component.today.finished ?? 0),
+            failed: number.format(component.today.failed ?? 0),
+          }),
+        ];
+      case 'refresh':
+        return [
+          fill(live.refreshScheduled, { count: number.format(status.refresh.scheduled) }),
+          ...(status.refresh.overdue > 0
+            ? [fill(live.refreshOverdue, { count: number.format(status.refresh.overdue) })]
+            : []),
+          ...(status.refresh.open > 0
+            ? [fill(live.refreshOpen, { count: number.format(status.refresh.open) })]
+            : []),
+          ...(status.refresh.nextDueAt
+            ? [fill(live.nextDue, { when: dateTime.format(status.refresh.nextDueAt) })]
+            : []),
+        ];
+      case 'review':
+        return status.review.pending === 0
+          ? [live.reviewEmpty]
+          : [
+              fill(live.reviewPending, { count: number.format(status.review.pending) }),
+              ...(status.review.overdue > 0
+                ? [fill(live.reviewOverdue, { count: number.format(status.review.overdue) })]
+                : []),
+              ...(status.review.oldestWaitingMs !== null
+                ? [
+                    fill(live.reviewOldest, {
+                      hours: number.format(Math.round(status.review.oldestWaitingMs / 3_600_000)),
+                    }),
+                  ]
+                : []),
+            ];
+    }
+  };
 
   return (
     <>
       <section className="mx-auto w-full max-w-[1080px] px-5 pt-11 pb-12">
         <SectionHeading eyebrow="STATUS" title={st.title} as="h1" size="lg" />
         <p className="mt-3 max-w-[70ch] text-[13px] leading-[1.7] text-muted">
-          {fill(st.lede, { days: WINDOW_DAYS })}
+          {fill(st.lede, { days: status.windowDays })}
         </p>
 
         <Card className="mt-7 flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
@@ -99,7 +146,7 @@ export default async function StatusPage() {
           </div>
           <p className="shrink-0 text-[11px] text-faint sm:text-right">
             {st.lastChecked}
-            <br className="hidden sm:block" /> {CHECKED_AT}
+            <br className="hidden sm:block" /> {dateTime.format(status.checkedAt)}
           </p>
         </Card>
       </section>
@@ -111,7 +158,7 @@ export default async function StatusPage() {
         <Card className="mt-6 overflow-hidden">
           {components.map((c, index) => (
             <div
-              key={c.name}
+              key={c.id}
               className={`flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between ${
                 index === 0 ? '' : 'border-t-2 border-line'
               }`}
@@ -121,30 +168,41 @@ export default async function StatusPage() {
                   <h3 className="text-[13.5px] font-semibold tracking-[-0.02em] text-ink">
                     {c.name}
                   </h3>
-                  <Chip tone={c.health === 'ok' ? 'good' : 'warn'}>
-                    {c.health === 'ok' ? st.healthOk : st.healthDegraded}
-                  </Chip>
+                  {healthChip(c.health)}
                 </div>
                 <p className="mt-1.5 text-[12px] leading-[1.7] text-muted">{c.detail}</p>
+                <p className="mt-1 text-[11px] text-faint">{todayLine(c).join(' · ')}</p>
               </div>
 
               <div className="flex flex-col items-start gap-2 lg:items-end">
-                <div aria-hidden className="flex items-end gap-[2px] overflow-hidden">
-                  {Array.from({ length: WINDOW_DAYS }, (_, i) => {
-                    const daysAgo = WINDOW_DAYS - 1 - i;
-                    return (
+                {c.strip.length > 0 ? (
+                  <div aria-hidden className="flex items-end gap-[2px] overflow-hidden">
+                    {c.strip.map((day) => (
                       <span
-                        key={daysAgo}
+                        key={day.day}
+                        title={day.day}
                         className={`h-6 w-[3px] rounded-[1px] ${
-                          c.dips.includes(daysAgo) ? 'bg-warn' : 'bg-good/70'
+                          day.health === 'degraded'
+                            ? 'bg-warn'
+                            : day.health === 'ok'
+                              ? 'bg-good/70'
+                              : 'bg-line'
                         }`}
                       />
-                    );
-                  })}
-                </div>
+                    ))}
+                  </div>
+                ) : null}
                 <p className="text-[11px] text-faint">
-                  {fill(st.uptimeLabel, { days: WINDOW_DAYS })}{' '}
-                  <span className="font-semibold text-muted">{c.uptime}</span>
+                  {c.successBps === null ? (
+                    live.noTraffic
+                  ) : (
+                    <>
+                      {fill(live.successRate, { days: status.windowDays })}{' '}
+                      <span className="font-semibold text-muted">
+                        {percent(c.successBps, locale)}
+                      </span>
+                    </>
+                  )}
                 </p>
               </div>
             </div>
@@ -158,25 +216,43 @@ export default async function StatusPage() {
         <SectionHeading eyebrow="INCIDENTS" title={st.incidentsTitle} />
         <p className="mt-3 text-[13px] text-muted">{st.incidentsNote}</p>
 
-        <ol className="mt-7 flex flex-col">
-          {incidents.map((incident) => (
-            <li key={incident.date} className="border-t-2 border-line py-5">
-              <div className="flex flex-wrap items-center gap-3">
-                <time className="font-mono text-[11px] text-faint">{incident.date}</time>
-                <h3 className="text-[13.5px] font-semibold tracking-[-0.02em] text-ink">
-                  {incident.title}
-                </h3>
-                <Chip tone={incident.resolved ? 'good' : 'warn'}>
-                  {incident.resolved ? st.incidentResolved : st.incidentOngoing}
-                </Chip>
-                <span className="text-[11px] text-faint">{incident.scopeName}</span>
-              </div>
-              <p className="mt-2 max-w-[80ch] text-[12.5px] leading-[1.75] text-muted">
-                {incident.body}
-              </p>
-            </li>
-          ))}
-        </ol>
+        {status.incidents.length === 0 ? (
+          <p className="mt-7 border-t-2 border-line py-5 text-[12.5px] text-muted">
+            {fill(live.incidentsEmpty, { days: status.windowDays })}
+          </p>
+        ) : (
+          <ol className="mt-7 flex flex-col">
+            {status.incidents.map((incident) => (
+              <li key={`${incident.component}-${incident.from}`} className="border-t-2 border-line py-5">
+                <div className="flex flex-wrap items-center gap-3">
+                  <time className="font-mono text-[11px] text-faint">
+                    {incident.from === incident.to
+                      ? date.format(new Date(incident.from))
+                      : `${date.format(new Date(incident.from))} – ${date.format(new Date(incident.to))}`}
+                  </time>
+                  <h3 className="text-[13.5px] font-semibold tracking-[-0.02em] text-ink">
+                    {fill(live.incidentTitle, {
+                      component: live.components[incident.component].name,
+                    })}
+                  </h3>
+                  <Chip tone={incident.ongoing ? 'warn' : 'good'}>
+                    {incident.ongoing ? st.incidentOngoing : st.incidentResolved}
+                  </Chip>
+                </div>
+                <p className="mt-2 max-w-[80ch] text-[12.5px] leading-[1.75] text-muted">
+                  {fill(live.incidentBody, {
+                    days: incident.days,
+                    peak: new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(
+                      incident.peakFailureBps / 100,
+                    ),
+                  })}
+                </p>
+              </li>
+            ))}
+          </ol>
+        )}
+
+        <p className="mt-5 text-[12px] text-faint">{live.derivedNote}</p>
       </section>
 
       <section className="mx-auto w-full max-w-[1080px] border-t-2 border-line px-5 pt-12 pb-16">

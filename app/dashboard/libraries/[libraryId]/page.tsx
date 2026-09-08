@@ -2,6 +2,13 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { LiveRefresh } from '@/components/dashboard/live-refresh';
+import {
+  DetailDeleteControl,
+  LibraryMetadataForm,
+  OwnerActionButton,
+  ParseScopeForm,
+  ReviewPipeline,
+} from '@/components/dashboard/library-manage';
 import { RebuildLibraryButton } from '@/components/dashboard/library-rebuild';
 import { Badge, IconTile, PANEL, StatusLabel, type StatusTone } from '@/components/dashboard/ui';
 import {
@@ -25,10 +32,23 @@ import {
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { quoteBuild } from '@/lib/application/plans';
-import { requiresDomainVerification } from '@/lib/domain/domain-verification';
-import { isConnectedSourceType } from '@/lib/domain/library';
+import {
+  buildFetchesPages,
+  isOwnerLifecycleAction,
+  ownerActionAvailable,
+  OWNER_LIFECYCLE_ACTIONS,
+  OWNER_REVIEW_STAGE,
+  rebuildBlocked,
+  reviewPipeline,
+} from '@/lib/domain/library';
 import { getMessages, translations } from '@/lib/i18n/server';
-import { rebuildLibraryAction } from './actions';
+import { deleteWorkspaceLibraryAction } from '../actions';
+import {
+  editLibraryMetadataAction,
+  ownerLifecycleAction,
+  rebuildLibraryAction,
+  updateParseScopeAction,
+} from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).dashboard.libraryDetail.metaTitle };
@@ -36,6 +56,9 @@ export async function generateMetadata(): Promise<Metadata> {
 
 const PAGER =
   'inline-flex h-[29px] items-center rounded-[6px] border-2 border-line bg-card px-2.5 text-[11px] font-medium text-ink hover:bg-subtle';
+
+/** The list's tile colours, so the delete dialog shows the same tile here. */
+const TILE_COLORS = ['#0f9d77', '#5865f2', '#d97706', '#0ea5e9', '#9333ea', '#e11d48'];
 
 function label(dictionary: Record<string, string>, value: string | null): string {
   return (value && dictionary[value]) || value || '—';
@@ -64,10 +87,7 @@ export default async function DashboardLibraryPage({
   /* library-build-billing.md 4.1: what a rebuild may cost, beside the button. */
   const quote = await quoteBuild({
     workspaceId: session.workspace.id,
-    fetchesPages:
-      library.source !== null &&
-      isConnectedSourceType(library.source.type) &&
-      requiresDomainVerification(library.source.type),
+    fetchesPages: buildFetchesPages(library.source?.type),
   });
   const currentVersionId = library.versions.find((version) => version.isCurrent)?.id ?? null;
   const docsPage = documentsPage(query.docs);
@@ -90,9 +110,32 @@ export default async function DashboardLibraryPage({
   const stamp = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
   const when = (value: string | null) => (value ? stamp.format(new Date(value)) : d.stats.never);
   const canEdit = canManageLibraries(session.workspace.role);
+  const m = d.manage;
   const latestNote = library.reviews.find((review) => review.feedback[0])?.feedback[0] ?? d.basics.none;
   const lastFailure = library.operations.find((operation) => operation.status === 'failed');
   const routable = library.visibility === 'public' && library.queryable;
+  /* requirement.md 5.2: pause, resume and resubmit are the owner's, each
+     offered only when the domain rule says it applies right now. */
+  const ownerContext = {
+    lifecycleStatus: library.lifecycleStatus,
+    visibility: library.visibility,
+    pausedByOwner: library.pausedByOwner,
+    hasReadyVersion: library.hasReadyVersion,
+  };
+  const ownerVerbs = canEdit
+    ? OWNER_LIFECYCLE_ACTIONS.filter((verb) => ownerActionAvailable(ownerContext, verb))
+    : [];
+  const inPipeline =
+    library.visibility === 'public' && !library.queryable && library.lifecycleStatus !== 'archived';
+  const pipeline = inPipeline
+    ? reviewPipeline({
+        visibility: library.visibility,
+        lifecycleStatus: library.lifecycleStatus,
+        indexStatus: library.indexStatus,
+        building: library.building,
+      })
+    : null;
+  const tile = TILE_COLORS[[...library.publicId].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % TILE_COLORS.length]!;
 
   /* The banner: one sentence about where the library is, in priority order. */
   const banner = library.queryable
@@ -106,7 +149,7 @@ export default async function DashboardLibraryPage({
           : library.indexStatus === 'failed' && lastFailure
             ? { tone: 'blocked' as StatusTone, icon: <ClockIcon size={18} />, title: d.ready.failedTitle, body: fill(d.ready.failedBody, { error: label(t.admin.ingestionErrors, lastFailure.error) }) }
             : library.lifecycleStatus === 'submitted' || library.lifecycleStatus === 'reviewing'
-              ? { tone: 'pending' as StatusTone, icon: <ShieldCheckIcon size={18} />, title: d.ready.reviewTitle, body: d.ready.reviewBody }
+              ? { tone: 'pending' as StatusTone, icon: <ShieldCheckIcon size={18} />, title: d.ready.reviewTitle, body: `${d.ready.reviewBody} ${m.reviewExpected}` }
               : { tone: 'exempt' as StatusTone, icon: <ClockIcon size={18} />, title: d.ready.idleTitle, body: d.ready.idleBody };
 
   const statusLabels: Record<StatusTone, string> = {
@@ -148,29 +191,64 @@ export default async function DashboardLibraryPage({
               <ArrowRightIcon size={14} />
             </Link>
           ) : null}
-          {library.source?.type === 'pdf' ? (
+          {library.source && library.source.fileCount !== null ? (
             <Link
               href={`/dashboard/libraries/${library.id}/files`}
               className="inline-flex h-[35px] items-center gap-1.5 rounded-[7px] border-2 border-line bg-card px-3 text-[12px] font-medium text-ink hover:bg-subtle"
             >
               <FileTextIcon size={14} />
-              {d.actions.files}
+              {library.source.type === 'markdown' ? l.manage.filesMarkdown : d.actions.files}
             </Link>
           ) : null}
+          {ownerVerbs.map((verb) => (
+            <OwnerActionButton
+              key={verb}
+              libraryId={library.id}
+              publicId={library.publicId}
+              action={ownerLifecycleAction}
+              verb={verb}
+            />
+          ))}
           {canEdit ? (
             <div className="flex flex-col items-end gap-1.5">
               <RebuildLibraryButton
                 libraryId={library.id}
                 action={rebuildLibraryAction}
-                disabled={library.lifecycleStatus === 'archived' || !quote.affordable}
+                disabled={rebuildBlocked({
+                  lifecycleStatus: library.lifecycleStatus,
+                  affordable: quote.affordable,
+                })}
               />
               <span className="max-w-[260px] text-right text-[11px] leading-[1.5] tracking-[-0.023em] text-muted">
                 {fill(d.actions.rebuildNote, { calls: number.format(quote.maxCalls) })}
               </span>
             </div>
           ) : null}
+          {canEdit && library.lifecycleStatus !== 'archived' ? (
+            <DetailDeleteControl
+              action={deleteWorkspaceLibraryAction}
+              target={{
+                id: library.id,
+                publicId: library.publicId,
+                title: library.title,
+                initial: (library.title.trim()[0] ?? '?').toUpperCase(),
+                color: tile,
+              }}
+            />
+          ) : null}
         </div>
       </header>
+
+      {!canEdit ? (
+        <p className="rounded-[8px] border-2 border-line bg-subtle px-3.5 py-2.5 text-[11px] tracking-[-0.023em] text-muted">
+          {m.readOnly}
+        </p>
+      ) : null}
+      {canEdit && library.lifecycleStatus === 'suspended' && !library.pausedByOwner ? (
+        <p className="rounded-[8px] border-2 border-line bg-subtle px-3.5 py-2.5 text-[11px] tracking-[-0.023em] text-muted">
+          {m.pausedByReviewer}
+        </p>
+      ) : null}
 
       <section
         className={`flex flex-wrap items-center gap-4 rounded-[10px] border-2 px-[19px] py-4 ${
@@ -186,6 +264,18 @@ export default async function DashboardLibraryPage({
           <p className="text-[11px] leading-[1.5] tracking-[-0.023em] text-muted">{banner.body}</p>
         </div>
       </section>
+
+      {/* requirement.md 5.2: a public library shows its review steps, the
+          expected time and the reviewer's feedback. */}
+      {pipeline ? (
+        <section className={`${PANEL} flex flex-col gap-3 p-6`}>
+          <h2 className="text-[15px] font-semibold tracking-[-0.025em] text-ink">{l.manage.pipeline.title}</h2>
+          <ReviewPipeline
+            entries={pipeline}
+            note={library.reviews.find((review) => review.feedback[0])?.feedback[0] ?? null}
+          />
+        </section>
+      ) : null}
 
       {/* Plain 2x2 readout, not four cards: the banner above already carries
           the one thing that matters, and cards would compete with it. */}
@@ -239,6 +329,32 @@ export default async function DashboardLibraryPage({
           ))}
         </dl>
       </section>
+
+      {/* requirement.md 5.2: metadata and parse scope are the owner's to
+          edit; the forms post to actions that re-check the role. */}
+      {canEdit && library.lifecycleStatus !== 'archived' ? (
+        <>
+          <LibraryMetadataForm
+            libraryId={library.id}
+            initial={{
+              title: library.title,
+              description: library.description,
+              language: library.language,
+              visibility: library.visibility,
+            }}
+            action={editLibraryMetadataAction}
+          />
+          {library.source ? (
+            <ParseScopeForm
+              libraryId={library.id}
+              sourceType={library.source.type}
+              scope={library.source.scope}
+              refreshPolicy={library.source.refreshPolicy}
+              action={updateParseScopeAction}
+            />
+          ) : null}
+        </>
+      ) : null}
 
       <section className={`${PANEL} p-0.5`}>
         <div className="px-6 py-4">
@@ -368,7 +484,9 @@ export default async function DashboardLibraryPage({
             empty={d.reviews.empty}
             rows={library.reviews.map((review) => [
               when(review.decidedAt),
-              label(d.reviews.outcomes, review.outcome),
+              review.stage === OWNER_REVIEW_STAGE && isOwnerLifecycleAction(review.outcome)
+                ? m.outcomes[review.outcome]
+                : label(d.reviews.outcomes, review.outcome),
               review.feedback.join(' ') || d.basics.none,
             ])}
           />

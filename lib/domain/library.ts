@@ -19,7 +19,8 @@
  * console, the tests and any future admin API answer the same way.
  */
 
-import type { LifecycleStatus, Visibility } from '@/lib/domain';
+import type { IndexStatus, LifecycleStatus, Visibility } from '@/lib/domain';
+import { requiresDomainVerification } from './domain-verification';
 import { uuidv7 } from './id';
 
 /* ------------------------------------------------------------------ sources */
@@ -59,18 +60,44 @@ export function isPlatformLibraryType(value: unknown): value is PlatformLibraryT
 /**
  * Every source type that has a connector, which is what a build can ingest.
  *
- * The platform set plus `pdf`: a workspace uploads its PDFs through the
- * dashboard wizard (requirement.md 6.1 reserves `/docs/slug` for uploaded
- * material), and the connector reads them back from object storage at build
- * time. `markdown` upload is still not offered anywhere, so it stays out.
+ * The platform set plus the two upload types: a workspace uploads its PDFs
+ * or Markdown/MDX files through the dashboard wizard (requirement.md 6.1
+ * reserves `/docs/slug` for uploaded material), and the connector reads them
+ * back from object storage at build time.
  */
-export const CONNECTED_SOURCE_TYPES = [...PLATFORM_SOURCE_TYPES, 'pdf'] as const;
+export const CONNECTED_SOURCE_TYPES = [...PLATFORM_SOURCE_TYPES, 'pdf', 'markdown'] as const;
 
 export type ConnectedSourceType = (typeof CONNECTED_SOURCE_TYPES)[number];
 
 export function isConnectedSourceType(value: unknown): value is ConnectedSourceType {
   return typeof value === 'string' && (CONNECTED_SOURCE_TYPES as readonly string[]).includes(value);
 }
+
+/**
+ * The source types a workspace fills by uploading files rather than by naming
+ * a location: PDFs, and Markdown/MDX documents (requirement.md 5.2 lists both
+ * as first-release sources). Both keep their files on `source.config.files`
+ * and share the ticket, manifest and files-page flow; only the bytes differ.
+ */
+export const UPLOAD_SOURCE_TYPES = ['pdf', 'markdown'] as const;
+
+export type UploadSourceType = (typeof UPLOAD_SOURCE_TYPES)[number];
+
+export function isUploadSourceType(value: unknown): value is UploadSourceType {
+  return typeof value === 'string' && (UPLOAD_SOURCE_TYPES as readonly string[]).includes(value);
+}
+
+/** What an upload of each kind is sent and stored as. */
+export const UPLOAD_CONTENT_TYPES: Record<UploadSourceType, string> = {
+  pdf: 'application/pdf',
+  markdown: 'text/markdown',
+};
+
+/** The file extensions an upload of each kind may carry; the first is the default. */
+export const UPLOAD_EXTENSIONS: Record<UploadSourceType, readonly string[]> = {
+  pdf: ['pdf'],
+  markdown: ['md', 'mdx'],
+};
 
 /* ----------------------------------------------------------------- uploads */
 
@@ -109,8 +136,13 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
  * prepared: a key that does not start with the caller's workspace prefix is
  * refused before the store is asked anything.
  */
-export function uploadKey(owner: string, batchId: string, fileId: string): string {
-  return `${uploadPrefix(owner, batchId)}/${fileId}.pdf`;
+export function uploadKey(
+  owner: string,
+  batchId: string,
+  fileId: string,
+  kind: UploadSourceType = 'pdf',
+): string {
+  return `${uploadPrefix(owner, batchId)}/${fileId}.${UPLOAD_EXTENSIONS[kind][0]}`;
 }
 
 /**
@@ -127,8 +159,12 @@ export function uploadPrefix(owner: string, batchId: string): string {
   return `uploads/${owner}/${batchId}`;
 }
 
-/** A file name fit to show and to cite: no path, no control characters. */
-export function uploadFileName(name: string): string | null {
+/**
+ * A file name fit to show and to cite: no path, no control characters, and
+ * an extension of the kind being uploaded -- the build parses by extension
+ * (`documentFormat`), so a Markdown file has to end in `.md` or `.mdx`.
+ */
+export function uploadFileName(name: string, kind: UploadSourceType = 'pdf'): string | null {
   const base = name
     .split(/[\\/]/)
     .pop()!
@@ -136,7 +172,11 @@ export function uploadFileName(name: string): string | null {
     .replace(/[\u0000-\u001f\u007f]/g, '')
     .trim();
   if (base.length === 0 || base.length > 200) return null;
-  return /\.pdf$/i.test(base) ? base : `${base}.pdf`;
+  const extensions = UPLOAD_EXTENSIONS[kind];
+  const lower = base.toLowerCase();
+  return extensions.some((extension) => lower.endsWith(`.${extension}`))
+    ? base
+    : `${base}.${extensions[0]}`;
 }
 
 /**
@@ -152,6 +192,7 @@ export function uploadFileName(name: string): string | null {
 export function parseUploadManifest(
   value: unknown,
   owner: string,
+  kind: UploadSourceType = 'pdf',
 ): { batchId: string; files: UploadedFile[] } | null {
   if (typeof value !== 'object' || value === null) return null;
   const { batchId, files } = value as { batchId?: unknown; files?: unknown };
@@ -164,7 +205,7 @@ export function parseUploadManifest(
     const { id, name, size } = file as { id?: unknown; name?: unknown; size?: unknown };
     if (typeof id !== 'string' || !UUID.test(id) || seen.has(id)) return null;
     if (typeof name !== 'string') return null;
-    const fileName = uploadFileName(name);
+    const fileName = uploadFileName(name, kind);
     if (!fileName) return null;
     if (
       typeof size !== 'number' ||
@@ -175,7 +216,7 @@ export function parseUploadManifest(
       return null;
     }
     seen.add(id);
-    parsed.push({ id, name: fileName, size, key: uploadKey(owner, batchId, id) });
+    parsed.push({ id, name: fileName, size, key: uploadKey(owner, batchId, id, kind) });
   }
   return { batchId, files: parsed };
 }
@@ -317,6 +358,7 @@ const ID_NAMESPACE: Record<ConnectedSourceType, 'repository' | 'websites' | 'not
   openapi: 'docs',
   notion: 'notion',
   pdf: 'docs',
+  markdown: 'docs',
 };
 
 /** The raw id namespace a non-repository source publishes under. */
@@ -523,7 +565,7 @@ export function normalizeLocation(type: ConnectedSourceType, input: string): str
 
   /* An upload's location is the key prefix its files sit under; the create
      use case builds it from ids, so this only confirms the shape. */
-  if (type === 'pdf') {
+  if (isUploadSourceType(type)) {
     return /^uploads\/(platform|[0-9a-f-]{36})\/[0-9a-f-]{36}$/.test(trimmed) ? trimmed : null;
   }
 
@@ -868,6 +910,23 @@ function optional(value: string | undefined, max: number): string | null {
   return trimmed;
 }
 
+/**
+ * The description and language of a workspace's own library, under the same
+ * rule the edit form has always applied (`editWorkspaceLibrary`).
+ *
+ * Exported because creation needs it too. The columns are unbounded `text`,
+ * so a create that skipped the check stored whatever was posted -- a value the
+ * public page then rendered and the metadata form could never save again,
+ * because the edit path would refuse the length it was handed.
+ */
+export function libraryDescription(value: string | null | undefined): string | null {
+  return optional(value ?? undefined, DESCRIPTION_MAX_LENGTH);
+}
+
+export function libraryLanguage(value: string | null | undefined): string | null {
+  return optional(value ?? undefined, LANGUAGE_MAX_LENGTH);
+}
+
 /* ------------------------------------------------------------------- edits */
 
 /** A validated metadata edit, ready to update. */
@@ -1037,4 +1096,500 @@ export function slugWithoutPrefix(value: string, prefix: string): string {
     rest = rest.replace(/^\/+/, '');
   }
   return rest;
+}
+
+/* --------------------------------------------------------- owner management */
+
+/**
+ * The owner's verbs over their own library, beside rebuild and delete.
+ * requirement.md 5.2: pause, resume and resubmit must each give a definite
+ * result, and only the owner side may use them.
+ *
+ * The lifecycle enum has one stopped state, `suspended`, and it is shared
+ * with the reviewer's rejection and a safety pause. What tells an owner's
+ * pause apart is the `library_review` row it writes (stage `OWNER_REVIEW_STAGE`,
+ * outcome `pause`): a library whose newest review row is an owner pause was
+ * stopped by its owner and may be resumed by them; one whose newest row is a
+ * reviewer's decision was not, and the owner cannot lift it (the reviewer's
+ * word is not undone from the dashboard, as `lifecycleAfterBuild` already
+ * says of a rebuild).
+ */
+export const OWNER_LIFECYCLE_ACTIONS = ['pause', 'resume', 'resubmit'] as const;
+
+export type OwnerLifecycleAction = (typeof OWNER_LIFECYCLE_ACTIONS)[number];
+
+export function isOwnerLifecycleAction(value: unknown): value is OwnerLifecycleAction {
+  return (
+    typeof value === 'string' && (OWNER_LIFECYCLE_ACTIONS as readonly string[]).includes(value)
+  );
+}
+
+/** `library_review.stage` of a row the owner wrote from the dashboard. */
+export const OWNER_REVIEW_STAGE = 'owner';
+
+/** Whether a review row records the owner pausing the library. */
+export function isOwnerPause(
+  review: { stage: string; outcome: string | null } | null | undefined,
+): boolean {
+  return review?.stage === OWNER_REVIEW_STAGE && review.outcome === 'pause';
+}
+
+export interface OwnerActionContext {
+  lifecycleStatus: LifecycleStatus;
+  visibility: Visibility;
+  /** True when the newest review row is an owner pause (`isOwnerPause`). */
+  pausedByOwner: boolean;
+  /** True when the current version is indexed; a resubmission needs one. */
+  hasReadyVersion: boolean;
+}
+
+/**
+ * Whether an owner's verb applies right now.
+ *
+ * - `pause` stops a live library: only `published` has anything to stop. A
+ *   library in review is the reviewer's to decide and is not paused around
+ *   them; a draft has nothing running.
+ * - `resume` lifts the owner's own pause and nothing else.
+ * - `resubmit` sends a public library the reviewer returned back to the
+ *   queue without a rebuild -- for the owner who fixed what was asked by
+ *   editing metadata or scope rather than content. It needs an indexed
+ *   version, as approval does, so the reviewer is not handed an empty index.
+ */
+export function ownerActionAvailable(
+  context: OwnerActionContext,
+  action: OwnerLifecycleAction,
+): boolean {
+  const { lifecycleStatus: state, visibility } = context;
+  if (state === 'archived') return false;
+  switch (action) {
+    case 'pause':
+      return state === 'published';
+    case 'resume':
+      return state === 'suspended' && context.pausedByOwner;
+    case 'resubmit':
+      return state === 'changes_requested' && visibility === 'public' && context.hasReadyVersion;
+  }
+}
+
+/** Where each owner verb lands. */
+export function ownerActionTarget(action: OwnerLifecycleAction): LifecycleStatus {
+  switch (action) {
+    case 'pause':
+      return 'suspended';
+    case 'resume':
+      return 'published';
+    case 'resubmit':
+      return 'submitted';
+  }
+}
+
+/* --------------------------------------------------------- metadata edits */
+
+/**
+ * What a visibility change does to the lifecycle. requirement.md 5.2 and
+ * 6.2: a private library is never reviewed by a person, a public one always
+ * is, and the two are kept apart from the index.
+ *
+ * - public -> private: whatever review the library was waiting on no longer
+ *   applies, so a library with an indexed version goes live and one without
+ *   goes back to `draft` for its first build to publish. A suspension stays:
+ *   a safety pause applies to private libraries too, and going private is
+ *   not a way around a reviewer.
+ * - private -> public: a live library is now a stranger's public library and
+ *   queues for review (`submitted`); a draft waits for its build, which
+ *   queues it (`lifecycleAfterBuild`); a suspension stays.
+ *
+ * Null means the status is left alone. Archived is refused, not moved.
+ */
+export function visibilityTransition(input: {
+  from: Visibility;
+  to: Visibility;
+  lifecycleStatus: LifecycleStatus;
+  hasReadyVersion: boolean;
+}): LifecycleStatus | null {
+  if (input.lifecycleStatus === 'archived') {
+    throw new PlatformLibraryRefused('archived', 'an archived library is not edited');
+  }
+  if (input.from === input.to) return null;
+  const state = input.lifecycleStatus;
+  if (state === 'suspended' || state === 'draft') return null;
+  if (input.to === 'private') {
+    if (state === 'published') return null;
+    return input.hasReadyVersion ? 'published' : 'draft';
+  }
+  return state === 'published' ? 'submitted' : null;
+}
+
+/** A validated metadata edit of a workspace's own library. */
+export interface WorkspaceLibraryEdit {
+  title: string;
+  description: string | null;
+  language: string | null;
+  visibility: Visibility;
+  /** The lifecycle the visibility change implies; null keeps the current one. */
+  lifecycleStatus: LifecycleStatus | null;
+}
+
+/**
+ * Validates the fields an owner may change from the dashboard: title,
+ * description, language and visibility. The Library ID is not among them --
+ * for a repository it is the repository, and for the rest a rename is a
+ * redirect the catalogue has to keep (requirement.md 6.1), which is more
+ * than "edit metadata" should do quietly.
+ */
+export function editWorkspaceLibrary(input: {
+  title: string;
+  description?: string;
+  language?: string;
+  visibility: string;
+  current: { visibility: Visibility; lifecycleStatus: LifecycleStatus; hasReadyVersion: boolean };
+}): WorkspaceLibraryEdit {
+  const title = input.title.trim();
+  if (title.length === 0 || title.length > TITLE_MAX_LENGTH) {
+    throw new PlatformLibraryRefused('invalid_title', 'a title is required');
+  }
+  if (input.visibility !== 'public' && input.visibility !== 'private') {
+    throw new PlatformLibraryRefused('invalid_metadata', 'unknown visibility');
+  }
+  const visibility: Visibility = input.visibility;
+  return {
+    title,
+    description: optional(input.description, DESCRIPTION_MAX_LENGTH),
+    language: optional(input.language, LANGUAGE_MAX_LENGTH),
+    visibility,
+    lifecycleStatus: visibilityTransition({
+      from: input.current.visibility,
+      to: visibility,
+      lifecycleStatus: input.current.lifecycleStatus,
+      hasReadyVersion: input.current.hasReadyVersion,
+    }),
+  };
+}
+
+/* ------------------------------------------------------------ parse scope */
+
+/**
+ * The owner's parse scope: which paths of the source a build indexes.
+ * Stored on `source.config` under the same names `re0.json` uses
+ * (requirement.md 7.2 -- `folders`, `excludeFolders`, `excludeFiles`), so a
+ * reader of either sees one vocabulary, plus `indexDepth` for an `llms.txt`
+ * index. Applied by the connector registry after the fetch, with the same
+ * rule as the repository's own file (`pathIncluded`): exclusions win.
+ */
+export interface ParseScope {
+  folders: string[];
+  excludeFolders: string[];
+  excludeFiles: string[];
+  indexDepth: IndexDepth;
+}
+
+export const EMPTY_PARSE_SCOPE: ParseScope = {
+  folders: [],
+  excludeFolders: [],
+  excludeFiles: [],
+  indexDepth: DEFAULT_INDEX_DEPTH,
+};
+
+/** The same caps `parseSourceConfig` applies to `re0.json`. */
+export const PARSE_SCOPE_LIMITS = { maxEntries: 64, maxPathLength: 200 } as const;
+
+/** Source types whose files have paths a scope can select. */
+export function parseScopeApplies(type: string): boolean {
+  return type === 'github' || type === 'website' || type === 'llms_txt';
+}
+
+/** The scope a source's stored config carries; malformed entries are dropped. */
+export function parseScopeOf(config: Record<string, unknown>): ParseScope {
+  const list = (value: unknown) =>
+    Array.isArray(value)
+      ? value.filter((entry): entry is string => typeof entry === 'string' && isScopePath(entry))
+      : [];
+  return {
+    folders: list(config.folders),
+    excludeFolders: list(config.excludeFolders),
+    excludeFiles: list(config.excludeFiles),
+    indexDepth: indexDepthOf(config),
+  };
+}
+
+/** True when a scope narrows nothing. */
+export function parseScopeIsEmpty(scope: ParseScope): boolean {
+  return (
+    scope.folders.length === 0 &&
+    scope.excludeFolders.length === 0 &&
+    scope.excludeFiles.length === 0
+  );
+}
+
+/**
+ * Validates a scope an owner typed, refusing rather than dropping: a person
+ * filling in a form should be told which line is wrong, not have it vanish.
+ * Each field is one path or glob per line (commas accepted); the rules are
+ * those of `re0.json` -- relative, no `..`, no backslashes, bounded.
+ */
+export function draftParseScope(input: {
+  sourceType: string;
+  folders?: string;
+  excludeFolders?: string;
+  excludeFiles?: string;
+  indexDepth?: unknown;
+}): ParseScope {
+  if (!parseScopeApplies(input.sourceType)) {
+    throw new PlatformLibraryRefused('unsupported_source', 'this source has no parse scope');
+  }
+  return {
+    folders: scopeLines(input.folders),
+    excludeFolders: scopeLines(input.excludeFolders),
+    excludeFiles: scopeLines(input.excludeFiles),
+    indexDepth:
+      input.sourceType === 'llms_txt' ? parseIndexDepth(input.indexDepth) : DEFAULT_INDEX_DEPTH,
+  };
+}
+
+function scopeLines(value: string | undefined): string[] {
+  const entries = (value ?? '')
+    .split(/[\n,]/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  if (entries.length > PARSE_SCOPE_LIMITS.maxEntries) {
+    throw new PlatformLibraryRefused('invalid_metadata', 'too many scope entries');
+  }
+  const kept: string[] = [];
+  for (const entry of entries) {
+    const normalized = entry.replace(/^\.\//, '').replace(/\/+$/, '');
+    if (!isScopePath(normalized)) {
+      throw new PlatformLibraryRefused('invalid_metadata', `${entry} is not a usable path`);
+    }
+    if (!kept.includes(normalized)) kept.push(normalized);
+  }
+  return kept;
+}
+
+function isScopePath(entry: string): boolean {
+  return (
+    entry.length > 0 &&
+    entry.length <= PARSE_SCOPE_LIMITS.maxPathLength &&
+    !entry.startsWith('/') &&
+    !entry.includes('..') &&
+    !entry.includes('\\') &&
+    // eslint-disable-next-line no-control-regex
+    !/[\u0000-\u001f\u007f]/.test(entry)
+  );
+}
+
+/** A source's refresh cadence may be set when there is something to re-fetch. */
+export function refreshPolicyEditable(type: string): boolean {
+  return isConnectedSourceType(type) && !isUploadSourceType(type);
+}
+
+/**
+ * What one save of the configure form may write.
+ *
+ * The form carries two settings behind one button and they do not belong to
+ * the same set of sources: the parse scope needs paths to select
+ * (`parseScopeApplies` -- github, website, llms_txt), while the refresh
+ * cadence needs only something to re-fetch (`refreshPolicyEditable` -- every
+ * connected source that is not an upload, so OpenAPI and Notion too). A save
+ * is therefore refused only when the source offers neither half, never
+ * because the scope half happens not to apply: an OpenAPI library setting its
+ * cadence to daily is a legitimate save with no scope in it.
+ */
+export interface ScopeSavePlan {
+  /** The scope fields are the owner's to set on this source. */
+  scope: boolean;
+  /** A cadence was posted and this source has one. */
+  cadence: boolean;
+}
+
+export function planScopeSave(input: {
+  sourceType: string;
+  /** True when the form actually carried a cadence, not just an empty field. */
+  cadencePosted: boolean;
+}): ScopeSavePlan {
+  if (input.cadencePosted && !refreshPolicyEditable(input.sourceType)) {
+    throw new PlatformLibraryRefused('unsupported_source', 'this source has no refresh cadence');
+  }
+  const scope = parseScopeApplies(input.sourceType);
+  if (!scope && !input.cadencePosted) {
+    throw new PlatformLibraryRefused('unsupported_source', 'this source has no parse scope');
+  }
+  return { scope, cadence: input.cadencePosted };
+}
+
+/* ------------------------------------------------- parse scope precedence */
+
+/**
+ * Two writers reach `source.config.folders` and its neighbours, and they must
+ * agree on who wins.
+ *
+ * requirement.md 7.2 makes `re0.json` the *source's own* declaration of its
+ * scope, and every build stamps what the file declared back onto the row
+ * (`buildVersion`) so the library page can show the scope the index obeyed.
+ * The dashboard's parse scope (`updateParseScope`) is the *owner's override*
+ * of that declaration, and the override wins: a scope the owner saved is
+ * never replaced by a build.
+ *
+ * The stored keys alone cannot tell the two apart -- `folders: ['docs']` looks
+ * the same whichever writer put it there -- so the owner's save records
+ * `ownerScoped`. Without that marker a source with no `re0.json` (whose web
+ * and markdown connectors declare an empty config) wrote `[]` over the saved
+ * scope on the very next build, and the build after that indexed everything.
+ *
+ * `ownerScoped` is written only here. `parseSourceConfig` keeps only the keys
+ * it knows, so no repository's own file can set it.
+ */
+export const OWNER_SCOPED_KEY = 'ownerScoped';
+
+/** True when the stored scope is the owner's override rather than a stamp. */
+export function ownerScoped(config: Record<string, unknown>): boolean {
+  return config[OWNER_SCOPED_KEY] === true;
+}
+
+/** `source.config` after the owner saved a scope from the dashboard. */
+export function withOwnerParseScope(
+  config: Record<string, unknown>,
+  scope: ParseScope,
+  sourceType: string,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = {
+    ...config,
+    folders: scope.folders,
+    excludeFolders: scope.excludeFolders,
+    excludeFiles: scope.excludeFiles,
+    /* Clearing every field hands the source back to its own `re0.json`. */
+    [OWNER_SCOPED_KEY]: !parseScopeIsEmpty(scope),
+  };
+  if (sourceType === 'llms_txt') next.indexDepth = scope.indexDepth;
+  return next;
+}
+
+/**
+ * `source.config` after a build read the source's `re0.json`, or null when
+ * nothing should be written: the owner has overridden the scope, or the
+ * declaration already matches what the row holds.
+ */
+export function withDeclaredParseScope(
+  config: Record<string, unknown>,
+  declared: { folders: string[]; excludeFolders: string[] },
+): Record<string, unknown> | null {
+  if (ownerScoped(config)) return null;
+  const same = (declaredEntries: string[], stored: unknown) =>
+    JSON.stringify(declaredEntries) === JSON.stringify(Array.isArray(stored) ? stored : []);
+  if (
+    same(declared.folders, config.folders) &&
+    same(declared.excludeFolders, config.excludeFolders)
+  ) {
+    return null;
+  }
+  return { ...config, folders: declared.folders, excludeFolders: declared.excludeFolders };
+}
+
+/* ------------------------------------------------------- rebuild affordance */
+
+/**
+ * Whether a build of this source fetches pages from a host, and so is quoted
+ * against the crawl limit (library-build-billing.md 4.1). A repository, a
+ * Notion space and an upload pull no pages, so their build is quoted cheaper.
+ *
+ * Shared so the library list and the library page quote the same library the
+ * same way; before it they disagreed, one quoting the worst case for every
+ * row and the other looking at the source.
+ */
+export function buildFetchesPages(sourceType: string | null | undefined): boolean {
+  return (
+    typeof sourceType === 'string' &&
+    isConnectedSourceType(sourceType) &&
+    requiresDomainVerification(sourceType)
+  );
+}
+
+/**
+ * Whether the rebuild button is refused, from the two facts that decide it:
+ * an archived library is not rebuilt, and neither is one the workspace cannot
+ * pay for. `affordable` is `undefined` where no quote was taken.
+ */
+export function rebuildBlocked(input: {
+  lifecycleStatus: LifecycleStatus;
+  affordable: boolean | undefined;
+}): boolean {
+  return input.lifecycleStatus === 'archived' || input.affordable === false;
+}
+
+/* --------------------------------------------------------- review pipeline */
+
+/**
+ * The public publishing pipeline requirement.md 5.2 names: rights and source,
+ * content parsing, quality and safety, human review, publication. A private
+ * library skips the human step but not the safety one.
+ */
+export const REVIEW_PIPELINE_STEPS = ['rights', 'parse', 'safety', 'review', 'publish'] as const;
+
+export type ReviewPipelineStep = (typeof REVIEW_PIPELINE_STEPS)[number];
+
+export type ReviewPipelineState = 'done' | 'active' | 'pending' | 'blocked';
+
+export interface ReviewPipelineEntry {
+  step: ReviewPipelineStep;
+  state: ReviewPipelineState;
+}
+
+/**
+ * Where a library stands in that pipeline, from the facts the row carries.
+ *
+ * Rights are settled at creation (a domain challenge, a GitHub ownership
+ * check, or a self-owned upload), so the first step is done for any library
+ * that exists. Parsing and the safety scan happen inside a build, so both
+ * follow the index; the human step follows the lifecycle; publication is
+ * the two agreeing (`isQueryable`).
+ */
+export function reviewPipeline(input: {
+  visibility: Visibility;
+  lifecycleStatus: LifecycleStatus;
+  indexStatus: IndexStatus;
+  /** A build is queued or running. */
+  building: boolean;
+}): ReviewPipelineEntry[] {
+  const { lifecycleStatus: state, indexStatus } = input;
+  const steps = REVIEW_PIPELINE_STEPS.filter(
+    (step) => step !== 'review' || input.visibility === 'public',
+  );
+  const indexed = indexStatus === 'ready' || indexStatus === 'stale';
+  const parse: ReviewPipelineState = indexed
+    ? 'done'
+    : input.building || indexStatus === 'processing'
+      ? 'active'
+      : indexStatus === 'failed'
+        ? 'blocked'
+        : 'pending';
+  const review: ReviewPipelineState =
+    state === 'published'
+      ? 'done'
+      : state === 'submitted' || state === 'reviewing'
+        ? 'active'
+        : state === 'changes_requested' || state === 'suspended'
+          ? 'blocked'
+          : 'pending';
+  const published = state === 'published' && indexed;
+
+  return steps.map((step): ReviewPipelineEntry => {
+    switch (step) {
+      case 'rights':
+        return { step, state: 'done' };
+      case 'parse':
+        return { step, state: parse };
+      case 'safety':
+        return { step, state: parse };
+      case 'review':
+        return { step, state: parse === 'done' || review === 'blocked' ? review : 'pending' };
+      case 'publish':
+        return {
+          step,
+          state: published
+            ? 'done'
+            : state === 'suspended' || state === 'archived'
+              ? 'blocked'
+              : 'pending',
+        };
+    }
+  });
 }

@@ -12,7 +12,8 @@ import {
   TH,
   TitleCell,
 } from '@/components/admin/ui';
-import { CircleXIcon, EllipsisIcon, SpinnerIcon } from '@/components/ui/icons';
+import { CopyButton } from '@/components/dashboard/copy-button';
+import { CircleCheckIcon, CircleXIcon, EllipsisIcon, SpinnerIcon } from '@/components/ui/icons';
 import type { AdminRoleId, AdminStatus } from '@/lib/domain/admin';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
@@ -41,6 +42,13 @@ export interface AdministratorView {
 
 type Action = (previous: ActionResult | null, form: FormData) => Promise<ActionResult>;
 
+interface Actions {
+  changeRole: Action;
+  setStatus: Action;
+  revokeSessions: Action;
+  resetMfa: Action;
+}
+
 const STATUS_TONE: Record<AdminStatus, 'ok' | 'warn' | 'neutral'> = {
   active: 'ok',
   invited: 'warn',
@@ -63,10 +71,13 @@ export function AdministratorTable({
   administrators,
   roles,
   actions,
+  inviteTtlDays,
 }: {
   administrators: AdministratorView[];
   roles: { id: AdminRoleId; label: string }[];
-  actions: { changeRole: Action; setStatus: Action; revokeSessions: Action };
+  actions: Actions;
+  /** How long the enrolment link an MFA reset mints stays valid. */
+  inviteTtlDays: number;
 }) {
   const { t } = useI18n();
   const a = t.admin.administrators;
@@ -104,6 +115,7 @@ export function AdministratorTable({
                 administrator={administrator}
                 roles={roles}
                 actions={actions}
+                inviteTtlDays={inviteTtlDays}
                 open={open}
                 onToggle={() => setOpenId(open ? null : administrator.id)}
                 columnCount={a.columns.length + 1}
@@ -120,13 +132,15 @@ function Row({
   administrator,
   roles,
   actions,
+  inviteTtlDays,
   open,
   onToggle,
   columnCount,
 }: {
   administrator: AdministratorView;
   roles: { id: AdminRoleId; label: string }[];
-  actions: { changeRole: Action; setStatus: Action; revokeSessions: Action };
+  actions: Actions;
+  inviteTtlDays: number;
   open: boolean;
   onToggle: () => void;
   columnCount: number;
@@ -192,7 +206,12 @@ function Row({
           <td colSpan={columnCount} className="px-[15px] py-4">
             <div className="flex flex-col gap-3">
               {administrator.isSelf ? (
-                <p className="text-[12px] text-muted">{a.selfLocked}</p>
+                <>
+                  <p className="text-[12px] text-muted">{a.selfLocked}</p>
+                  {/* The domain refuses a self reset (refuseSelfChange); say why
+                      rather than show a control that would only fail. */}
+                  <p className="text-[12px] text-muted">{a.mfaReset.selfNote}</p>
+                </>
               ) : (
                 <>
                   <ActionForm
@@ -242,6 +261,28 @@ function Row({
                     submitLabel={a.confirm}
                     disabled={administrator.activeSessions === 0}
                   />
+
+                  {/* Only an enrolled, active account has a factor to clear;
+                      an invited one is already on its way through enrolment. */}
+                  {administrator.status === 'active' && administrator.mfaEnrolled ? (
+                    <ActionForm
+                      action={actions.resetMfa}
+                      administratorId={administrator.id}
+                      title={a.mfaReset.action}
+                      note={a.mfaReset.note}
+                      submitLabel={a.confirm}
+                      danger
+                      done={(result) =>
+                        result.enrolmentPath ? (
+                          <EnrolmentLink
+                            path={result.enrolmentPath}
+                            days={inviteTtlDays}
+                            sessions={administrator.activeSessions}
+                          />
+                        ) : null
+                      }
+                    />
+                  ) : null}
                 </>
               )}
 
@@ -259,6 +300,30 @@ function Row({
 const FIELD =
   'h-[34px] rounded-[7px] border-2 border-line bg-card px-2.5 text-[12px] tracking-[-0.023em] text-ink focus:border-brand focus:outline-none';
 
+/**
+ * The one-time enrolment link an MFA reset mints, shown once like an
+ * invitation's: only its digest is stored, so closing this panel is the last
+ * anyone sees of it.
+ */
+function EnrolmentLink({ path, days, sessions }: { path: string; days: number; sessions: number }) {
+  const { t } = useI18n();
+  const a = t.admin.administrators;
+  const link = typeof window === 'undefined' ? path : `${window.location.origin}${path}`;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="flex items-start gap-1.5 text-[11px] leading-[1.5] text-pubink">
+        <CircleCheckIcon size={13} className="mt-px shrink-0" />
+        {fill(a.mfaReset.done, { days, sessions })}
+      </p>
+      <div className="flex items-center gap-2 rounded-[8px] border-2 border-line bg-subtle px-2.5 py-2">
+        <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-steel">{link}</code>
+        <CopyButton value={link} label={a.mfaReset.copy} />
+      </div>
+    </div>
+  );
+}
+
 /** One confirmable action: its own inputs, a required reason, and a result. */
 function ActionForm({
   action,
@@ -269,6 +334,7 @@ function ActionForm({
   children,
   danger,
   disabled,
+  done,
 }: {
   action: Action;
   administratorId: string;
@@ -278,10 +344,22 @@ function ActionForm({
   children?: ReactNode;
   danger?: boolean;
   disabled?: boolean;
+  /** What to show in place of the form once the action succeeded, if anything. */
+  done?: (result: ActionResult) => ReactNode;
 }) {
   const { t } = useI18n();
   const a = t.admin.administrators;
   const [state, submit, pending] = useActionState(action, null);
+
+  const finished = state?.ok && done ? done(state) : null;
+  if (finished) {
+    return (
+      <div className="flex flex-col gap-2 rounded-[8px] border-2 border-line bg-card p-3">
+        <span className="text-[12px] font-semibold tracking-[-0.023em] text-ink">{title}</span>
+        {finished}
+      </div>
+    );
+  }
 
   return (
     <form

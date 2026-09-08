@@ -156,19 +156,30 @@ export async function requireSession(returnTo: string): Promise<UserSession> {
  * A cross-site form post carries the attacker's Origin, or none at all on some
  * clients; both are refused. SameSite=Lax already blocks the session cookie
  * from riding along, this closes the login-CSRF case as well.
+ *
+ * Written against a header lookup rather than a request or a `headers()` bag,
+ * because both callers exist: server actions read the ambient bag, Route
+ * Handlers hold a `NextRequest`. The rule had been copied verbatim into
+ * `app/api/v1/api-keys/principal.ts`, which is one place too many for a
+ * security check to be corrected in.
  */
-export async function isSameOrigin(): Promise<boolean> {
-  const headerBag = await headers();
-  const origin = headerBag.get('origin');
+export function isSameOriginHeaders(header: (name: string) => string | null): boolean {
+  const origin = header('origin');
   if (origin) return origin === appBaseUrl();
 
-  const referer = headerBag.get('referer');
+  const referer = header('referer');
   if (!referer) return false;
   try {
     return new URL(referer).origin === new URL(appBaseUrl()).origin;
   } catch {
     return false;
   }
+}
+
+/** The same guard against the ambient request, for server actions and pages. */
+export async function isSameOrigin(): Promise<boolean> {
+  const headerBag = await headers();
+  return isSameOriginHeaders((name) => headerBag.get(name));
 }
 
 /**

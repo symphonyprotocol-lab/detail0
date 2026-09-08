@@ -13,6 +13,7 @@ import {
   Re0Mark,
   ReceiptIcon,
   RefreshIcon,
+  ScaleIcon,
   ScrollTextIcon,
   ShieldCheckIcon,
   SlidersIcon,
@@ -92,6 +93,12 @@ export function AdminSidebar({
           badge: openRefreshes,
           needs: 'platformLibraries',
         },
+        /*
+         * Ownership sits with the libraries it decides, not under system:
+         * requirement.md 5.3 gives a dispute to whoever runs the catalogue,
+         * and its own capability keeps a reviewer out (lib/domain/admin.ts).
+         */
+        { href: '/admin/claims', label: nav.claims, Icon: ScaleIcon, needs: 'claims' },
       ],
     },
     {
@@ -105,9 +112,9 @@ export function AdminSidebar({
           Icon: CircleDollarSignIcon,
           needs: 'billing',
         },
-        /* Provider and retrieval configuration are product configuration, like plans. */
-        { href: '/admin/llm', label: nav.llm, Icon: SparklesIcon, needs: 'plans' },
-        { href: '/admin/retrieval', label: nav.retrieval, Icon: FilterIcon, needs: 'plans' },
+        /* Model and retrieval configuration have their own capability; a plan is a price. */
+        { href: '/admin/llm', label: nav.llm, Icon: SparklesIcon, needs: 'models' },
+        { href: '/admin/retrieval', label: nav.retrieval, Icon: FilterIcon, needs: 'models' },
       ],
     },
     {

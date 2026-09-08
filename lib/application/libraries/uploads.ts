@@ -14,7 +14,14 @@
  */
 import { AppError } from '@/contracts/errors';
 import { uuidv7 } from '@/lib/domain/id';
-import { PLATFORM_UPLOAD_OWNER, uploadFileName, uploadKey, UPLOAD_LIMITS } from '@/lib/domain/library';
+import {
+  PLATFORM_UPLOAD_OWNER,
+  UPLOAD_CONTENT_TYPES,
+  uploadFileName,
+  uploadKey,
+  UPLOAD_LIMITS,
+  type UploadSourceType,
+} from '@/lib/domain/library';
 import {
   isObjectStoreConfigured,
   objectStore,
@@ -29,6 +36,8 @@ export interface PrepareUploadsInput {
   files: { name: string; size: number }[];
   /** A batch this workspace already started, so a second pick joins it. */
   batchId?: string;
+  /** What is being uploaded; PDFs unless said otherwise. Decides the key and the content type. */
+  kind?: UploadSourceType;
   store?: Pick<ObjectStore, 'uploadTicket'>;
 }
 
@@ -52,6 +61,7 @@ export async function prepareUploads(
     owner: input.workspaceId,
     files: input.files,
     batchId: input.batchId,
+    kind: input.kind,
     store: input.store,
   });
 }
@@ -74,8 +84,10 @@ async function prepareUploadTickets(input: {
   owner: string;
   files: { name: string; size: number }[];
   batchId?: string;
+  kind?: UploadSourceType;
   store?: Pick<ObjectStore, 'uploadTicket'>;
 }): Promise<{ batchId: string; files: PreparedUpload[] }> {
+  const kind = input.kind ?? 'pdf';
   if (input.files.length === 0 || input.files.length > UPLOAD_LIMITS.maxFiles) {
     throw new AppError('invalid_request', `upload between 1 and ${UPLOAD_LIMITS.maxFiles} files`);
   }
@@ -90,7 +102,7 @@ async function prepareUploadTickets(input: {
   const store = input.store ?? objectStore();
   const files: PreparedUpload[] = [];
   for (const file of input.files) {
-    const name = uploadFileName(file.name);
+    const name = uploadFileName(file.name, kind);
     if (!name) throw new AppError('invalid_request', 'a file has no usable name');
     if (!Number.isInteger(file.size) || file.size <= 0 || file.size > UPLOAD_LIMITS.maxFileBytes) {
       throw new AppError('library_size_exceeded', `${name} is empty or over the size limit`);
@@ -100,8 +112,8 @@ async function prepareUploadTickets(input: {
       id,
       name,
       size: file.size,
-      ticket: await store.uploadTicket(uploadKey(input.owner, batchId, id), {
-        contentType: 'application/pdf',
+      ticket: await store.uploadTicket(uploadKey(input.owner, batchId, id, kind), {
+        contentType: UPLOAD_CONTENT_TYPES[kind],
         maxBytes: UPLOAD_LIMITS.maxFileBytes,
         ttlSeconds: UPLOAD_LIMITS.uploadUrlTtlSeconds,
       }),

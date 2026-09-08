@@ -1,14 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useActionState, useState, useTransition } from 'react';
+import { useActionState, useEffect, useRef, useState, useTransition } from 'react';
 import {
   formatBytes,
   PdfUploadField,
   usePdfUploads,
   type PrepareUploads,
 } from '@/components/dashboard/pdf-uploader';
-import { PANEL } from '@/components/dashboard/ui';
+import { Badge, IconTile, PANEL } from '@/components/dashboard/ui';
 import {
   ArrowRightIcon,
   BracesIcon,
@@ -17,7 +17,9 @@ import {
   GitHubIcon,
   GlobeIcon,
   HashIcon,
+  LockIcon,
   NotionIcon,
+  ShieldCheckIcon,
   UploadIcon,
 } from '@/components/ui/icons';
 import type {
@@ -35,11 +37,16 @@ import { GITHUB_CONNECT_RETURN_TO, type GithubConnectOutcome } from '@/lib/domai
 import { NOTION_CONNECT_RETURN_TO, type NotionConnectOutcome } from '@/lib/domain/notion';
 import {
   INDEX_DEPTHS,
+  isUploadSourceType,
   parseIndexDepth,
+  REVIEW_PIPELINE_STEPS,
+  reviewPipeline,
   slugFromTitle,
   slugWithoutPrefix,
   UPLOAD_LIMITS,
   type IndexDepth,
+  type ReviewPipelineEntry,
+  type UploadSourceType,
 } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
@@ -56,7 +63,7 @@ import { fill } from '@/lib/i18n/format';
  * rather than pretending the index exists.
  */
 
-const SOURCES = ['github', 'website', 'llms_txt', 'openapi', 'notion', 'pdf'] as const;
+const SOURCES = ['github', 'website', 'llms_txt', 'openapi', 'notion', 'pdf', 'markdown'] as const;
 type SourceId = (typeof SOURCES)[number];
 
 const SOURCE_ICONS: Record<SourceId, (props: { size?: number }) => React.ReactElement> = {
@@ -66,6 +73,7 @@ const SOURCE_ICONS: Record<SourceId, (props: { size?: number }) => React.ReactEl
   openapi: BracesIcon,
   notion: NotionIcon,
   pdf: UploadIcon,
+  markdown: FileCodeIcon,
 };
 
 /** Only github derives its id from the source; everything else needs a slug. */
@@ -76,6 +84,7 @@ const NEEDS_SLUG: Record<SourceId, string | null> = {
   openapi: 'docs',
   notion: 'notion',
   pdf: 'docs',
+  markdown: 'docs',
 };
 
 type StepId = 'source' | 'details' | 'verify' | 'visibility' | 'confirm';
@@ -106,6 +115,73 @@ export type CheckVerification = (input: {
 
 const FIELD =
   'h-9 w-full rounded-[7px] border-2 border-line bg-card px-2.5 text-[12px] tracking-[-0.023em] text-ink placeholder:text-muted/70 focus:border-brand focus:outline-none';
+
+/* --------------------------------------------------------------- the draft */
+
+/**
+ * The wizard's answers, kept in the browser so a half-filled form survives a
+ * reload, a provider's consent redirect, or a closed tab. Keyed by workspace:
+ * two workspaces on one machine are two drafts, and switching workspace does
+ * not hand someone another team's half-written library.
+ *
+ * Files are deliberately not in it. An upload is bytes in object storage
+ * against a ticket that expires (`UPLOAD_LIMITS.uploadUrlTtlSeconds`), and a
+ * `File` does not survive `JSON.stringify` anyway; a restored draft says so
+ * and asks for the files again rather than pretending they are still there.
+ */
+const DRAFT_VERSION = 1;
+
+interface WizardDraft {
+  v: number;
+  step: number;
+  source: SourceId | null;
+  title: string;
+  slug: string;
+  slugEdited: boolean;
+  location: string;
+  description: string;
+  language: string;
+  visibility: 'public' | 'private';
+  indexDepth: IndexDepth;
+  /** When it was written, so the badge can say it rather than claim it. */
+  savedAt: string;
+}
+
+function draftKey(workspaceId: string): string {
+  return `re0.library-draft.${workspaceId}`;
+}
+
+function readDraft(workspaceId: string): WizardDraft | null {
+  try {
+    const raw = window.localStorage.getItem(draftKey(workspaceId));
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const draft = parsed as Partial<WizardDraft>;
+    if (draft.v !== DRAFT_VERSION || typeof draft.savedAt !== 'string') return null;
+    if (draft.source != null && !(SOURCES as readonly string[]).includes(draft.source)) return null;
+    return {
+      v: DRAFT_VERSION,
+      /* Never past the details step: the verification challenge and the
+         uploads are not in the draft, so a later step could not be honest. */
+      step: Math.min(Math.max(Number(draft.step) || 0, 0), 1),
+      source: draft.source ?? null,
+      title: String(draft.title ?? ''),
+      slug: String(draft.slug ?? ''),
+      slugEdited: draft.slugEdited === true,
+      location: String(draft.location ?? ''),
+      description: String(draft.description ?? ''),
+      language: String(draft.language ?? ''),
+      visibility: draft.visibility === 'private' ? 'private' : 'public',
+      indexDepth: parseIndexDepth(draft.indexDepth),
+      savedAt: draft.savedAt,
+    };
+  } catch {
+    /* Private mode, a full quota, or something else's key under ours: a
+       draft is a convenience, and losing one is not worth an error. */
+    return null;
+  }
+}
 
 /**
  * The GitHub side of the wizard, read by the page before render: whether the
@@ -167,6 +243,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 export function ImportWizard({
   action,
   prepare,
+  workspaceId,
   github,
   githubOutcome = null,
   notion,
@@ -176,6 +253,8 @@ export function ImportWizard({
 }: {
   action: (previous: CreateLibraryResult | null, form: FormData) => Promise<CreateLibraryResult>;
   prepare: PrepareUploads;
+  /** Which workspace's draft this is; the browser keeps one per workspace. */
+  workspaceId: string;
   github: GithubImportState;
   /** Set when the page was reached by coming back from the GitHub consent. */
   githubOutcome?: GithubConnectOutcome | null;
@@ -185,9 +264,11 @@ export function ImportWizard({
   startVerification: StartVerification;
   checkVerification: CheckVerification;
 }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const n = t.dashboard.newLibrary;
   const w = n.wizard;
+  const md = n.markdown;
+  const pl = t.dashboard.libraries.manage.pipeline;
 
   /* Coming back from a provider's consent lands on the step that sent the
      person there, with that source already picked; the rest starts over,
@@ -212,11 +293,21 @@ export function ImportWizard({
   /* The last step is a real confirmation: nothing submits until this is
      ticked, so a stray Enter cannot create a library. */
   const [confirmed, setConfirmed] = useState(false);
-  const files = usePdfUploads(prepare);
+  /* What the file picker is for. It follows the chosen source, and changing
+     the source drops whatever was picked for the old one -- a `.md` manifest
+     posted to a PDF library is refused by the server anyway. */
+  const uploadKind: UploadSourceType = source === 'markdown' ? 'markdown' : 'pdf';
+  const files = usePdfUploads(prepare, UPLOAD_LIMITS.maxFiles, uploadKind);
   const [state, formAction, pending] = useActionState(action, null);
+  /* The draft: null until the restore has run, so the first save cannot
+     write an empty form over what is stored. */
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [restored, setRestored] = useState(false);
+  const loaded = useRef(false);
 
   const namespace = source ? NEEDS_SLUG[source] : null;
-  const isUpload = source === 'pdf';
+  const isUpload = source !== null && isUploadSourceType(source);
+  const isMarkdown = source === 'markdown';
   const needsVerification = source !== null && requiresDomainVerification(source);
   const stepIds: StepId[] = needsVerification
     ? ['source', 'details', 'verify', 'visibility', 'confirm']
@@ -249,362 +340,604 @@ export function ImportWizard({
           ? verificationComplete
           : true;
 
-  if (state?.ok) {
-    /* An empty PDF library has nothing queued; what it needs next is files. */
-    const awaitingFiles = isUpload && files.uploaded.length === 0 && state.libraryId;
-    return (
-      <section className={`${PANEL} flex flex-col items-start gap-3 p-8`}>
-        <p className="text-[17px] font-semibold tracking-[-0.03em] text-ink">
-          {awaitingFiles ? w.createdTitle : w.queuedTitle}
-        </p>
-        <p className="max-w-[60ch] text-[12.5px] leading-[1.7] tracking-[-0.023em] text-muted">
-          {fill(awaitingFiles ? w.createdBodyNoFiles : w.queuedBody, { id: state.publicId ?? '' })}
-        </p>
-        <Link
-          href={awaitingFiles ? `/dashboard/libraries/${state.libraryId}/files` : '/dashboard/libraries'}
-          className="mt-2 inline-flex h-[35px] items-center gap-1.5 rounded-[7px] bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand/90"
-        >
-          {awaitingFiles ? w.createdCtaFiles : w.queuedCta}
-          <ArrowRightIcon size={14} />
-        </Link>
-      </section>
-    );
+  /* --------------------------------------------------------------- draft */
+
+  const { reset: resetFiles } = files;
+
+  /* Restore once, before any save may run. A provider's consent brought the
+     source back with it, so that wins over what the draft remembers. */
+  useEffect(() => {
+    const draft = readDraft(workspaceId);
+    loaded.current = true;
+    if (!draft) return;
+    setTitle(draft.title);
+    setSlug(draft.slug);
+    setSlugEdited(draft.slugEdited);
+    setLocation(draft.location);
+    setDescription(draft.description);
+    setLanguage(draft.language);
+    setVisibility(draft.visibility);
+    setIndexDepth(draft.indexDepth);
+    if (!returned && draft.source) {
+      setSource(draft.source);
+      setStep(draft.step);
+    }
+    setSavedAt(draft.savedAt);
+    setRestored(true);
+  }, [workspaceId, returned]);
+
+  /* Save on every change, once something has been answered. The stamp the
+     badge shows is the one that was written, not the moment of the render. */
+  useEffect(() => {
+    if (!loaded.current || state?.ok) return;
+    const answered =
+      source !== null ||
+      title.trim() !== '' ||
+      location.trim() !== '' ||
+      description.trim() !== '' ||
+      language.trim() !== '';
+    if (!answered) return;
+    const at = new Date().toISOString();
+    const draft: WizardDraft = {
+      v: DRAFT_VERSION,
+      step,
+      source,
+      title,
+      slug,
+      slugEdited,
+      location,
+      description,
+      language,
+      visibility,
+      indexDepth,
+      savedAt: at,
+    };
+    try {
+      window.localStorage.setItem(draftKey(workspaceId), JSON.stringify(draft));
+      setSavedAt(at);
+    } catch {
+      /* Nothing is saved and the badge stays where it was, which is the
+         truth: a full or blocked store is not a saved draft. */
+    }
+  }, [
+    workspaceId,
+    state?.ok,
+    step,
+    source,
+    title,
+    slug,
+    slugEdited,
+    location,
+    description,
+    language,
+    visibility,
+    indexDepth,
+  ]);
+
+  /* The library exists; the draft has nothing left to restore. */
+  useEffect(() => {
+    if (!state?.ok) return;
+    try {
+      window.localStorage.removeItem(draftKey(workspaceId));
+    } catch {
+      /* Already gone as far as anyone can tell. */
+    }
+    setSavedAt(null);
+    setRestored(false);
+  }, [state?.ok, workspaceId]);
+
+  /* Files belong to the source they were picked for. */
+  useEffect(() => {
+    resetFiles();
+  }, [source, resetFiles]);
+
+  function discardDraft() {
+    try {
+      window.localStorage.removeItem(draftKey(workspaceId));
+    } catch {
+      /* Same as above. */
+    }
+    loaded.current = false;
+    setSavedAt(null);
+    setRestored(false);
+    setStep(0);
+    setSource(null);
+    setTitle('');
+    setSlug('');
+    setSlugEdited(false);
+    setLocation('');
+    setDescription('');
+    setLanguage('');
+    setVisibility('public');
+    setIndexDepth(0);
+    setChallenge(null);
+    setConfirmed(false);
+    resetFiles();
+    /* Saving may resume from the next edit, not from this clearing one. */
+    window.setTimeout(() => {
+      loaded.current = true;
+    }, 0);
   }
 
-  return (
-    <section className={`${PANEL} p-0.5`}>
-      {/* Outside the wizard's form, because forms do not nest; the buttons
-          that start the GitHub consent point here with `form=`, so Enter in
-          a wizard field can never fire it. */}
-      <form id={CONNECT_FORM_ID} method="post" action="/api/auth/github/connect">
-        <input type="hidden" name="returnTo" value={GITHUB_CONNECT_RETURN_TO} />
-      </form>
-      <form id={NOTION_CONNECT_FORM_ID} method="post" action="/api/auth/notion/connect">
-        <input type="hidden" name="returnTo" value={NOTION_CONNECT_RETURN_TO} />
-      </form>
-      <nav className="flex flex-wrap gap-4 px-6 py-5" aria-label={n.stepsLabel}>
-        {steps.map((label, index) => (
-          <span key={label} className="flex flex-1 items-center gap-2">
+  const savedStamp = savedAt
+    ? new Intl.DateTimeFormat(locale, { timeStyle: 'short' }).format(new Date(savedAt))
+    : null;
+
+  /* ------------------------------------------------------------ pipeline */
+
+  /* An empty upload library has nothing queued; what it needs next is files. */
+  const awaitingFiles = isUpload && files.uploaded.length === 0 && Boolean(state?.libraryId);
+  /* requirement.md 5.2: the steps a library goes through, showing where this
+     one actually is -- nothing yet before submission, and after it whatever
+     the create left behind (a draft with a build queued, or none at all). */
+  const pipeline: ReviewPipelineEntry[] = state?.ok
+    ? reviewPipeline({
+        visibility,
+        lifecycleStatus: 'draft',
+        indexStatus: 'pending',
+        building: !awaitingFiles,
+      })
+    : REVIEW_PIPELINE_STEPS.filter((step) => step !== 'review' || visibility === 'public').map(
+        (step) => ({
+          step,
+          state:
+            step !== 'rights'
+              ? 'pending'
+              : source === null
+                ? 'pending'
+                : sourceComplete && verificationComplete
+                  ? 'done'
+                  : 'active',
+        }),
+      );
+
+  const pipelineAside = (
+    <aside className={`${PANEL} flex flex-col gap-4 p-6`}>
+      <div className="flex items-center gap-2.5">
+        <IconTile>
+          <ShieldCheckIcon size={18} />
+        </IconTile>
+        <div className="flex flex-col gap-[3px]">
+          <p className="text-[15px] leading-[1.4] tracking-[-0.025em] text-ink">{n.reviewTitle}</p>
+          <p className="text-[11px] tracking-[-0.023em] text-muted">{n.reviewDescription}</p>
+        </div>
+      </div>
+
+      <ol className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        {pipeline.map((entry, index) => (
+          <li key={entry.step} className="flex flex-col gap-2">
             <span
               aria-hidden
-              className={`flex size-[22px] shrink-0 items-center justify-center rounded-full text-[11px] ${
-                index === step
+              className={`flex size-6 items-center justify-center rounded-full text-[11px] ${
+                entry.state === 'done'
                   ? 'bg-brand text-white'
-                  : index < step
-                    ? 'bg-brandsoft text-brandink'
+                  : entry.state === 'active'
+                    ? 'bg-brandsoft text-brandink ring-2 ring-brand'
                     : 'bg-mutedbg text-muted'
               }`}
             >
               {index + 1}
             </span>
             <span
-              aria-current={index === step ? 'step' : undefined}
-              className={`text-[11px] tracking-[-0.023em] whitespace-nowrap ${
-                index === step ? 'text-ink' : 'text-muted'
+              className={`text-[12px] tracking-[-0.023em] ${
+                entry.state === 'pending' ? 'text-muted' : 'text-ink'
               }`}
             >
-              {label}
+              {pl.steps[entry.step]}
             </span>
-          </span>
+            <span className="text-[10px] leading-[1.5] tracking-[-0.023em] text-muted">
+              {pl.notes[entry.step]}
+            </span>
+            <span className="sr-only">{pl.states[entry.state]}</span>
+          </li>
         ))}
-      </nav>
+      </ol>
 
-      <form action={formAction} className="border-t-2 border-line">
-        {/* Every collected value rides hidden inputs so the final submit posts
-            the whole wizard regardless of which step is visible. */}
-        <input type="hidden" name="sourceType" value={source ?? ''} />
-        <input type="hidden" name="title" value={title} />
-        <input type="hidden" name="slug" value={slug} />
-        <input type="hidden" name="uploads" value={files.manifest} />
-        <input type="hidden" name="location" value={location} />
-        <input type="hidden" name="description" value={description} />
-        <input type="hidden" name="language" value={language} />
-        <input type="hidden" name="visibility" value={visibility} />
-        <input type="hidden" name="indexDepth" value={String(indexDepth)} />
-        <input
-          type="hidden"
-          name="domainVerificationId"
-          value={liveChallenge?.verified ? liveChallenge.verificationId : ''}
-        />
+      <p className="text-[11px] leading-[1.5] tracking-[-0.023em] text-muted">
+        {state?.ok ? n.pipeline.afterSubmit : n.pipeline.beforeSubmit}
+      </p>
 
-        <div className="px-6 py-6">
-          <p className="text-[12px] tracking-[-0.023em] text-muted">
-            {fill(n.stepCounter, { current: step + 1, total: steps.length })}
+      <p className="flex items-center gap-1.5 border-t-2 border-line pt-3.5 text-[11px] tracking-[-0.023em] text-muted">
+        <LockIcon size={13} />
+        {visibility === 'private' ? n.pipeline.privateFlow : n.privateSkips}
+      </p>
+    </aside>
+  );
+
+  /* --------------------------------------------------------------- render */
+
+  if (state?.ok) {
+    return (
+      <>
+        <section className={`${PANEL} flex flex-col items-start gap-3 p-8`}>
+          <p className="text-[17px] font-semibold tracking-[-0.03em] text-ink">
+            {awaitingFiles ? w.createdTitle : w.queuedTitle}
           </p>
+          <p className="max-w-[60ch] text-[12.5px] leading-[1.7] tracking-[-0.023em] text-muted">
+            {fill(
+              awaitingFiles ? (isMarkdown ? md.createdBodyNoFiles : w.createdBodyNoFiles) : w.queuedBody,
+              { id: state.publicId ?? '' },
+            )}
+          </p>
+          <Link
+            href={
+              awaitingFiles ? `/dashboard/libraries/${state.libraryId}/files` : '/dashboard/libraries'
+            }
+            className="mt-2 inline-flex h-[35px] items-center gap-1.5 rounded-[7px] bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand/90"
+          >
+            {awaitingFiles ? (isMarkdown ? md.createdCtaFiles : w.createdCtaFiles) : w.queuedCta}
+            <ArrowRightIcon size={14} />
+          </Link>
+        </section>
+        {pipelineAside}
+      </>
+    );
+  }
 
-          {current === 'source' ? (
-            <>
-              <h2 className="mt-2.5 text-[19px] leading-[1.4] font-[650] tracking-[-0.03em] text-ink">
-                {n.sourceQuestion}
-              </h2>
-              <p className="mt-1.5 text-[12px] tracking-[-0.023em] text-muted">{n.sourceHint}</p>
-              <div className="mt-5 grid gap-2.5 sm:grid-cols-2">
-                {SOURCES.map((id) => {
-                  const Icon = SOURCE_ICONS[id];
-                  const active = source === id;
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => setSource(id)}
-                      aria-pressed={active}
-                      className={`flex flex-col gap-2 rounded-[10px] border-2 p-4 text-left transition-colors ${
-                        active ? 'border-brand bg-[#f0f8f8]' : 'border-line bg-card hover:bg-subtle'
-                      }`}
-                    >
-                      <span className="flex size-8 items-center justify-center rounded-lg bg-brandsoft text-brand">
-                        <Icon size={18} />
-                      </span>
-                      <span className="text-[13px] tracking-[-0.023em] text-ink">
-                        {w.sources[id].name}
-                      </span>
-                      <span className="text-[11px] tracking-[-0.023em] text-muted">
-                        {w.sources[id].note}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          ) : null}
+  return (
+    <>
+      {/* The draft badge says when the browser last wrote one, or nothing at
+          all -- an empty form has no draft to claim. */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {restored ? (
+          <span className="text-[11px] tracking-[-0.023em] text-muted">{n.draft.restored}</span>
+        ) : null}
+        {savedStamp ? (
+          <>
+            <Badge tone="neutral">{fill(n.draft.savedAt, { time: savedStamp })}</Badge>
+            <button
+              type="button"
+              onClick={discardDraft}
+              className="text-[11px] tracking-[-0.023em] text-muted underline-offset-2 hover:text-ink hover:underline"
+            >
+              {n.draft.discard}
+            </button>
+          </>
+        ) : (
+          <Badge tone="neutral">{n.draft.badge}</Badge>
+        )}
+      </div>
 
-          {current === 'details' && source ? (
-            <div className="mt-4 flex max-w-[520px] flex-col gap-4">
-              <Field label={w.titleLabel}>
-                <input
-                  value={title}
-                  onChange={(event) => {
-                    setTitle(event.target.value);
-                    if (!slugEdited) setSlug(slugFromTitle(event.target.value));
-                  }}
-                  maxLength={120}
-                  className={FIELD}
-                />
-              </Field>
-              {isUpload ? (
-                <PdfUploadField
-                  state={files}
-                  label={w.filesLabel}
-                  hint={fill(w.filesHint, {
-                    max: String(UPLOAD_LIMITS.maxFiles),
-                    size: formatBytes(UPLOAD_LIMITS.maxFileBytes),
+      <section className={`${PANEL} p-0.5`}>
+        {/* Outside the wizard's form, because forms do not nest; the buttons
+            that start the GitHub consent point here with `form=`, so Enter in
+            a wizard field can never fire it. */}
+        <form id={CONNECT_FORM_ID} method="post" action="/api/auth/github/connect">
+          <input type="hidden" name="returnTo" value={GITHUB_CONNECT_RETURN_TO} />
+        </form>
+        <form id={NOTION_CONNECT_FORM_ID} method="post" action="/api/auth/notion/connect">
+          <input type="hidden" name="returnTo" value={NOTION_CONNECT_RETURN_TO} />
+        </form>
+        <nav className="flex flex-wrap gap-4 px-6 py-5" aria-label={n.stepsLabel}>
+          {steps.map((label, index) => (
+            <span key={label} className="flex flex-1 items-center gap-2">
+              <span
+                aria-hidden
+                className={`flex size-[22px] shrink-0 items-center justify-center rounded-full text-[11px] ${
+                  index === step
+                    ? 'bg-brand text-white'
+                    : index < step
+                      ? 'bg-brandsoft text-brandink'
+                      : 'bg-mutedbg text-muted'
+                }`}
+              >
+                {index + 1}
+              </span>
+              <span
+                aria-current={index === step ? 'step' : undefined}
+                className={`text-[11px] tracking-[-0.023em] whitespace-nowrap ${
+                  index === step ? 'text-ink' : 'text-muted'
+                }`}
+              >
+                {label}
+              </span>
+            </span>
+          ))}
+        </nav>
+
+        <form action={formAction} className="border-t-2 border-line">
+          {/* Every collected value rides hidden inputs so the final submit posts
+              the whole wizard regardless of which step is visible. */}
+          <input type="hidden" name="sourceType" value={source ?? ''} />
+          <input type="hidden" name="title" value={title} />
+          <input type="hidden" name="slug" value={slug} />
+          <input type="hidden" name="uploads" value={files.manifest} />
+          <input type="hidden" name="location" value={location} />
+          <input type="hidden" name="description" value={description} />
+          <input type="hidden" name="language" value={language} />
+          <input type="hidden" name="visibility" value={visibility} />
+          <input type="hidden" name="indexDepth" value={String(indexDepth)} />
+          <input
+            type="hidden"
+            name="domainVerificationId"
+            value={liveChallenge?.verified ? liveChallenge.verificationId : ''}
+          />
+
+          <div className="px-6 py-6">
+            <p className="text-[12px] tracking-[-0.023em] text-muted">
+              {fill(n.stepCounter, { current: step + 1, total: steps.length })}
+            </p>
+
+            {current === 'source' ? (
+              <>
+                <h2 className="mt-2.5 text-[19px] leading-[1.4] font-[650] tracking-[-0.03em] text-ink">
+                  {n.sourceQuestion}
+                </h2>
+                <p className="mt-1.5 text-[12px] tracking-[-0.023em] text-muted">{n.sourceHint}</p>
+                <div className="mt-5 grid gap-2.5 sm:grid-cols-2">
+                  {SOURCES.map((id) => {
+                    const Icon = SOURCE_ICONS[id];
+                    const active = source === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setSource(id)}
+                        aria-pressed={active}
+                        className={`flex flex-col gap-2 rounded-[10px] border-2 p-4 text-left transition-colors ${
+                          active ? 'border-brand bg-[#f0f8f8]' : 'border-line bg-card hover:bg-subtle'
+                        }`}
+                      >
+                        <span className="flex size-8 items-center justify-center rounded-lg bg-brandsoft text-brand">
+                          <Icon size={18} />
+                        </span>
+                        <span className="text-[13px] tracking-[-0.023em] text-ink">
+                          {w.sources[id].name}
+                        </span>
+                        <span className="text-[11px] tracking-[-0.023em] text-muted">
+                          {w.sources[id].note}
+                        </span>
+                      </button>
+                    );
                   })}
-                />
-              ) : source === 'github' ? (
-                <GithubRepositoryPicker
-                  github={github}
-                  outcome={githubOutcome}
-                  selected={location}
-                  onSelect={setLocation}
-                />
-              ) : source === 'notion' ? (
-                <NotionPagePicker
-                  notion={notion}
-                  outcome={notionOutcome}
-                  selected={location}
-                  onSelect={setLocation}
-                />
-              ) : (
-                <Field label={w.locationLabel} hint={w.locations[source]}>
+                </div>
+              </>
+            ) : null}
+
+            {current === 'details' && source ? (
+              <div className="mt-4 flex max-w-[520px] flex-col gap-4">
+                <Field label={w.titleLabel}>
                   <input
-                    value={location}
-                    onChange={(event) => setLocation(event.target.value)}
+                    value={title}
+                    onChange={(event) => {
+                      setTitle(event.target.value);
+                      if (!slugEdited) setSlug(slugFromTitle(event.target.value));
+                    }}
+                    maxLength={120}
                     className={FIELD}
                   />
                 </Field>
-              )}
-              {source === 'llms_txt' ? (
-                <Field label={w.indexDepthLabel} hint={w.indexDepthHint}>
-                  <select
-                    value={indexDepth}
-                    onChange={(event) => setIndexDepth(parseIndexDepth(event.target.value))}
-                    className={FIELD}
-                  >
-                    {INDEX_DEPTHS.map((depth) => (
-                      <option key={depth} value={depth}>
-                        {w.indexDepths[depth]}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              ) : null}
-              {namespace ? (
-                <Field label={w.slugLabel} hint={fill(w.slugHint, { prefix: `/${namespace}/` })}>
-                  {/* The prefix sits inside the field so the id reads the way
-                      the catalogue shows it, /websites/ethereum/whitepaper; the
-                      operator types only the slug, nested with / if they like. */}
-                  <span className="flex h-9 w-full items-center rounded-[7px] border-2 border-line bg-card pl-2.5 focus-within:border-brand">
-                    <span className="shrink-0 select-none text-[12px] tracking-[-0.023em] text-muted">
-                      /{namespace}/
-                    </span>
+                {isUpload ? (
+                  <PdfUploadField
+                    state={files}
+                    label={isMarkdown ? md.filesLabel : w.filesLabel}
+                    hint={fill(isMarkdown ? md.filesHint : w.filesHint, {
+                      max: String(UPLOAD_LIMITS.maxFiles),
+                      size: formatBytes(UPLOAD_LIMITS.maxFileBytes),
+                    })}
+                  />
+                ) : source === 'github' ? (
+                  <GithubRepositoryPicker
+                    github={github}
+                    outcome={githubOutcome}
+                    selected={location}
+                    onSelect={setLocation}
+                  />
+                ) : source === 'notion' ? (
+                  <NotionPagePicker
+                    notion={notion}
+                    outcome={notionOutcome}
+                    selected={location}
+                    onSelect={setLocation}
+                  />
+                ) : (
+                  <Field label={w.locationLabel} hint={w.locations[source]}>
                     <input
-                      value={slug}
-                      onChange={(event) => {
-                        const next = slugWithoutPrefix(event.target.value, `/${namespace}/`);
-                        setSlug(next);
-                        setSlugEdited(next.trim().length > 0);
-                      }}
-                      maxLength={200 - namespace.length - 2}
-                      placeholder={w.slugPlaceholder}
-                      className="h-full min-w-0 flex-1 bg-transparent pr-2.5 text-[12px] tracking-[-0.023em] text-ink placeholder:text-muted/70 focus:outline-none"
+                      value={location}
+                      onChange={(event) => setLocation(event.target.value)}
+                      className={FIELD}
                     />
-                  </span>
+                  </Field>
+                )}
+                {source === 'llms_txt' ? (
+                  <Field label={w.indexDepthLabel} hint={w.indexDepthHint}>
+                    <select
+                      value={indexDepth}
+                      onChange={(event) => setIndexDepth(parseIndexDepth(event.target.value))}
+                      className={FIELD}
+                    >
+                      {INDEX_DEPTHS.map((depth) => (
+                        <option key={depth} value={depth}>
+                          {w.indexDepths[depth]}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                ) : null}
+                {namespace ? (
+                  <Field label={w.slugLabel} hint={fill(w.slugHint, { prefix: `/${namespace}/` })}>
+                    {/* The prefix sits inside the field so the id reads the way
+                        the catalogue shows it, /websites/ethereum/whitepaper; the
+                        operator types only the slug, nested with / if they like. */}
+                    <span className="flex h-9 w-full items-center rounded-[7px] border-2 border-line bg-card pl-2.5 focus-within:border-brand">
+                      <span className="shrink-0 select-none text-[12px] tracking-[-0.023em] text-muted">
+                        /{namespace}/
+                      </span>
+                      <input
+                        value={slug}
+                        onChange={(event) => {
+                          const next = slugWithoutPrefix(event.target.value, `/${namespace}/`);
+                          setSlug(next);
+                          setSlugEdited(next.trim().length > 0);
+                        }}
+                        maxLength={200 - namespace.length - 2}
+                        placeholder={w.slugPlaceholder}
+                        className="h-full min-w-0 flex-1 bg-transparent pr-2.5 text-[12px] tracking-[-0.023em] text-ink placeholder:text-muted/70 focus:outline-none"
+                      />
+                    </span>
+                  </Field>
+                ) : (
+                  <p className="text-[11px] tracking-[-0.023em] text-muted">{w.githubIdNote}</p>
+                )}
+                <Field label={w.descriptionLabel}>
+                  <input
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                    maxLength={300}
+                    className={FIELD}
+                  />
                 </Field>
-              ) : (
-                <p className="text-[11px] tracking-[-0.023em] text-muted">{w.githubIdNote}</p>
-              )}
-              <Field label={w.descriptionLabel}>
-                <input
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  maxLength={300}
-                  className={FIELD}
-                />
-              </Field>
-              <Field label={w.languageLabel} hint={w.languageHint}>
-                <input
-                  value={language}
-                  onChange={(event) => setLanguage(event.target.value)}
-                  maxLength={40}
-                  className={FIELD}
-                />
-              </Field>
-            </div>
-          ) : null}
+                <Field label={w.languageLabel} hint={w.languageHint}>
+                  <input
+                    value={language}
+                    onChange={(event) => setLanguage(event.target.value)}
+                    maxLength={40}
+                    className={FIELD}
+                  />
+                </Field>
+              </div>
+            ) : null}
 
-          {current === 'verify' && source ? (
-            <VerifyStep
-              sourceType={source}
-              host={host}
-              challenge={liveChallenge}
-              onChallenge={setChallenge}
-              start={startVerification}
-              check={checkVerification}
-            />
-          ) : null}
+            {current === 'verify' && source ? (
+              <VerifyStep
+                sourceType={source}
+                host={host}
+                challenge={liveChallenge}
+                onChallenge={setChallenge}
+                start={startVerification}
+                check={checkVerification}
+              />
+            ) : null}
 
-          {current === 'visibility' ? (
-            <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
-              {(['public', 'private'] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setVisibility(option)}
-                  aria-pressed={visibility === option}
-                  className={`flex flex-col gap-2 rounded-[10px] border-2 p-4 text-left transition-colors ${
-                    visibility === option
-                      ? 'border-brand bg-[#f0f8f8]'
-                      : 'border-line bg-card hover:bg-subtle'
-                  }`}
-                >
-                  <span className="text-[13px] tracking-[-0.023em] text-ink">
-                    {option === 'public' ? w.visibilityPublic : w.visibilityPrivate}
-                  </span>
-                  <span className="text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">
-                    {option === 'public' ? w.visibilityPublicNote : w.visibilityPrivateNote}
-                  </span>
-                </button>
-              ))}
-            </div>
-          ) : null}
+            {current === 'visibility' ? (
+              <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
+                {(['public', 'private'] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setVisibility(option)}
+                    aria-pressed={visibility === option}
+                    className={`flex flex-col gap-2 rounded-[10px] border-2 p-4 text-left transition-colors ${
+                      visibility === option
+                        ? 'border-brand bg-[#f0f8f8]'
+                        : 'border-line bg-card hover:bg-subtle'
+                    }`}
+                  >
+                    <span className="text-[13px] tracking-[-0.023em] text-ink">
+                      {option === 'public' ? w.visibilityPublic : w.visibilityPrivate}
+                    </span>
+                    <span className="text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">
+                      {option === 'public' ? w.visibilityPublicNote : w.visibilityPrivateNote}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
-          {current === 'confirm' && source ? (
-            <div className="mt-4 flex max-w-[520px] flex-col gap-1 rounded-[10px] border-2 border-line bg-subtle p-4">
-              {[
-                [w.stepSource, w.sources[source].name],
-                [w.titleLabel, title],
-                isUpload
-                  ? [w.filesLabel, fill(w.filesCount, { n: String(files.uploaded.length) })]
-                  : [w.locationLabel, location],
-                ...(namespace ? [[w.slugLabel, `/${namespace}/${slug.trim().toLowerCase()}`]] : []),
-                ...(needsVerification
-                  ? [[w.stepVerify, liveChallenge?.verified ? liveChallenge.host : '—']]
-                  : []),
-                [
-                  w.stepVisibility,
-                  visibility === 'public' ? w.visibilityPublic : w.visibilityPrivate,
-                ],
-              ].map(([key, value]) => (
-                <div key={key} className="flex items-center justify-between gap-4 py-1">
-                  <span className="text-[12px] text-muted">{key}</span>
-                  <span className="truncate text-right text-[12px] font-medium text-ink">
-                    {value}
-                  </span>
-                </div>
-              ))}
-              <label className="mt-2 flex items-start gap-2 border-t-2 border-line pt-3 text-[12px] leading-[1.5] tracking-[-0.023em] text-ink">
-                <input
-                  type="checkbox"
-                  checked={confirmed}
-                  onChange={(event) => setConfirmed(event.target.checked)}
-                  className="mt-0.5 size-4 shrink-0 accent-brand"
-                />
-                {w.confirmCheck}
-              </label>
-            </div>
-          ) : null}
+            {current === 'confirm' && source ? (
+              <div className="mt-4 flex max-w-[520px] flex-col gap-1 rounded-[10px] border-2 border-line bg-subtle p-4">
+                {[
+                  [w.stepSource, w.sources[source].name],
+                  [w.titleLabel, title],
+                  isUpload
+                    ? [
+                        isMarkdown ? md.filesLabel : w.filesLabel,
+                        fill(w.filesCount, { n: String(files.uploaded.length) }),
+                      ]
+                    : [w.locationLabel, location],
+                  ...(namespace ? [[w.slugLabel, `/${namespace}/${slug.trim().toLowerCase()}`]] : []),
+                  ...(needsVerification
+                    ? [[w.stepVerify, liveChallenge?.verified ? liveChallenge.host : '—']]
+                    : []),
+                  [
+                    w.stepVisibility,
+                    visibility === 'public' ? w.visibilityPublic : w.visibilityPrivate,
+                  ],
+                ].map(([key, value]) => (
+                  <div key={key} className="flex items-center justify-between gap-4 py-1">
+                    <span className="text-[12px] text-muted">{key}</span>
+                    <span className="truncate text-right text-[12px] font-medium text-ink">
+                      {value}
+                    </span>
+                  </div>
+                ))}
+                <label className="mt-2 flex items-start gap-2 border-t-2 border-line pt-3 text-[12px] leading-[1.5] tracking-[-0.023em] text-ink">
+                  <input
+                    type="checkbox"
+                    checked={confirmed}
+                    onChange={(event) => setConfirmed(event.target.checked)}
+                    className="mt-0.5 size-4 shrink-0 accent-brand"
+                  />
+                  {w.confirmCheck}
+                </label>
+              </div>
+            ) : null}
 
-          {state && !state.ok ? (
-            <p className="mt-4 text-[12px] tracking-[-0.023em] text-rose">
-              {state.error === 'github'
-                ? w.errorGithub[state.refusal ?? 'not_found']
-                : state.error === 'notion'
-                  ? w.errorNotion[state.notionRefusal ?? 'not_found']
-                  : state.error === 'limit'
-                  ? w.errorLimit
-                  : state.error === 'quota'
-                  ? w.errorQuota
-                  : state.error === 'taken'
-                    ? w.errorTaken
-                    : state.error === 'invalid'
-                      ? w.errorInvalid
-                      : state.error === 'unverified'
-                        ? w.errorUnverified
-                        : w.errorUnavailable}
-            </p>
-          ) : null}
-        </div>
+            {state && !state.ok ? (
+              <p className="mt-4 text-[12px] tracking-[-0.023em] text-rose">
+                {state.error === 'github'
+                  ? w.errorGithub[state.refusal ?? 'not_found']
+                  : state.error === 'notion'
+                    ? w.errorNotion[state.notionRefusal ?? 'not_found']
+                    : state.error === 'limit'
+                    ? w.errorLimit
+                    : state.error === 'quota'
+                    ? w.errorQuota
+                    : state.error === 'denied'
+                    ? w.errorDenied
+                    : state.error === 'taken'
+                      ? w.errorTaken
+                      : state.error === 'invalid'
+                        ? w.errorInvalid
+                        : state.error === 'unverified'
+                          ? w.errorUnverified
+                          : w.errorUnavailable}
+              </p>
+            ) : null}
+          </div>
 
-        <footer className="flex items-center justify-between gap-3 border-t-2 border-line px-6 py-3.5">
-          <button
-            type="button"
-            onClick={() => setStep((current) => Math.max(0, current - 1))}
-            disabled={step === 0}
-            className="h-[35px] rounded-[7px] border-2 border-line bg-card px-3 text-[12px] text-steel transition-colors hover:bg-subtle disabled:opacity-40"
-          >
-            {n.back2}
-          </button>
-          {/* Distinct keys: these must be two DOM nodes. With one, React
-              retargets the node from Continue to Submit while the Enter that
-              pressed Continue is still down, and the same key submits the
-              form -- the confirm step is skipped. */}
-          {step < steps.length - 1 ? (
+          <footer className="flex items-center justify-between gap-3 border-t-2 border-line px-6 py-3.5">
             <button
-              key="continue"
               type="button"
-              onClick={() => setStep((current) => current + 1)}
-              disabled={!canContinue}
-              className="inline-flex h-[35px] items-center gap-1.5 rounded-[7px] bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40"
+              onClick={() => setStep((current) => Math.max(0, current - 1))}
+              disabled={step === 0}
+              className="h-[35px] rounded-[7px] border-2 border-line bg-card px-3 text-[12px] text-steel transition-colors hover:bg-subtle disabled:opacity-40"
             >
-              {n.continue}
-              <ArrowRightIcon size={14} />
+              {n.back2}
             </button>
-          ) : (
-            <button
-              key="submit"
-              type="submit"
-              disabled={
-                pending || !detailsComplete || !verificationComplete || source === null || !confirmed
-              }
-              className="inline-flex h-[35px] items-center gap-1.5 rounded-[7px] bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40"
-            >
-              {w.submit}
-              <ArrowRightIcon size={14} />
-            </button>
-          )}
-        </footer>
-      </form>
-    </section>
+            {/* Distinct keys: these must be two DOM nodes. With one, React
+                retargets the node from Continue to Submit while the Enter that
+                pressed Continue is still down, and the same key submits the
+                form -- the confirm step is skipped. */}
+            {step < steps.length - 1 ? (
+              <button
+                key="continue"
+                type="button"
+                onClick={() => setStep((current) => current + 1)}
+                disabled={!canContinue}
+                className="inline-flex h-[35px] items-center gap-1.5 rounded-[7px] bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40"
+              >
+                {n.continue}
+                <ArrowRightIcon size={14} />
+              </button>
+            ) : (
+              <button
+                key="submit"
+                type="submit"
+                disabled={
+                  pending || !detailsComplete || !verificationComplete || source === null || !confirmed
+                }
+                className="inline-flex h-[35px] items-center gap-1.5 rounded-[7px] bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40"
+              >
+                {w.submit}
+                <ArrowRightIcon size={14} />
+              </button>
+            )}
+          </footer>
+        </form>
+      </section>
+      {pipelineAside}
+    </>
   );
 }
 
