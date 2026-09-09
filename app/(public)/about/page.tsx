@@ -27,9 +27,24 @@ export default async function AboutPage() {
    * Hidden until they are (requirement.md 6.4). `scopeNote` stays: it describes
    * what the product is built around, not something it is doing right now.
    */
-  const scope = anchoringVisible()
+  const showAnchoring = anchoringVisible();
+  const scope = showAnchoring
     ? a.scope
     : a.scope.filter((item) => !mentionsAnchoring(`${item.kicker} ${item.title}`));
+
+  /*
+   * The principles are filtered on "Aptos" rather than with mentionsAnchoring,
+   * and on the body rather than the title. "Independently verifiable" does not
+   * name anchoring, and the fourth principle names proofs precisely in order to
+   * bound what they prove -- that disclaimer has to survive either way. Only
+   * the first asserts that digests are on a chain today.
+   *
+   * The original index travels with each entry: the icon is chosen by position,
+   * so dropping one would otherwise hand every later principle someone else's.
+   */
+  const principles = a.principles
+    .map((item, index) => ({ ...item, index }))
+    .filter((item) => showAnchoring || !/aptos/i.test(item.body));
 
   return (
     <>
@@ -64,7 +79,7 @@ export default async function AboutPage() {
       <section className="mx-auto w-full max-w-[1080px] border-t-2 border-line px-5 pt-12 pb-14">
         <SectionHeading eyebrow="PRINCIPLES" title={a.principlesTitle} />
         <div className="mt-7 grid gap-4 md:grid-cols-2">
-          {a.principles.map(({ title, body }, index) => {
+          {principles.map(({ title, body, index }) => {
             const Icon = PRINCIPLE_ICONS[index] ?? ShieldCheckIcon;
             return (
               <Card key={title} className="p-6">

@@ -198,14 +198,14 @@ export const en: Dictionary = {
       },
       {
         title: 'Citations cannot be checked',
-        body: 'Text stuffed into a context window usually arrives with no source, no timestamp and no proof it was not rewritten on the way. Every Re0 result keeps its source and citation, and the content digest of each published version is written to Aptos mainnet.',
+        body: 'Text stuffed into a context window usually arrives with no source, no timestamp and no proof it was not rewritten on the way. Every Re0 result keeps its source and citation, and points at one specific published version.',
       },
       {
         title: 'Billing is tangled up with content',
         body: 'Per-token pricing turns long context into a cost risk, and selling by library charges twice for knowledge that is already public. Re0 bills one accepted query, and the amount of content returned never changes the price.',
       },
     ],
-    principlesTitle: 'Four things we hold to',
+    principlesTitle: 'What we hold to',
     principles: [
       {
         title: 'Independently verifiable',
@@ -225,7 +225,7 @@ export const en: Dictionary = {
       },
     ],
     scopeTitle: 'What the platform is made of',
-    scopeNote: 'Retrieval, integration, ownership and proofs — four tracks over one versioned dataset.',
+    scopeNote: 'Retrieval, integration, ownership and proofs, over one versioned dataset.',
     scope: [
       {
         kicker: 'Libraries',
@@ -305,11 +305,11 @@ export const en: Dictionary = {
   status: {
     metaTitle: 'Status',
     metaDescription:
-      'Live status, 90-day uptime and incident history for the Re0 retrieval API, MCP, indexing, console and on-chain proofs.',
+      'Live status, 90-day uptime and incident history for the Re0 retrieval API, MCP, indexing and console.',
     title: 'Service status',
-    lede: 'Current state of the retrieval API, MCP, index refresh, console and on-chain proofs, plus uptime over the last {days} days. Planned maintenance is announced here in advance.',
+    lede: 'Current state of the retrieval API, MCP, index refresh and console, plus uptime over the last {days} days. Planned maintenance is announced here in advance.',
     allHealthy: 'All systems operational',
-    allHealthyNote: 'Retrieval, version publishing and proof writes are all within normal range.',
+    allHealthyNote: 'Retrieval and version publishing are both within normal range.',
     degradedSummary: '{count} component(s) degraded, everything else normal',
     degradedNote:
       'Currently affected: {names}. Retrieval queries and published versions remain reachable.',
@@ -371,7 +371,7 @@ export const en: Dictionary = {
   legal: {
     metaTitle: 'Legal',
     metaDescription:
-      'Re0 terms of service, acceptable use, content and copyright rules, privacy policy, billing terms and the on-chain proof statement.',
+      'Re0 terms of service, acceptable use, content and copyright rules, privacy policy and billing terms.',
     title: 'Legal',
     ledeLead:
       'This page covers the Re0 website, REST API, MCP service, CLI and console. Effective',
@@ -403,7 +403,7 @@ export const en: Dictionary = {
       c12: 'Using the service requires an account. You may link several sign-in methods, but you are responsible for everything that happens under the account, including calls made with an API key. Revoke a leaked key in the console immediately.',
       c13: 'We grant you a non-exclusive, non-transferable right to access public libraries and your own private libraries within your quota. That licence does not cover reselling retrieval results in bulk, replicating the platform index, or using retrieval output to rebuild a dataset that substitutes for this service.',
       c14: 'You may stop using the service and close your account at any time. If you seriously breach these terms, the acceptable use policy or applicable law, we may suspend or terminate the account; unless the law requires otherwise, we give notice and a period to put things right first.',
-      c15: 'After an account is closed, private libraries and their indexes are deleted. Where a published public library has already been cited by others, its version history and on-chain digests remain.',
+      c15: 'After an account is closed, private libraries and their indexes are deleted. Where a published public library has already been cited by others, its version history remains.',
       c21: 'Do not submit content you have no lawful right to use, and do not upload sensitive personal information, credentials, keys or export-controlled material.',
       c22: 'Do not work around quota and billing: no sharing accounts to exceed plan limits, no automated bulk registration, and no load testing well beyond normal use. Contact us in advance for capacity planning.',
       c23: 'Do not use the service to produce or distribute unlawful content, malware or phishing material, or to gain unauthorised access to anyone else’s systems.',
@@ -488,7 +488,7 @@ export const en: Dictionary = {
     title: 'Public library directory',
     claim: 'Claim a library',
     submit: 'Submit a library',
-    lede: 'Every public library has passed platform review and is free for anyone to query. Each published version gets an on-chain content proof, so a citation can be verified without Re0.',
+    lede: 'Every public library has passed platform review and is free for anyone to query.',
     searchPlaceholder: 'Search by name, domain or Library ID…',
     popular: 'Popular',
     recentlyUpdated: 'Recently updated',
