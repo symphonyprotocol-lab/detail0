@@ -56,6 +56,15 @@ export function anchoringSettings(): AnchoringSettings {
   };
 }
 
+export {
+  anchorAuditHead,
+  anchorPublishedVersions,
+  previousUtcDay,
+  runAnchorTick,
+  type AnchorRunResult,
+  type SubmitBudget,
+} from './run-batch';
+
 export interface VersionAnchorProof extends Anchor {
   subjectType: 'version';
   /** The pinned id the caller asked about, `/owner/repo/label`. */

@@ -23,6 +23,7 @@
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.41",
     "@ai-sdk/react": "^4.0.90",
+    "@aptos-labs/ts-sdk": "^7.3.0",
     "@neondatabase/serverless": "^1.0.1",
     "@vercel/blob": "^2.8.0",
     "ai": "^7.0.87",
