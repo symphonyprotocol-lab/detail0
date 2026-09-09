@@ -11,12 +11,14 @@ import { optionalSession } from '@/lib/http/session';
  * 1080px content column rather than spanning the viewport. The one session-aware
  * bit is the action button: a signed-in visitor is offered their dashboard
  * instead of a login they already have.
+ *
+ * The nav sits on the right, ahead of the language switcher, so the two
+ * destinations a visitor is here for read as one run with the sign-in action.
  */
 export async function SiteHeader() {
   const [session, t] = await Promise.all([optionalSession(), getMessages()]);
 
   const nav = [
-    { href: '/docs', label: t.nav.docs },
     { href: '/pricing', label: t.nav.pricing },
     { href: '/playground', label: t.nav.playground },
   ];
@@ -24,8 +26,8 @@ export async function SiteHeader() {
   return (
     <header className="sticky top-0 z-30 px-5 pt-3 pb-3">
       <div className="mx-auto flex h-[54px] w-full max-w-[1080px] items-center justify-between rounded-full border border-line/70 bg-card/85 px-5 shadow-[0_1px_2px_rgba(3,26,30,0.04),0_8px_24px_-12px_rgba(3,26,30,0.16)] backdrop-blur">
-        <div className="flex items-center gap-8">
-          <Wordmark />
+        <Wordmark />
+        <div className="flex items-center gap-4">
           <nav className="hidden items-center gap-6 md:flex">
             {nav.map((item) => (
               <Link
@@ -37,8 +39,6 @@ export async function SiteHeader() {
               </Link>
             ))}
           </nav>
-        </div>
-        <div className="flex items-center gap-4">
           <MobileNav items={nav} label={t.nav.menu} />
           <LocaleSwitcher />
           <Link

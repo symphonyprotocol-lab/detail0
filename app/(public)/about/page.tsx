@@ -32,9 +32,6 @@ export default async function AboutPage() {
             <Button href="/libraries" size="md">
               {a.browse}
             </Button>
-            <Button href="/docs" variant="outline" size="md">
-              {a.readDocs}
-            </Button>
           </div>
         </div>
       </section>

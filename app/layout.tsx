@@ -29,13 +29,10 @@ export async function generateMetadata(): Promise<Metadata> {
  * The root layout sets typography and the document language -- deliberately no
  * background or text colour.
  *
- * Two different colour regimes live in this app and each must own its own:
- * - the product surfaces (public site, dashboard, admin) commit to the single
- *   light look of the design source, and paint it in their own layouts
- * - the docs site follows the reader's theme, painted by Fumadocs
- *
- * Forcing a colour here breaks the second one: anything that inherits from body
- * renders near-black on Fumadocs' dark background.
+ * The product surfaces (public site, dashboard, admin) each commit to the
+ * single light look of the design source and paint it in their own layouts, so
+ * the colour a page renders in stays that layout's decision rather than one
+ * inherited from here.
  */
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const locale = await currentLocale();

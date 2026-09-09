@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { ApiQuickstart } from '@/components/dashboard/api-quickstart';
 import { CopyButton } from '@/components/dashboard/copy-button';
 import { UsageChart, type UsageChartDay } from '@/components/dashboard/usage-chart';
@@ -353,12 +352,7 @@ export default async function DashboardOverviewPage() {
           />
         </div>
         <p className="text-[12px] tracking-[-0.023em] text-muted">
-          {fill(o.live.keyPlaceholderNote, { placeholder: API_KEY_PLACEHOLDER })}{' '}
-          {o.installManualLead}
-          <Link href="/docs" className="text-brandink underline-offset-2 hover:underline">
-            {o.installManualLink}
-          </Link>
-          {o.installManualTail}
+          {fill(o.live.keyPlaceholderNote, { placeholder: API_KEY_PLACEHOLDER })}
         </p>
       </section>
 

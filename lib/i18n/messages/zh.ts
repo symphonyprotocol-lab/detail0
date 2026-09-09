@@ -19,7 +19,6 @@ export const zh = {
   },
 
   nav: {
-    docs: '文档',
     pricing: '定价',
     playground: '在线试用',
     signIn: '登录',
@@ -27,24 +26,6 @@ export const zh = {
     signOut: '退出登录',
     language: '界面语言',
     menu: '菜单',
-  },
-
-  /*
-   * Chrome of the Fumadocs docs site -- the sidebar, search dialog and table of
-   * contents around the MDX. Keys are Fumadocs' `Translations` shape, handed to
-   * its provider in `components/docs/root-provider.tsx`.
-   */
-  docsChrome: {
-    search: '搜索文档',
-    searchNoResult: '没有匹配的结果',
-    toc: '本页目录',
-    tocNoHeadings: '本页没有小节',
-    lastUpdate: '最后更新于',
-    chooseLanguage: '选择语言',
-    nextPage: '下一页',
-    previousPage: '上一页',
-    chooseTheme: '选择主题',
-    editOnGithub: '在 GitHub 上编辑',
   },
 
   footer: {
@@ -154,7 +135,7 @@ export const zh = {
     shareBanner: {
       eyebrow: '发布者分成',
       title: '让维护知识库这件事有回报。',
-      cta: '了解分成规则',
+      cta: '联系我们',
     },
     faqTitle: '关于 API Call 计费',
     faqNote: '计费规则不受返回内容长度、Chunk 数量或缓存状态影响。',
@@ -206,7 +187,6 @@ export const zh = {
     title: '让可信知识进入每一次 AI 决策',
     lede: 'Re0 把公开文档和你有权使用的私有资料，转换为 AI Agent 可搜索、可检索、可引用的版本化知识库。我们关心的不是“模型能不能说得像样”，而是它引用的那段内容来自哪里、属于哪个版本、能不能被别人独立核对。',
     browse: '浏览公开知识库',
-    readDocs: '阅读文档',
     whyTitle: '我们在解决什么',
     problems: [
       {
@@ -312,7 +292,6 @@ export const zh = {
     elsewhereTitle: '也许这里已经有答案',
     elsewhere: [
       { title: '服务状态', body: '先看看是不是已知的平台事件。' },
-      { title: '文档', body: '接入、检索参数与错误码说明。' },
       { title: '定价与额度', body: 'API Call 计费规则和调用包。' },
       { title: '法律条款', body: '服务条款、隐私与内容政策。' },
     ],
@@ -348,7 +327,6 @@ export const zh = {
     anchorCardTitle: '存证不受服务状态影响',
     anchorCardBody:
       '已写入 Aptos 主网的版本摘要可以用公开 Verifier 独立校验，校验过程不调用 Re0 任何接口，本页显示的降级不会影响这一点。',
-    anchorCardLink: '了解链上存证 →',
     live: {
       components: {
         retrieval: {
@@ -538,7 +516,6 @@ export const zh = {
     unclaimed: '待认领',
     pinnedVersion: '指定版本：',
     tryInPlayground: '在 Playground 试用',
-    viewExamples: '查看接入示例',
     stats: {
       trust: 'TRUST SCORE',
       trustNote: '来源可信度',
@@ -722,9 +699,6 @@ export const zh = {
       installTitle: '安装 re0',
       installDescription: '运行命令，将 MCP Server 连接到你的 AI 编程工具。',
       installCommandLabel: '安装命令',
-      installManualLead: '也可以',
-      installManualLink: '查看手动安装指南',
-      installManualTail: '，配置其他客户端。',
       quickstartTitle: 'API 快速开始',
       quickstartDescription: '通过 REST API 查询公开知识库与最新文档。',
       quickstartTabsLabel: 'API 示例',
@@ -758,10 +732,8 @@ export const zh = {
       reviewNoticeTitle: '公开知识库发布前必须通过审核',
       reviewNoticeBody:
         '平台会检查内容权利、来源透明度、适用边界、质量和安全规则；私有知识库无需审核。',
-      reviewNoticeLink: '查看审核流程',
       anchorNoticeTitle: '已发布版本在链上留存内容证明',
       anchorNoticeBody: '版本内容摘要按小时聚合写入 Aptos 主网，可独立验证，不代表内容正确。',
-      anchorNoticeLink: '了解验证方法',
       viewPlans: '查看套餐',
       searchPlaceholder: '搜索知识库…',
       columns: ['知识库', '访问范围', '文档片段', '审核状态', '最近更新'],
@@ -1336,7 +1308,6 @@ export const zh = {
       createKey: '创建密钥',
       noticeTitle: '密钥只会在创建时完整显示一次',
       noticeBody: '请将密钥保存在安全的密码管理器或环境变量中，不要提交到公开仓库。',
-      noticeLink: '查看安全指南',
       columns: ['名称', '密钥', '权限', '最后使用'],
       listTitle: '你的密钥',
       listDescription: '每个项目使用独立密钥，便于追踪和撤销访问。',
@@ -1348,7 +1319,6 @@ export const zh = {
       activityLink: '查看调用记录',
       leastPrivilegeTitle: '最小权限原则',
       leastPrivilegeBody: '只为密钥开启项目实际需要的权限。你可以随时创建新密钥并撤销旧密钥。',
-      leastPrivilegeLink: '了解权限范围',
       scoped: {
         environment: '环境',
         environments: { live: 'Live', test: 'Test' },

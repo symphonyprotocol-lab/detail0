@@ -193,9 +193,6 @@ export default async function LibraryDetailPage({ params }: Params) {
           <Button href={`/playground?library=${encodeURIComponent(entry.publicId)}`}>
             {l.tryInPlayground}
           </Button>
-          <Button href="/docs" variant="outline">
-            {l.viewExamples}
-          </Button>
         </div>
       </div>
 

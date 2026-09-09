@@ -281,12 +281,6 @@ export default async function StatusPage() {
               {st.anchorCardTitle}
             </p>
             <p className="mt-2.5 text-[12.5px] leading-[1.75] text-muted">{st.anchorCardBody}</p>
-            <Link
-              href="/docs/anchoring"
-              className="mt-4 inline-block text-[12.5px] font-medium text-brandink hover:underline"
-            >
-              {st.anchorCardLink}
-            </Link>
           </Card>
         </div>
       </section>

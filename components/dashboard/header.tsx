@@ -24,7 +24,6 @@ export async function DashboardHeader({
   const t = await getMessages();
 
   const nav = [
-    { href: '/docs', label: t.nav.docs },
     { href: '/pricing', label: t.nav.pricing },
     { href: '/playground', label: t.nav.playground },
   ];

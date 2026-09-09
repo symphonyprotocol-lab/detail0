@@ -18,8 +18,7 @@ import { HTML_LANG, LOCALE_LABEL, LOCALES, type Locale } from '@/lib/i18n/locale
  * Options are always labelled in their own language -- a reader stranded in a
  * language they cannot read still has to be able to find their way out.
  *
- * Writing the cookie itself lives in `rememberLocale`, shared with the docs
- * site's switcher.
+ * Writing the cookie itself lives in `rememberLocale`.
  */
 
 function GlobeIcon() {

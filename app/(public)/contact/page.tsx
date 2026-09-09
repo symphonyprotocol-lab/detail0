@@ -23,7 +23,7 @@ const CHANNEL_EMAILS = [
   'partners@re0.com',
   'security@re0.com',
 ];
-const ELSEWHERE_HREFS = ['/status', '/docs', '/pricing', '/legal'];
+const ELSEWHERE_HREFS = ['/status', '/pricing', '/legal'];
 
 export default async function ContactPage() {
   const { contact: c } = await getMessages();
@@ -88,11 +88,11 @@ export default async function ContactPage() {
 
       <section className="mx-auto w-full max-w-[1080px] border-t-2 border-line px-5 pt-12 pb-16">
         <SectionHeading eyebrow="ELSEWHERE" title={c.elsewhereTitle} />
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {c.elsewhere.map((item, index) => (
             <Link
               key={item.title}
-              href={ELSEWHERE_HREFS[index] ?? '/docs'}
+              href={ELSEWHERE_HREFS[index] ?? '/status'}
               className="rounded-lg border-2 border-line bg-card p-5 transition-colors hover:bg-subtle"
             >
               <p className="text-[13.5px] font-semibold tracking-[-0.02em] text-ink">

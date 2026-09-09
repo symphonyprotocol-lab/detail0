@@ -17,7 +17,6 @@ export const en: Dictionary = {
   },
 
   nav: {
-    docs: 'Docs',
     pricing: 'Pricing',
     playground: 'Playground',
     signIn: 'Sign in',
@@ -25,20 +24,6 @@ export const en: Dictionary = {
     signOut: 'Sign out',
     language: 'Interface language',
     menu: 'Menu',
-  },
-
-  /* Fumadocs docs-site chrome; see the note on the Chinese entry. */
-  docsChrome: {
-    search: 'Search docs',
-    searchNoResult: 'No results found',
-    toc: 'On this page',
-    tocNoHeadings: 'No headings on this page',
-    lastUpdate: 'Last updated',
-    chooseLanguage: 'Choose a language',
-    nextPage: 'Next',
-    previousPage: 'Previous',
-    chooseTheme: 'Choose a theme',
-    editOnGithub: 'Edit on GitHub',
   },
 
   footer: {
@@ -153,7 +138,7 @@ export const en: Dictionary = {
     shareBanner: {
       eyebrow: 'Publisher revenue share',
       title: 'Make maintaining a library worth it.',
-      cta: 'How the share works',
+      cta: 'Contact us',
     },
     faqTitle: 'About API call billing',
     faqNote: 'Billing is unaffected by response length, chunk count or cache state.',
@@ -205,7 +190,6 @@ export const en: Dictionary = {
     title: 'Trustworthy knowledge behind every AI decision',
     lede: 'Re0 turns public documentation and private material you are entitled to use into versioned libraries an AI agent can search, retrieve and cite. What matters to us is not whether a model sounds convincing, but where the passage it cited came from, which version it belongs to, and whether someone else can check it.',
     browse: 'Browse public libraries',
-    readDocs: 'Read the docs',
     whyTitle: 'What we are solving',
     problems: [
       {
@@ -313,7 +297,6 @@ export const en: Dictionary = {
     elsewhereTitle: 'This may already be answered',
     elsewhere: [
       { title: 'Status', body: 'Check whether it is a known platform incident.' },
-      { title: 'Docs', body: 'Integration, retrieval parameters and error codes.' },
       { title: 'Pricing and quota', body: 'API call billing rules and call packs.' },
       { title: 'Legal', body: 'Terms, privacy and content policy.' },
     ],
@@ -353,7 +336,6 @@ export const en: Dictionary = {
     anchorCardTitle: 'Proofs are unaffected by service status',
     anchorCardBody:
       'Version digests already on Aptos mainnet can be checked with the public verifier, which calls no Re0 endpoint — degradation shown on this page cannot touch that.',
-    anchorCardLink: 'About on-chain proofs →',
     live: {
       components: {
         retrieval: {
@@ -554,7 +536,6 @@ export const en: Dictionary = {
     unclaimed: 'Unclaimed',
     pinnedVersion: 'Pinned version: ',
     tryInPlayground: 'Try in the playground',
-    viewExamples: 'View integration examples',
     stats: {
       trust: 'TRUST SCORE',
       trustNote: 'Source trustworthiness',
@@ -746,9 +727,6 @@ export const en: Dictionary = {
       installTitle: 'Install re0',
       installDescription: 'Run the command to connect the MCP server to your AI coding tool.',
       installCommandLabel: 'install command',
-      installManualLead: 'You can also',
-      installManualLink: 'read the manual setup guide',
-      installManualTail: ' to configure other clients.',
       quickstartTitle: 'API quickstart',
       quickstartDescription: 'Query public libraries and current docs over the REST API.',
       quickstartTabsLabel: 'API examples',
@@ -782,11 +760,9 @@ export const en: Dictionary = {
       reviewNoticeTitle: 'Public libraries are reviewed before they publish',
       reviewNoticeBody:
         'We check content rights, source transparency, stated boundaries, quality and safety rules. Private libraries skip review.',
-      reviewNoticeLink: 'See the review process',
       anchorNoticeTitle: 'Published versions leave a content proof on-chain',
       anchorNoticeBody:
         'Version digests are batched hourly onto Aptos mainnet — independently verifiable, and never a claim that the content is correct.',
-      anchorNoticeLink: 'How verification works',
       viewPlans: 'See plans',
       searchPlaceholder: 'Search libraries…',
       columns: ['Library', 'Scope', 'Chunks', 'Review', 'Updated'],
@@ -1380,7 +1356,6 @@ export const en: Dictionary = {
       noticeTitle: 'A key is shown in full only once, at creation',
       noticeBody:
         'Keep it in a password manager or an environment variable, and never commit it to a public repository.',
-      noticeLink: 'Read the security guide',
       columns: ['Name', 'Key', 'Scopes', 'Last used'],
       listTitle: 'Your keys',
       listDescription: 'A separate key per project makes access easy to trace and revoke.',
@@ -1393,7 +1368,6 @@ export const en: Dictionary = {
       leastPrivilegeTitle: 'Least privilege',
       leastPrivilegeBody:
         'Give a key only the scopes the project actually needs. You can create new keys and revoke old ones at any time.',
-      leastPrivilegeLink: 'About scopes',
       scoped: {
         environment: 'Environment',
         environments: { live: 'Live', test: 'Test' },

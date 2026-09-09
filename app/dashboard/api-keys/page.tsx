@@ -143,7 +143,6 @@ export default async function DashboardApiKeysPage() {
         icon={<ShieldCheckIcon size={18} />}
         title={k.noticeTitle}
         body={k.noticeBody}
-        action={<ArrowLink href="/docs">{k.noticeLink}</ArrowLink>}
       />
 
       {manages ? (
@@ -292,9 +291,6 @@ export default async function DashboardApiKeysPage() {
           <p className="mt-1.5 text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">
             {k.leastPrivilegeBody}
           </p>
-          <div className="mt-3.5">
-            <ArrowLink href="/docs">{k.leastPrivilegeLink}</ArrowLink>
-          </div>
         </article>
       </section>
     </div>

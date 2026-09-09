@@ -6,7 +6,6 @@ import {
 } from '@/components/dashboard/library-ownership';
 import {
   ActionButton,
-  ArrowLink,
   Notice,
   PageHeader,
   StatTile,
@@ -239,13 +238,11 @@ export default async function DashboardLibrariesPage() {
         icon={<ShieldCheckIcon size={18} />}
         title={l.reviewNoticeTitle}
         body={l.reviewNoticeBody}
-        action={<ArrowLink href="/docs">{l.reviewNoticeLink}</ArrowLink>}
       />
       <Notice
         icon={<BadgeCheckIcon size={18} />}
         title={l.anchorNoticeTitle}
         body={l.anchorNoticeBody}
-        action={<ArrowLink href="/docs">{l.anchorNoticeLink}</ArrowLink>}
       />
 
       {/* requirement.md 5.2: refresh and deletion are for the library's
