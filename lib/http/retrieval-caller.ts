@@ -18,8 +18,15 @@ import { strictRateLimit } from '@/lib/infrastructure/cache/strict-rate-limit';
 /**
  * Wide enough to try the product, narrow enough that scraping the corpus
  * anonymously costs more than signing up.
+ *
+ * A long window rather than a generous hourly one: ten questions is enough to
+ * decide whether the answers are worth an account, and spreading them over
+ * five hours means a scraper waits out four idle hours per ten requests
+ * instead of resetting every hour. The window length reaches the playground
+ * with the count (`TrialAllowance`), so the copy says how long it is rather
+ * than assuming an hour.
  */
-export const ANONYMOUS_RATE_RULE: RateLimitRule = { limit: 30, windowSeconds: 3_600 };
+export const ANONYMOUS_RATE_RULE: RateLimitRule = { limit: 10, windowSeconds: 18_000 };
 
 /**
  * What an anonymous caller has left of the trial window, counted after this

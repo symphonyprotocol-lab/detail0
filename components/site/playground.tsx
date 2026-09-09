@@ -755,6 +755,10 @@ export function Playground({
                   ? fill(t.allowance.anonymous, {
                       remaining: allowance.remaining,
                       limit: allowance.limit ?? 0,
+                      /* The limiter owns the window length; the copy only
+                         reports it, so changing the rule cannot leave the
+                         line claiming an hour it no longer means. */
+                      hours: Math.round((allowance.windowSeconds ?? 3_600) / 3_600),
                     })
                   : t.allowance.anonymousExhausted}
               </span>{' '}

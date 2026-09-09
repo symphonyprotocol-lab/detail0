@@ -642,8 +642,8 @@ export const zh = {
     footnoteLine1: '匿名试用受 IP 速率限制；登录后每次问答计 1 API Call，答案生成成本由平台承担。',
     footnoteLine2: '回答中的每条事实都必须绑定到本次检索返回的 Chunk，无法绑定的内容不会作为事实展示。',
     allowance: {
-      anonymous: '匿名试用：本小时剩余 {remaining} / {limit} 次',
-      anonymousExhausted: '匿名试用：本小时次数已用完',
+      anonymous: '匿名试用：本时段（{hours} 小时）剩余 {remaining} / {limit} 次',
+      anonymousExhausted: '匿名试用：本时段次数已用完',
       signedInDifference: '登录后不受此限制，每次问答按工作空间额度计 1 API Call。',
       signIn: '登录',
       signedIn: '已登录：每次问答计 1 API Call，按工作空间额度计量。',

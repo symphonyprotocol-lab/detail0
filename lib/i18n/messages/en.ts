@@ -670,8 +670,8 @@ export const en: Dictionary = {
     footnoteLine2:
       'Every factual statement in an answer must bind to a chunk returned by this retrieval; anything that cannot be bound is not presented as fact.',
     allowance: {
-      anonymous: 'Anonymous trial: {remaining} of {limit} left this hour',
-      anonymousExhausted: 'Anonymous trial: nothing left this hour',
+      anonymous: 'Anonymous trial: {remaining} of {limit} left in this {hours}-hour window',
+      anonymousExhausted: 'Anonymous trial: nothing left in this window',
       signedInDifference: 'Signing in lifts this limit; each exchange then counts as 1 API call against your workspace quota.',
       signIn: 'Sign in',
       signedIn: 'Signed in: each exchange counts as 1 API call against your workspace quota.',

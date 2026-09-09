@@ -34,7 +34,7 @@ interface Window {
  *
  * One map for every scope meant one budget for every scope: a flood on the
  * cheapest endpoint filled it, and a full map refuses every key it has not
- * already seen. Anonymous retrieval keys hold an hour-long window, so enough
+ * already seen. Anonymous retrieval keys hold a five-hour window, so enough
  * of them arriving at one instance denied the console sign-in -- an endpoint
  * they share no limit with, and the one an operator needs precisely then.
  * Partitioned, a scope can only exhaust its own capacity.
