@@ -1,3 +1,8 @@
 {
-  "crons": [{ "path": "/api/cron/drain", "schedule": "*/10 * * * *" }]
+  "crons": [{ "path": "/api/cron/drain", "schedule": "*/10 * * * *" }],
+  "git": {
+    "deploymentEnabled": {
+      "develop": false
+    }
+  }
 }
