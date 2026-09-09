@@ -29,6 +29,17 @@ export {
   type ConsoleAuditRow,
 } from './list-audit';
 export {
+  listAnchorBatches,
+  ANCHOR_BATCH_STATUSES,
+  ANCHOR_SLO_HOURS,
+  type AnchorList,
+  type AnchorListInput,
+  type AnchorStats,
+  type AnchorStatusFilter,
+  type AnchorSubjectFilter,
+  type ConsoleAnchorBatchRow,
+} from './list-anchors';
+export {
   listUserLibraries,
   listClaims,
   pendingReviewQueue,

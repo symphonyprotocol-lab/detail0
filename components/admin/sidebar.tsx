@@ -10,6 +10,7 @@ import {
   FilterIcon,
   GlobeIcon,
   LayoutDashboardIcon,
+  LinkIcon,
   Re0Mark,
   ReceiptIcon,
   RefreshIcon,
@@ -127,6 +128,14 @@ export function AdminSidebar({
           needs: 'administrators',
         },
         { href: '/admin/audit', label: nav.audit, Icon: ScrollTextIcon, needs: 'audit' },
+        /*
+         * Anchoring rides on `audit` rather than a capability of its own. The
+         * two are the same job -- evidence that history was not rewritten --
+         * and the audit chain head is one of the three things anchored. Split
+         * it out if operators ever need the queue without the log; that is a
+         * change to the permission matrix, not to this line.
+         */
+        { href: '/admin/anchors', label: nav.anchors, Icon: LinkIcon, needs: 'audit' },
       ],
     },
   ];

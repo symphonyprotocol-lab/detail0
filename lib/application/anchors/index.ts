@@ -12,7 +12,7 @@
  */
 import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { Anchor } from '@/contracts/schemas';
-import { anchoringMode } from '@/lib/domain/anchoring';
+import { anchoringMode, type AnchoringMode } from '@/lib/domain/anchoring';
 import { isVersionLabelShaped } from '@/lib/domain/library';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
@@ -24,6 +24,36 @@ import { db, schema } from '@/lib/infrastructure/postgres/client';
  */
 export function anchoringVisible(): boolean {
   return anchoringMode(process.env.ANCHORING_MODE) === 'live';
+}
+
+/**
+ * How anchoring is wired, for the console's operations view.
+ *
+ * Addresses only. The signing key is reported as configured or not and never
+ * read out: it is the one environment entry that is key material rather than a
+ * credential (aptos-anchoring-proposal.md 4.6), and a screen that prints it
+ * turns every operator's browser history into a copy.
+ */
+export interface AnchoringSettings {
+  mode: AnchoringMode;
+  network: string | null;
+  objectAddress: string | null;
+  signerAddress: string | null;
+  signerConfigured: boolean;
+}
+
+export function anchoringSettings(): AnchoringSettings {
+  const value = (name: string): string | null => {
+    const raw = process.env[name]?.trim();
+    return raw ? raw : null;
+  };
+  return {
+    mode: anchoringMode(process.env.ANCHORING_MODE),
+    network: value('APTOS_NETWORK'),
+    objectAddress: value('APTOS_ANCHOR_OBJECT_ADDRESS'),
+    signerAddress: value('APTOS_ANCHOR_ACCOUNT_ADDRESS'),
+    signerConfigured: value('APTOS_ANCHOR_SIGNER_KEY') !== null,
+  };
 }
 
 export interface VersionAnchorProof extends Anchor {
