@@ -3,6 +3,7 @@ import { cache } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Button, Card, Chip } from '@/components/ui/primitives';
+import { anchoringVisible } from '@/lib/application/anchors';
 import { publicClaimStatus } from '@/lib/application/claims';
 import { POPULARITY_WINDOW_DAYS, publicLibraryDetail } from '@/lib/application/libraries';
 import { API_KEY_PLACEHOLDER } from '@/lib/dashboard/snippets';
@@ -374,6 +375,12 @@ export default async function LibraryDetailPage({ params }: Params) {
             />
           </Panel>
 
+          {/*
+            * Status, transaction, root: every line here reads as a live
+            * capability, and the copy below it says batches go to Aptos
+            * mainnet hourly. Nothing does yet (requirement.md 6.4).
+            */}
+          {anchoringVisible() ? (
           <Panel title={l.anchorPanel}>
             <div className="flex items-center gap-2">
               {anchor.status === 'anchored' ? (
@@ -417,6 +424,7 @@ export default async function LibraryDetailPage({ params }: Params) {
             </a>
             <p className="text-[11px] leading-[1.65] text-faint">{l.verifyNote}</p>
           </Panel>
+          ) : null}
 
           <Panel title={l.ownershipPanel}>
             {entry.claimedBy ? (

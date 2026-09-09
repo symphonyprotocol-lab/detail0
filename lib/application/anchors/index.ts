@@ -12,8 +12,19 @@
  */
 import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { Anchor } from '@/contracts/schemas';
+import { anchoringMode } from '@/lib/domain/anchoring';
 import { isVersionLabelShaped } from '@/lib/domain/library';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+
+/**
+ * Whether the public pages may describe anchoring as something the platform
+ * does. Off unless ANCHORING_MODE says otherwise (lib/domain/anchoring.ts).
+ * The per-version status the tables report is unaffected: `pending` is true
+ * whether or not the surrounding copy is shown.
+ */
+export function anchoringVisible(): boolean {
+  return anchoringMode(process.env.ANCHORING_MODE) === 'live';
+}
 
 export interface VersionAnchorProof extends Anchor {
   subjectType: 'version';

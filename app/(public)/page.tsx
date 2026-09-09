@@ -16,6 +16,7 @@ import {
   SparklesIcon,
   SquareTerminalIcon,
 } from '@/components/ui/icons';
+import { anchoringVisible } from '@/lib/application/anchors';
 import { listPublicLibraries, POPULARITY_WINDOW_DAYS } from '@/lib/application/libraries';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
@@ -192,7 +193,12 @@ export default async function HomePage() {
         </ul>
       </section>
 
-      {/* On-chain proof -- design source frame `oKG2g`. */}
+      {/*
+        * On-chain proof -- design source frame `oKG2g`. The whole section is
+        * behind the flag: it describes anchoring in the present tense, and
+        * nothing writes to the chain yet (requirement.md 6.4, 未启用即不得声称已启用).
+        */}
+      {anchoringVisible() ? (
       <section className="mx-auto w-full max-w-[1080px] px-5 pt-13 pb-[70px]">
         <SectionHeading eyebrow="ON-CHAIN PROOF" title={t.home.proofTitle} />
         <div className="mt-7 grid gap-[18px] sm:grid-cols-3">
@@ -211,6 +217,7 @@ export default async function HomePage() {
           {t.home.proofNote}
         </p>
       </section>
+      ) : null}
 
       {/* CTA -- design source frame `B1XJrb`. */}
       <section className="mx-auto w-full max-w-[1080px] px-5 pt-16 pb-16">

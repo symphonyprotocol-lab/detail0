@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { Card, SectionHeading } from '@/components/ui/primitives';
+import { anchoringVisible } from '@/lib/application/anchors';
 import { getMessages } from '@/lib/i18n/server';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -49,6 +50,20 @@ export default async function LegalPage() {
   const { legal: g } = await getMessages();
   const c = g.clauses;
 
+  /*
+   * Article 6 states as fact that digests are written to Aptos mainnet and that
+   * a public Verifier can check them; neither is true yet, and a false
+   * representation in the terms is the worst place for one (requirement.md 6.4).
+   *
+   * Filtered by SECTION_IDS rather than by text -- the ids are ours, not a
+   * translator's. The numbering deliberately keeps its gap: article numbers are
+   * referenced from outside this page, so 07 stays 07 while 06 is away.
+   */
+  const showAnchoring = anchoringVisible();
+  const toc = g.toc
+    .map((section, i) => ({ section, id: SECTION_IDS[i], n: i + 1 }))
+    .filter((entry) => showAnchoring || entry.id !== 'anchoring');
+
   return (
     <div className="mx-auto w-full max-w-[1080px]">
       <section className="px-5 pt-11 pb-12">
@@ -61,17 +76,17 @@ export default async function LegalPage() {
         <Card className="mt-7 p-6">
           <p className="text-[11px] font-[750] tracking-[0.1em] text-brand">{g.contents}</p>
           <ul className="mt-4 grid gap-x-8 gap-y-3 sm:grid-cols-2">
-            {g.toc.map((s, i) => (
-              <li key={SECTION_IDS[i]}>
-                <a href={`#${SECTION_IDS[i]}`} className="group flex items-baseline gap-3">
+            {toc.map(({ section, id, n }) => (
+              <li key={id}>
+                <a href={`#${id}`} className="group flex items-baseline gap-3">
                   <span className="font-mono text-[11px] text-faint">
-                    {String(i + 1).padStart(2, '0')}
+                    {String(n).padStart(2, '0')}
                   </span>
                   <span>
                     <span className="text-[13px] font-medium text-ink group-hover:text-brandink">
-                      {s.title}
+                      {section.title}
                     </span>
-                    <span className="ml-2 text-[11.5px] text-faint">{s.hint}</span>
+                    <span className="ml-2 text-[11.5px] text-faint">{section.hint}</span>
                   </span>
                 </a>
               </li>
@@ -126,6 +141,7 @@ export default async function LegalPage() {
         <Clause n="5.5">{c.c55}</Clause>
       </Article>
 
+      {showAnchoring ? (
       <Article id="anchoring" title={g.articles.anchoring}>
         <Clause n="6.1">{c.c61}</Clause>
         <Clause n="6.2">
@@ -135,6 +151,7 @@ export default async function LegalPage() {
         </Clause>
         <Clause n="6.3">{c.c63}</Clause>
       </Article>
+      ) : null}
 
       <Article id="liability" title={g.articles.liability}>
         <Clause n="7.1">{c.c71}</Clause>

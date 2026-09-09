@@ -192,6 +192,7 @@ app/
     billing/
     settlements/
     administrators/
+    anchors/                # 锚定运维视图，见 §14
     audit/
   api/v1/
     libraries/
@@ -522,6 +523,7 @@ Step 输出只保存可序列化摘要；大对象保存在对象存储。外部
 - Anchor Signer 的私钥由环境变量持有，只允许 `lib/infrastructure/chain` 的 Signer Adapter 读取；业务代码不得直接引用它，也不得引用链 SDK；密钥不进日志、Trace 与告警内容，见 §17.1；
 - 链或节点不可用时批次停留在 `pending` 并重试告警，发布、刷新、检索、计量、审核和出账全部不受影响；
 - Context 与 Search 响应默认不返回 Anchor 字段，避免影响 `maxTokens` 裁剪与响应体积；存证信息走独立的 Anchor 查询接口；
+- 管理后台的锚定视图只读批次与 leaf 哈希，**不读原像**，见 §14；
 - 公开 Verifier 作为独立包发布，**不允许 import 任何服务端 `lib/` 代码**，以保证「校验不依赖 re0」这一验收标准成立；
 - 存证不产生 Usage Event，不进入 §11 的额度链路。
 
@@ -875,6 +877,12 @@ authenticate admin
 
 Audit Log 采用只追加表，并保存前一条记录 Hash 形成链式校验。每日把审计链头部签名/摘要写入独立对象存储 Object，降低数据库管理员无痕修改风险。导出使用短期对象并审计下载。
 
+**锚定运维视图**（`app/admin/(console)/anchors`）读 §6 的 `anchor_batch` 与 `anchor_leaf`，同样经 Admin Use Case 与 Audit Decorator，不直连表。它按批次组织：Subject 类型、状态（`pending | submitted | confirmed | failed | superseded`）、Merkle Root、Leaf 数、窗口区间、网络、交易哈希、重试次数与确认时间；聚合层给出待锚定积压、§8.5 那条 SLO 的达成情况、Anchor Signer 余额与 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md) §4.9 的合约变更告警。
+
+有一条查询边界是硬的：**一律停在 `anchor_leaf.leaf_hash`，不 join `library_version`、`revenue_period` 或任何 Subject 表**。Leaf 原像的可见范围由所属方决定，管理员不在其中任何一列（requirement.md §6.4）；而这里 join 一次，后台就成了绕开该边界的旁路——私有库锚了什么、某发布者那期拿了多少钱，都会顺着 `subject_id` 落到屏幕上。批次级数据本身没有这个问题：链上公开的就只有 Root 和批次元数据，后台展示它不多泄露一个比特。
+
+重锚（提案 §4.5.1）与暂停锚定是高风险命令，走本节开头那条 Command Handler，留痕与审批和其他管理员操作一致。这两个动作会花掉真实 Gas 并向主网写入不可撤销的记录，因此必须要求 reason，且不提供批量入口。
+
 ## 15. 安全设计
 
 ### 15.1 来源安全
@@ -1029,6 +1037,7 @@ APTOS_ANCHOR_OBJECT_ADDRESS
 APTOS_ANCHOR_ACCOUNT_ADDRESS
 APTOS_ANCHOR_SIGNER_KEY        # Anchor Signer 的 Ed25519 私钥，十六进制；见下
 ANCHOR_LEAF_SALT_SECRET
+ANCHORING_MODE                 # hidden | live；公开页面是否把存证描述为已在运行，缺省 hidden
 ```
 
 Secret 不得进入前端 Bundle，只允许在 Server Component、Route Handler 和 Workflow 中读取。三套环境各持一份，不共用任何一项。

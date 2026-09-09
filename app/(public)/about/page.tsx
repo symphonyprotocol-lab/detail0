@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import { Button, Card, SectionHeading } from '@/components/ui/primitives';
+import { anchoringVisible } from '@/lib/application/anchors';
+import { mentionsAnchoring } from '@/lib/domain/anchoring';
 import {
   BadgeCheckIcon,
   BracesIcon,
@@ -19,6 +21,15 @@ const PRINCIPLE_ICONS = [ShieldCheckIcon, BracesIcon, BadgeCheckIcon, SearchIcon
 
 export default async function AboutPage() {
   const { about: a } = await getMessages();
+
+  /*
+   * The 存证 card states that digests are already going to Aptos mainnet.
+   * Hidden until they are (requirement.md 6.4). `scopeNote` stays: it describes
+   * what the product is built around, not something it is doing right now.
+   */
+  const scope = anchoringVisible()
+    ? a.scope
+    : a.scope.filter((item) => !mentionsAnchoring(`${item.kicker} ${item.title}`));
 
   return (
     <>
@@ -74,7 +85,7 @@ export default async function AboutPage() {
         <SectionHeading eyebrow="SCOPE" title={a.scopeTitle} />
         <p className="mt-3 text-[13px] text-muted">{a.scopeNote}</p>
         <div className="mt-7 grid gap-x-10 gap-y-6 sm:grid-cols-2">
-          {a.scope.map((item) => (
+          {scope.map((item) => (
             <div key={item.title} className="border-t-2 border-line pt-4">
               <p className="text-[10px] font-[750] tracking-[0.1em] text-brand">{item.kicker}</p>
               <h3 className="mt-1.5 text-[13.5px] font-semibold tracking-[-0.02em] text-ink">
