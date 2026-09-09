@@ -1,0 +1,119 @@
+# re0 锚定合约
+
+[aptos-anchoring-proposal.md](../aptos-anchoring-proposal.md) 第 4.5 节那份合约的实现，阶段 A 的链上部分。
+
+整个包只有一个 entry function 和一个 Event。**没有资金、没有用户资产、没有任何状态**——连它见过的 Root 都不存。Root 通过 Event 发出，因此每笔锚定交易的 storage fee 是 0。把这个模块整体删掉，re0 的行为不变（提案第 4.1 节：存证是旁路能力）。
+
+```text
+move/re0_anchor/
+  Move.toml
+  sources/anchor.move          # module <code_object>::anchor
+  tests/anchor_tests.move      # 12 个单元测试
+```
+
+## 合约面
+
+```move
+public entry fun submit_batch(
+    caller: &signer,
+    leaf_schema_version: u64,
+    subject_type: String,       // version | audit_head | earning_statement
+    merkle_root: vector<u8>,    // 32 字节，SHA-256
+    window_end_unix_secs: u64,
+)
+```
+
+发出：
+
+```json
+{
+  "type": "<code_object>::anchor::BatchAnchored",
+  "data": {
+    "leaf_schema_version": "1",
+    "subject_type": "version",
+    "merkle_root": "0x9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "window_end_unix_secs": "1767225600"
+  }
+}
+```
+
+`subject_type` 用字符串而不是数字，取值与 Postgres `anchor_batch.subject_type` 逐字相同：一个只读链的第三方在浏览器里看到 `"version"` 就知道锚的是什么，看到 `1` 则什么也学不到——而这个模块存在的全部理由就是让第三方能独立读懂它。
+
+| 中止码 | 含义 |
+| --- | --- |
+| 1 `E_UNAUTHORIZED` | 调用者不是 Anchor Signer |
+| 2 `E_ROOT_LENGTH` | `merkle_root` 不是 32 字节 |
+| 3 `E_UNKNOWN_SUBJECT` | `subject_type` 不在三种之内 |
+| 4 `E_SCHEMA_VERSION` | `leaf_schema_version` 为 0 |
+| 5 `E_WINDOW_END` | `window_end_unix_secs` 为 0 |
+
+### 两条不能改的性质
+
+**Event 结构在首次主网发布后即冻结。** 包按提案第 4.5 节以 `upgrade_policy = "compatible"` 发布，链上会拒绝任何改变 `BatchAnchored` 字段布局或 `submit_batch` 签名的升级。公开 Verifier 未来要从链上读的每一个字段，必须第一天就在这里——这正是提案第 4.11 节门禁 1 要求「Leaf 构造与 `leaf_schema_version` 先冻结再评审」的原因。函数体可以升级，字段不行。
+
+**Anchor Signer 地址编译期绑定，不上链存储。** `Move.toml` 的 `anchor_signer` 命名地址在 build 时传入，合约里只有一句相等断言。因此签名密钥失陷的攻击者**改不了授权地址**——换签名账户要动离线的 Upgrade Authority（提案第 4.6 节）。代价是轮换签名账户等于一次合约升级，这是有意的取舍。
+
+合约内的调用者检查不是多余的：模块事件由模块发出，如果没有这句断言，任何人都能从**这个模块**发出一条 `BatchAnchored`，只校验模块地址而不校验 sender 的 Verifier 就会认。
+
+## 前置
+
+- Aptos CLI ≥ 9.5（`brew install aptos`）。7.x 的编译器解析不了当前框架源码。
+- 不需要 `git-lfs`：依赖指向 `aptos-labs/aptos-framework` 这个只含框架的镜像，并**钉在具体 commit 上**，不是分支。钉死是为了提案第 4.11 节门禁 3——一份能被内部评审的字节码，前提是同样的源码能重建出同样的产物。（`aptos-core` 主仓需要 git-lfs 且要克隆数 GB，而我们只用到 `signer`/`string`/`vector`/`event`。）
+
+## 构建与测试
+
+```bash
+aptos move test --package-dir move/re0_anchor
+```
+
+12 个测试覆盖：三种 subject 各自可锚、陌生账户被拒、Root 长短各错一位被拒、大小写混淆的 subject 被拒、schema 版本与窗口时间为 0 被拒、同一个 Root 重复提交**不**被拒（去重在链下由 `anchor_batch.tx_hash` 唯一约束负责，不是合约的事）。
+
+## 部署
+
+```bash
+scripts/deploy-anchor.sh --profile <profile>                          # 首次发布
+scripts/deploy-anchor.sh --profile <profile> --object-address 0x...   # 原地升级
+```
+
+脚本先跑单元测试，再用 Object Code Deployment 发布，并把 profile 账户作为 `anchor_signer` 传进去。**脚本硬拒绝 mainnet**：主网首发受提案第 4.11 节八条门禁约束，且要用离线的 Upgrade Authority，那是一次刻意的人工操作，不是谁都能跑的脚本。
+
+Localnet：
+
+```bash
+aptos node run-local-testnet --force-restart --assume-yes
+aptos init --profile re0-anchor-local --network local
+scripts/deploy-anchor.sh --profile re0-anchor-local
+```
+
+Testnet：账户需要先充值，而 testnet 水龙头已改为网页登录，命令行拿不到币。
+
+```bash
+aptos init --profile re0-anchor-testnet --network testnet
+# 到 https://aptos.dev/network/faucet?address=<上一步打印的地址> 领取，然后
+scripts/deploy-anchor.sh --profile re0-anchor-testnet
+```
+
+CLI profile 落在仓库根的 `.aptos/`，已在 `.gitignore` 里，那里只会有 localnet 和 testnet 的一次性开发密钥。主网的 Anchor Signer 私钥按提案 1.1 版第 4.6 节放在 `APTOS_ANCHOR_SIGNER_KEY`，只允许生产环境持有，不进这个目录也不进 CI；Upgrade Authority 离线保管，任何阶段都不得进入环境变量、CI 或代码仓库。
+
+发布后把 Code Object 地址写进对应环境的 `APTOS_ANCHOR_OBJECT_ADDRESS`。
+
+**每个环境都要自己发一次。** 不是洁癖，是合约没得选：`anchor_signer` 编译期绑定，一个 Code Object 只认一个签名账户，换一把密钥就必然换一个 Object。已在链上验证过——用 develop 的签名账户去调 preview 的 Object，链上直接 `E_UNAUTHORIZED`。
+
+当前测试网部署（地址记在这里是因为 env 文件都在 `.gitignore` 里，丢了就只能去浏览器考古）：
+
+| 环境 | Anchor Signer | Code Object |
+| --- | --- | --- |
+| develop | `0x56be51cf…8bbdc` | `0xf7c4b0c7d523eb01b09f331edf9b85f594c9b1ef5325bbbaeae872845bf6d37a` |
+| preview | `0x794b41dc…6a4c` | `0x03d6ccfd7372388ea1bb5ecf5a54aef3fc99c71a8c466dd80b765047dbb958f4` |
+
+主网尚未发布，见上文的门禁说明。
+
+## 阶段 A 还差什么
+
+链上这半边齐了，链下那半边还没开始——合约本身不构成可用的存证能力：
+
+- Leaf 原像构造（`domain_separator`、私有库与结算单加盐、`leaf_schema_version`），提案第 4.2 节；
+- 批次 Merkle 树与 Proof 生成。注意必须与 `lib/domain/ingestion.ts` 的 `merkleRoot` 用同一套防护：叶子与内部节点分别以 `L:` / `N:` 域分隔，奇数节点原样上提而非复制——复制末叶会让两组不同的叶子算出同一个 Root；
+- `lib/infrastructure/chain/anchor-signer.ts` 的 Signer Adapter，从 `APTOS_ANCHOR_SIGNER_KEY` 读 Ed25519 私钥。它是唯一允许读这个变量的地方，且密钥不得进入日志、Trace 或错误信息；
+- `workflows/anchor-versions.ts` 与 `workflows/anchor-audit.ts`；
+- `packages/verifier` —— 它同时是提案第 4.11 节门禁 2 要求的第二份独立实现，必须由不同的人、不共享代码地完成，所以不能等到最后顺手写。

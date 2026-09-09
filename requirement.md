@@ -772,14 +772,14 @@ Policy 更新必须生成新版本并记录变更前后值。调用记录保存�
 10. 所有权认领与争议裁定（第 7.3 节）——分成资格的前置；
 11. 发布者分成的记账、账期计算、资格与收益 Dashboard；
 12. Version Anchor、Audit Anchor 与公开 Verifier；
-13. Earning Anchor（前置：Anchor Signer 已在云 KMS 上）；
+13. Earning Anchor（前置：密钥轮换演练已在 Testnet 走通）；
 14. SDK、CLI、Skills、插件与更多 Connector。
 
 Enterprise、团队席位和多库自动路由必须通过新的需求评审后进入计划。
 
 发布者分成已进入基线，设计见 [publisher-revenue-share.md](./publisher-revenue-share.md)。
 
-链上存证已进入基线，设计见 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md)。该提案第 0 节的 Anchor Signer 托管方案已由平台环境变量改为**云 KMS 托管签名**，第 4.6 节的密钥托管升级条款因此在上线前即已满足，Earning Anchor 不再被该条款阻塞。链上存证是旁路能力，任何阶段的失败都不得影响第 2.2 节的其余成功标准。
+链上存证已进入基线，设计见 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md)。该提案 1.1 版第 0 节把 Anchor Signer 托管定为**平台环境变量直接持有私钥**，撤销了 1.0 版的云 KMS 决定；第 4.6 节的密钥托管升级条款被明示豁免，取而代之的 Earning Anchor 前置是第 4.11.1 节门禁 1 的密钥轮换演练，风险条目见该提案第 0.1 节。链上存证是旁路能力，任何阶段的失败都不得影响第 2.2 节的其余成功标准。
 
 ## 16. Context7 借鉴清单
 

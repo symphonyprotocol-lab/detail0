@@ -50,7 +50,7 @@
 | 长任务 | Vercel Workflows |
 | 边缘态 | Upstash Redis，**只做**匿名限流与检索缓存 |
 | 答案生成 | 外部 LLM Provider，**只用于 Web 在线试用**，不进入 REST/MCP 链路 |
-| 链上存证 | Aptos 主网，签名密钥托管在云 KMS，私钥不可导出 |
+| 链上存证 | Aptos 主网，签名密钥由环境变量持有，账户只留 Gas 余额 |
 
 选型理由和被否决的替代方案记录在 [architecture.md](./architecture.md) 第 1.2 节。其中最关键的一条：Chunk 正文、全文索引和向量在同一个 Postgres 事务内，因此发布是真正的 ACID 事务，不存在跨系统的中间态。
 
@@ -110,7 +110,7 @@
 - Upstash Database 与 REST Token
 - OAuth Client、Payment Environment 和 Provider Key
 - LLM Provider Key
-- Aptos 账户与云 KMS 密钥（非生产使用 Testnet）
+- Aptos 账户与 Anchor Signer 私钥（非生产使用 Testnet）
 - Workflow 名称与 Webhook Secret
 
 **禁止把 Production 数据复制到 Preview**——私有知识库里是用户授权的 Notion 页面与私有仓库内容，测试数据必须脱敏或由 Fixture 生成。
@@ -245,7 +245,6 @@ RENDER_PROVIDER_BASE_URL=http://localhost:3002
 
 - 中文分词方案（Postgres 原生 FTS 需要 `zhparser`、`pg_bigm` 或退回 trigram，取决于 Neon 的扩展支持范围）；
 - BM25 排序的实现路径；
-- 从 Workflow 写入 100 MB 量级快照到对象存储的实际表现，需压测；
-- 云 KMS 对 Ed25519 的支持范围（Aptos 主用 Ed25519，各家 KMS 差异较大），见 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md) 第 4.6 节。
+- 从 Workflow 写入 100 MB 量级快照到对象存储的实际表现，需压测。
 
-前三项见 [architecture.md](./architecture.md) 第 22 节。
+以上见 [architecture.md](./architecture.md) 第 22 节。

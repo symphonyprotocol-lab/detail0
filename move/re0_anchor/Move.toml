@@ -1,0 +1,36 @@
+[package]
+name = "re0_anchor"
+version = "1.0.0"
+license = "Apache-2.0"
+authors = ["Symphony Protocol Lab"]
+
+# aptos-anchoring-proposal.md 4.5: keep the upgrade capability, and keep it on
+# `compatible` so a later publish cannot silently change what a Root means --
+# the chain rejects any upgrade that breaks a struct layout or a public
+# signature. Aptos only lets a package's policy get stricter, so this may later
+# be hardened to `immutable` (proposal 4.5, stage E) and never loosened again.
+upgrade_policy = "compatible"
+
+[addresses]
+# The Code Object address, filled in by `aptos move deploy-object
+# --address-name re0_anchor`. Not knowable before the first deploy.
+re0_anchor = "_"
+# The Anchor Signer, the only account allowed to submit a batch. Bound at
+# compile time on purpose: it is not stored on chain, so a stolen signer key
+# cannot re-point it, and rotating it takes the offline Upgrade Authority
+# (proposal 4.6). Pass it with --named-addresses on every build and deploy.
+anchor_signer = "_"
+
+[dev-addresses]
+re0_anchor = "0xA11CE"
+anchor_signer = "0x51611E4"
+
+# Pinned to an exact commit rather than to a moving branch: proposal 4.11 gate 3
+# is an internal review of the bytecode that goes to mainnet, and a review is
+# only worth something if the same sources rebuild to the same artifact. This is
+# the framework-only mirror of what mainnet runs -- the full aptos-core tree
+# needs git-lfs and a several-GB clone for nothing we use here.
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-framework.git"
+rev = "04611dd2cec1f5b7ef21c2cc151e05c587a2ce19"
+subdir = "aptos-framework"

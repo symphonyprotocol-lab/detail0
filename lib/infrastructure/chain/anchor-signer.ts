@@ -1,9 +1,13 @@
 /**
  * Aptos anchor signer.
  *
- * The private key lives in cloud KMS and is non-exportable; the platform holds
- * only a Sign permission. No environment variable ever carries key material.
- * See aptos-anchoring-proposal.md 4.6.
+ * The private key is held directly in APTOS_ANCHOR_SIGNER_KEY -- proposal 1.1
+ * reversed the cloud KMS decision, with the accepted risk recorded in its 0.1.
+ * This module is the only place allowed to read that variable, and the key must
+ * never reach a log, a trace, an alert, or an error message. Rotating it is not
+ * a credential swap: the signer address is bound at compile time in the Move
+ * package, so a new account means a contract upgrade with the offline Upgrade
+ * Authority and a re-anchor. See aptos-anchoring-proposal.md 4.6.
  */
 export interface AnchorSigner {
   accountAddress(): Promise<string>;
@@ -16,5 +20,5 @@ export interface AnchorSigner {
 }
 
 export function anchorSigner(): AnchorSigner {
-  throw new Error('not implemented: anchorSigner (cloud KMS)');
+  throw new Error('not implemented: anchorSigner');
 }

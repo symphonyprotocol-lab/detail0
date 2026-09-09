@@ -66,3 +66,18 @@ jobs:
           TEST_DATABASE_URL: postgres://postgres:pw@127.0.0.1:5439/re0
           TEST_WS_PROXY: 127.0.0.1:5440/v2
         run: npx vitest run
+
+  # The anchoring contract is a separate toolchain from the app: no npm, no
+  # database, and nothing in the other two jobs would notice it break. Mainnet
+  # writes are irreversible (aptos-anchoring-proposal.md 0), so its 12 tests --
+  # who may submit, and which batches are refused -- run on every push like the
+  # rest. Move only: publishing is never automated, see move/README.md.
+  move:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the Aptos CLI
+        run: |
+          curl -fsSL https://aptos.dev/scripts/install_cli.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: aptos move test --package-dir move/re0_anchor
