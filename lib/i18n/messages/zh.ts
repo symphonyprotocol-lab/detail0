@@ -1733,7 +1733,8 @@ export const zh = {
       saveNew: '新增并保存',
       baseUrl: 'Provider Base URL',
       apiKeyEnv: 'API Key 环境变量名',
-      apiKeyEnvHint: '密钥只放在环境变量里,这里填变量名;留空即 LLM_PROVIDER_API_KEY。另一家提供方可用 LLM_PROVIDER_API_KEY_MINIMAX 之类的名字。',
+      apiKeyEnvHint:
+        '密钥只放在环境变量里,这里填变量名;必须以 LLM_PROVIDER_API_KEY 开头,留空即用它本身。已配置:',
       model: '模型',
       maxInputTokens: '最大输入 Token',
       maxInputTokensHint: '模型上下文窗口;检索预算由它推算',
@@ -1781,6 +1782,8 @@ export const zh = {
         invalid_slug: '标识不合法:只能使用小写字母、数字和连字符。',
         invalid_effort: '推理强度不合法,或该模型未勾选「推理」能力。',
         invalid_api_key_env: '环境变量名只能是大写字母、数字和下划线,且以字母开头。',
+        api_key_env_not_allowed:
+          '只能填以 LLM_PROVIDER_API_KEY 开头的环境变量名,例如 LLM_PROVIDER_API_KEY_MINIMAX。这个前缀就是许可本身:变量名会被当作 Bearer token 发往上面填的地址,所以控制台只能取用按约定命名的模型密钥,取不到其它机密。',
         unknown_model: '所选模型不存在或已停用。',
         reason_required: '每次变更都需要填写原因。',
         unavailable: '保存失败,请稍后重试。',

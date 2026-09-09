@@ -63,25 +63,37 @@ export interface LlmAdapter {
  * The environment variables an entry may name as its credential.
  *
  * A shape check is not a boundary here. `apiKeyEnv` is typed into the console
- * by anyone holding the `plans` capability and read straight out of
- * `process.env` below, so any name that merely *looked* like a variable --
- * `DATABASE_URL`, `SESSION_SIGNING_SECRET`, `CREDENTIAL_ENCRYPTION_KEY` --
- * was sent as a Bearer token to a base URL the same operator chose. Which
- * variables hold LLM credentials is a deployment fact, not a console one, so
- * the deployment states it: `LLM_API_KEY_ENV_ALLOWLIST`, comma-separated,
- * alongside the default every installation already has. Fail-closed: a name
- * that is not on the list is refused rather than read.
+ * by anyone holding the `models` capability -- an operator, not only the super
+ * administrator -- and read straight out of `process.env` below, so any name
+ * that merely *looked* like a variable would be sent as a Bearer token to a
+ * base URL the same operator chose. `SESSION_SIGNING_SECRET` typed here and
+ * "tested" against their own endpoint is the console's own authority walking
+ * out over HTTP; `DATABASE_URL` is the database.
+ *
+ * So the name has to carry the permission, and the naming convention already
+ * does: a credential for this provider is `LLM_PROVIDER_API_KEY`, and a second
+ * provider's is that name with a suffix. Fail-closed on the prefix -- what an
+ * operator can reach is the set of keys they are already entitled to point at
+ * an endpoint of their choosing, and adding a provider is one environment
+ * variable rather than two.
  */
-export function llmApiKeyEnvAllowlist(): readonly string[] {
-  const listed = (process.env.LLM_API_KEY_ENV_ALLOWLIST ?? '')
-    .split(',')
-    .map((name) => name.trim())
-    .filter((name) => name.length > 0 && isApiKeyEnvName(name));
-  return [...new Set([DEFAULT_LLM_API_KEY_ENV, ...listed])];
-}
+const API_KEY_ENV_PREFIX = DEFAULT_LLM_API_KEY_ENV;
 
 export function isAllowedApiKeyEnv(name: string): boolean {
-  return llmApiKeyEnvAllowlist().includes(name);
+  return isApiKeyEnvName(name) && name.startsWith(API_KEY_ENV_PREFIX);
+}
+
+/**
+ * The credential variables this deployment actually holds, for the console to
+ * offer. Suggestions, not the rule: a name that fits the convention but is not
+ * set yet is refused for being unset, which is a different thing to fix than a
+ * name that may never be read at all.
+ */
+export function configuredLlmApiKeyEnvs(): readonly string[] {
+  const present = Object.keys(process.env).filter(
+    (name) => isAllowedApiKeyEnv(name) && Boolean(process.env[name]),
+  );
+  return [...new Set([DEFAULT_LLM_API_KEY_ENV, ...present])].sort();
 }
 
 /** Whether the named variable (the entry's, or the default) holds a key. */

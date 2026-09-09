@@ -253,6 +253,7 @@ export class LlmConfigRefused extends Error {
       | 'invalid_slug'
       | 'invalid_effort'
       | 'invalid_api_key_env'
+      | 'api_key_env_not_allowed'
       | 'unknown_model',
   ) {
     super(code);
@@ -312,10 +313,12 @@ export async function updateLlmConfig(input: UpdateLlmConfigInput): Promise<{ co
   const label = input.label.trim().slice(0, 120) || model;
   const apiKeyEnv = input.apiKeyEnv?.trim() ? input.apiKeyEnv.trim() : DEFAULT_LLM_API_KEY_ENV;
   /* Shape *and* allowlist: the name is read out of `process.env` and sent as a
-     Bearer token, so which variables may be named is the deployment's call. */
-  if (!isApiKeyEnvName(apiKeyEnv) || !isAllowedApiKeyEnv(apiKeyEnv)) {
-    throw new LlmConfigRefused('invalid_api_key_env');
-  }
+     Bearer token, so which variables may be named is the deployment's call.
+     Two refusals, not one: a well-formed name that is merely absent from the
+     allowlist is a deployment fact the operator can act on, and telling them
+     the spelling is wrong when it is not sends them to fix the wrong thing. */
+  if (!isApiKeyEnvName(apiKeyEnv)) throw new LlmConfigRefused('invalid_api_key_env');
+  if (!isAllowedApiKeyEnv(apiKeyEnv)) throw new LlmConfigRefused('api_key_env_not_allowed');
   const slug = input.slug?.trim() ? input.slug.trim() : slugFromLabel(label);
   if (!SLUG.test(slug)) throw new LlmConfigRefused('invalid_slug');
 

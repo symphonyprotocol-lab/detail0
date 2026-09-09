@@ -40,6 +40,7 @@ export type LlmConfigError =
   | 'invalid_slug'
   | 'invalid_effort'
   | 'invalid_api_key_env'
+  | 'api_key_env_not_allowed'
   | 'unknown_model'
   | 'reason_required'
   | 'unavailable';
@@ -137,7 +138,12 @@ export type LlmProbeActionResult =
   | ({ kind: 'result' } & LlmProbeResult)
   | {
       kind: 'refused';
-      error: 'invalid_base_url' | 'invalid_model' | 'invalid_timeout' | 'invalid_api_key_env';
+      error:
+        | 'invalid_base_url'
+        | 'invalid_model'
+        | 'invalid_timeout'
+        | 'invalid_api_key_env'
+        | 'api_key_env_not_allowed';
     };
 
 /**
@@ -158,8 +164,9 @@ export async function testLlmConfigAction(form: FormData): Promise<LlmProbeActio
   const model = String(form.get('model') ?? '').trim();
   if (model.length === 0 || model.length > 120) return { kind: 'refused', error: 'invalid_model' };
   const apiKeyEnv = String(form.get('apiKeyEnv') ?? '').trim() || DEFAULT_LLM_API_KEY_ENV;
-  if (!isApiKeyEnvName(apiKeyEnv) || !isAllowedApiKeyEnv(apiKeyEnv)) {
-    return { kind: 'refused', error: 'invalid_api_key_env' };
+  if (!isApiKeyEnvName(apiKeyEnv)) return { kind: 'refused', error: 'invalid_api_key_env' };
+  if (!isAllowedApiKeyEnv(apiKeyEnv)) {
+    return { kind: 'refused', error: 'api_key_env_not_allowed' };
   }
   const timeoutMs = Number(form.get('timeoutMs') ?? Number.NaN);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < TIMEOUT_MS.min || timeoutMs > TIMEOUT_MS.max) {

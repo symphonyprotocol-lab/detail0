@@ -77,10 +77,13 @@ const BLANK: LlmEntry = {
  */
 export function LlmConfigForm({
   entries,
+  apiKeyEnvOptions,
   action,
   probe,
 }: {
   entries: LlmEntry[];
+  /** The credential variables this deployment actually holds (llm.ts). */
+  apiKeyEnvOptions: readonly string[];
   action: (previous: LlmConfigActionResult | null, form: FormData) => Promise<LlmConfigActionResult>;
   /** One call against the endpoint as typed, saved or not. */
   probe: (form: FormData) => Promise<LlmProbeActionResult>;
@@ -185,14 +188,23 @@ export function LlmConfigForm({
           <Field label={p.baseUrl}>
             <input name="baseUrl" defaultValue={editing.baseUrl} className={FIELD} required />
           </Field>
-          <Field label={p.apiKeyEnv} hint={p.apiKeyEnvHint}>
+          {/* Which variables exist is a deployment fact the console cannot
+              change, so offer them here rather than let a well-formed name be
+              refused on submit for a reason the form never showed. */}
+          <Field label={p.apiKeyEnv} hint={`${p.apiKeyEnvHint} ${apiKeyEnvOptions.join(' · ')}`}>
             <input
               name="apiKeyEnv"
               defaultValue={editing.apiKeyEnv}
               placeholder={DEFAULT_LLM_API_KEY_ENV}
+              list="llm-api-key-env"
               spellCheck={false}
               className={`${FIELD} font-mono`}
             />
+            <datalist id="llm-api-key-env">
+              {apiKeyEnvOptions.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
           </Field>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">

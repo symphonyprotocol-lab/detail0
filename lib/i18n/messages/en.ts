@@ -1808,7 +1808,8 @@ export const en: Dictionary = {
       saveNew: 'Add and save',
       baseUrl: 'Provider base URL',
       apiKeyEnv: 'API key environment variable',
-      apiKeyEnvHint: 'The key stays in the environment; this names the variable. Blank means LLM_PROVIDER_API_KEY; a second provider can use e.g. LLM_PROVIDER_API_KEY_MINIMAX.',
+      apiKeyEnvHint:
+        'The key stays in the environment; this names the variable. It must start with LLM_PROVIDER_API_KEY; blank means that name itself. Configured:',
       model: 'Model',
       maxInputTokens: 'Max input tokens',
       maxInputTokensHint: 'The context window; the retrieval budget is derived from it',
@@ -1855,7 +1856,10 @@ export const en: Dictionary = {
         invalid_price: 'Prices must be non-negative, to a millionth of a dollar.',
         invalid_slug: 'Invalid identifier: lowercase letters, digits and hyphens only.',
         unknown_model: 'The chosen model does not exist or is switched off.',
-        invalid_api_key_env: 'Variable names use upper-case letters, digits and underscores, starting with a letter.',
+        invalid_api_key_env:
+          'Variable names use upper-case letters, digits and underscores, starting with a letter.',
+        api_key_env_not_allowed:
+          'The variable must be named LLM_PROVIDER_API_KEY or start with it, e.g. LLM_PROVIDER_API_KEY_MINIMAX. The prefix is the permission: whatever is named here is sent as a Bearer token to the endpoint above, so the console can reach model keys named by the convention and nothing else.',
         invalid_effort: 'Invalid reasoning effort, or the model is not marked as reasoning.',
         reason_required: 'A reason is recorded with every change.',
         unavailable: 'The change could not be saved. Try again shortly.',
