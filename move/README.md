@@ -112,8 +112,7 @@ CLI profile 落在仓库根的 `.aptos/`，已在 `.gitignore` 里，那里只�
 
 链上这半边齐了，链下那半边还没开始——合约本身不构成可用的存证能力：
 
-- Leaf 原像构造（`domain_separator`、私有库与结算单加盐、`leaf_schema_version`），提案第 4.2 节；
-- 批次 Merkle 树与 Proof 生成。注意必须与 `lib/domain/ingestion.ts` 的 `merkleRoot` 用同一套防护：叶子与内部节点分别以 `L:` / `N:` 域分隔，奇数节点原样上提而非复制——复制末叶会让两组不同的叶子算出同一个 Root；
+- ~~Leaf 原像构造与批次 Merkle 树~~ —— 已完成，见 `lib/domain/anchor-leaf.ts`，编码规格冻结在提案第 4.2.1 节；
 - `lib/infrastructure/chain/anchor-signer.ts` 的 Signer Adapter，从 `APTOS_ANCHOR_SIGNER_KEY` 读 Ed25519 私钥。它是唯一允许读这个变量的地方，且密钥不得进入日志、Trace 或错误信息；
 - `workflows/anchor-versions.ts` 与 `workflows/anchor-audit.ts`；
 - `packages/verifier` —— 它同时是提案第 4.11 节门禁 2 要求的第二份独立实现，必须由不同的人、不共享代码地完成，所以不能等到最后顺手写。

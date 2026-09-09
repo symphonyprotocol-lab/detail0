@@ -160,6 +160,52 @@ leaf = H(
 - `salt` 取自发布者账户级密钥派生，**无公开原像的情形**；
 - 结算单在账期关账、金额定稿之后锚定，`pending` 状态的账期不进入。
 
+### 4.2.1 编码规格（冻结项）
+
+第 4.11 节门禁 2 要求第二份独立实现，**由不读 re0 代码的人完成**。因此本节把上面那几个抽象式子写成可照做的规格；它和门禁 1 一起冻结，改动即新的 `leaf_schema_version`。
+
+**字段拼接。** 每个字段先按 **UTF-8 字节长度**加前缀，再用 `|` 连接：
+
+```text
+frame(fields) = fields.map(f => `${utf8ByteLength(f)}:${f}`).join('|')
+leaf = SHA-256(frame([...]))   // 输出小写十六进制
+```
+
+长度前缀不是形式主义：直接拼接时 `library_id="ab", version_id="c"` 与 `"a", "bc"` 是同一段原像，而这两半都由能创建知识库的人自己决定。长度按字节而非码元计，否则另一种语言的实现会对中文标题给出不同的数。
+
+**字段顺序**，第一项恒为 domain separator，第二项恒为 `leaf_schema_version` 的十进制字符串：
+
+| Subject | domain separator | 其后字段 |
+| --- | --- | --- |
+| Version | `re0/anchor/version` | `library_id`、`version_id`、`source_digest`、`content_merkle_root`、`published_at`、`salt` |
+| Audit | `re0/anchor/audit-head` | `date`（`YYYY-MM-DD` UTC）、`chain_head` |
+| Earning | `re0/anchor/earning-statement` | `publisher_account_id`、`period_id`、`attributable_calls`、`share_rate`、`plan_version_id`、`amount_minor`、`currency`、`statement_digest`、`salt` |
+
+- `content_merkle_root` 即第 4.2 节的 `manifest_digest`，落库列名为 `library_version.content_merkle_root`；
+- `published_at` 为 ISO 8601 UTC **毫秒**精度（`2026-01-01T00:00:00.000Z`）。Postgres 存微秒而 JavaScript 不存，因此截断是格式的一部分，Proof API 也发布这个字符串；
+- `share_rate` 是**文本**，取自不可变 Plan Version 的原样记录。浮点数在不同语言里序列化不同，`0.2` 与 `0.20` 必须是两张不同的结算单；
+- 数值字段（`attributable_calls`、`amount_minor`）取十进制字符串，无前导零、无千分位；
+- Audit Leaf **不加盐**：审计链是平台对自身动作的记录，没有第三方的存在性可泄露。
+
+**盐的派生。** 私有库按 Workspace、结算单按发布者账户：
+
+```text
+salt = HMAC-SHA256(ANCHOR_LEAF_SALT_SECRET, frame(['re0/anchor/salt', scope]))
+```
+
+公开库 `salt` 为空字符串——空字符串仍然参与 framing（`0:`），不是省略该字段。
+
+**批次 Merkle 树。** 与 `library_version.content_merkle_root` 用同一套规则：
+
+```text
+level0[i] = SHA-256('L:' + leaf[i])
+node      = SHA-256('N:' + left + right)
+```
+
+奇数节点**原样上提**，不复制。两条都是必需的：前者使内部节点无法冒充叶子，后者避免复制末叶让两组不同的叶子算出同一个 Root——对锚定而言那意味着两个批次无法区分。
+
+**Proof 路径。** `anchor_leaf.merkle_proof` 是字符串数组，每步为 `l:<64位十六进制>` 或 `r:<64位十六进制>`，`l` 表示兄弟节点在左、被携带的节点在右。必须记录方向：`H(a‖b) ≠ H(b‖a)`，一份把顺序留给校验方自行尝试的 Proof 等于两份都认。校验从 `SHA-256('L:' + leaf)` 起，逐步合并，最后与链上 Root 相等。
+
 ### 4.3 聚合与提交
 
 不做「一个 Version 一笔交易」。按固定时间窗聚合：
