@@ -16,7 +16,6 @@ import {
   SparklesIcon,
   SquareTerminalIcon,
 } from '@/components/ui/icons';
-import { anchoringVisible } from '@/lib/application/anchors';
 import { listPublicLibraries, POPULARITY_WINDOW_DAYS } from '@/lib/application/libraries';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
@@ -47,7 +46,6 @@ export default async function HomePage() {
     trustScore: row.trustScore,
     chunks: row.totalChunks.toLocaleString('en-US'),
     updated: row.updatedAt ? new Date(row.updatedAt).toISOString().slice(0, 10) : '—',
-    anchored: row.anchored,
   }));
   return (
     <>
@@ -158,7 +156,7 @@ export default async function HomePage() {
             </div>
           </div>
 
-          <LibraryTable entries={featured} showAnchor={false} />
+          <LibraryTable entries={featured} />
 
           <div className="flex flex-wrap items-center justify-between gap-3 px-0.5 pt-3.5 text-[11px] tracking-[-0.029em]">
             <p className="text-muted">
@@ -193,31 +191,6 @@ export default async function HomePage() {
         </ul>
       </section>
 
-      {/*
-        * On-chain proof -- design source frame `oKG2g`. The whole section is
-        * behind the flag: it describes anchoring in the present tense, and
-        * nothing writes to the chain yet (requirement.md 6.4, 未启用即不得声称已启用).
-        */}
-      {anchoringVisible() ? (
-      <section className="mx-auto w-full max-w-[1080px] px-5 pt-13 pb-[70px]">
-        <SectionHeading eyebrow="ON-CHAIN PROOF" title={t.home.proofTitle} />
-        <div className="mt-7 grid gap-[18px] sm:grid-cols-3">
-          {t.home.proof.map((item) => (
-            <div key={item.title} className="border-t-2 border-line pt-[18px]">
-              <h3 className="text-[14px] leading-[1.4] font-[650] tracking-[-0.029em] text-ink">
-                {item.title}
-              </h3>
-              <p className="mt-2 text-[11px] leading-[1.6] tracking-[-0.029em] text-muted">
-                {item.body}
-              </p>
-            </div>
-          ))}
-        </div>
-        <p className="mt-7 text-[10px] leading-[1.5] tracking-[-0.032em] text-muted">
-          {t.home.proofNote}
-        </p>
-      </section>
-      ) : null}
 
       {/* CTA -- design source frame `B1XJrb`. */}
       <section className="mx-auto w-full max-w-[1080px] px-5 pt-16 pb-16">

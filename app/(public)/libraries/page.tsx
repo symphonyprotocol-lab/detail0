@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { Button, SectionHeading } from '@/components/ui/primitives';
 import { LibraryTable, type LibraryTableEntry } from '@/components/site/library-table';
 import {
-  anchoredPublicIds,
   CATALOG_PAGE_SIZE,
   countPublicLibraries,
   listPublicLibraries,
@@ -39,10 +38,7 @@ function directoryHref(input: { sort: 'popular' | 'recent'; query: string; page:
  * unmetered: resolve never counts a Call.
  *
  * Both branches fill the same table, so both have to fill every column of it
- * from a real row. The resolver ranks by relevance and says nothing about
- * anchoring, so the anchor flags are looked up for the ids it returned rather
- * than assumed absent -- otherwise the same library reads "unanchored" when
- * found by search and "anchored" when browsed.
+ * from a real row.
  */
 export default async function CatalogPage({ searchParams }: Search) {
   const [{ q, sort, page: pageParam }, { locale, t }] = await Promise.all([
@@ -70,9 +66,6 @@ export default async function CatalogPage({ searchParams }: Search) {
       { workspaceId: null, apiKeyId: null, requestId: crypto.randomUUID(), anonymous: true },
       { query },
     );
-    const anchored = await anchoredPublicIds(
-      resolved.results.map((candidate) => candidate.libraryId),
-    );
     entries = resolved.results.map((candidate) => ({
       libraryId: candidate.libraryId,
       title: candidate.title,
@@ -80,7 +73,6 @@ export default async function CatalogPage({ searchParams }: Search) {
       trustScore: candidate.trustScore,
       chunks: number.format(candidate.chunks),
       updated: date.format(new Date(candidate.updatedAt)),
-      anchored: anchored.has(candidate.libraryId),
     }));
   } else {
     const rows = await listPublicLibraries({
@@ -104,7 +96,6 @@ export default async function CatalogPage({ searchParams }: Search) {
         trustScore: row.trustScore,
         chunks: number.format(row.totalChunks),
         updated: row.updatedAt ? date.format(new Date(row.updatedAt)) : '—',
-        anchored: row.anchored,
         nestedUnder: parent !== null && present.has(parent) ? parent : null,
       };
     });

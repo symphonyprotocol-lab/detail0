@@ -10,8 +10,6 @@ import {
   PackagePlusIcon,
   SparklesIcon,
 } from '@/components/ui/icons';
-import { anchoringVisible } from '@/lib/application/anchors';
-import { mentionsAnchoring } from '@/lib/domain/anchoring';
 import { getMessages } from '@/lib/i18n/server';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -71,16 +69,6 @@ function CtaBanner({
 export default async function PricingPage() {
   const { pricing: p } = await getMessages();
   const plans = PLAN_FACTS.map((facts) => ({ ...facts, ...p.plans[facts.id] }));
-
-  /*
-   * Both the comparison row and the FAQ entry sell anchoring as something a
-   * plan includes today. Until it runs they come out (requirement.md 6.4).
-   * Filtered on the naming field only -- the row's capability, the question --
-   * because the answers are paragraphs where these words appear in passing.
-   */
-  const showAnchoring = anchoringVisible();
-  const compare = showAnchoring ? p.compare : p.compare.filter((row) => !mentionsAnchoring(row[0]));
-  const faq = showAnchoring ? p.faq : p.faq.filter((item) => !mentionsAnchoring(item.q));
 
   return (
     <>
@@ -201,10 +189,10 @@ export default async function PricingPage() {
                   </tr>
                 </thead>
                 <tbody className="text-[11px] tracking-[-0.03em]">
-                  {compare.map((row, i) => (
+                  {p.compare.map((row, i) => (
                     <tr
                       key={row[0]}
-                      className={`h-[54px] ${i === compare.length - 1 ? '' : 'border-b-2 border-line'}`}
+                      className={`h-[54px] ${i === p.compare.length - 1 ? '' : 'border-b-2 border-line'}`}
                     >
                       <td className="px-[17px] font-semibold text-ink">{row[0]}</td>
                       <td className="px-[17px] text-steel">{row[1]}</td>
@@ -244,7 +232,7 @@ export default async function PricingPage() {
         </div>
 
         <dl className="min-w-0 flex-1 border-t-2 border-line pt-0.5">
-          {faq.map((item) => (
+          {p.faq.map((item) => (
             <div key={item.q} className="flex flex-col gap-[7px] border-b-2 border-line pt-[18px] pb-5">
               <dt className="text-[13px] leading-[1.5] font-semibold tracking-[-0.03em] text-ink">
                 {item.q}

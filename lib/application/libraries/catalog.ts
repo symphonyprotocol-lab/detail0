@@ -21,7 +21,6 @@ export interface CatalogEntry {
   /** Served retrievals in the popularity window (`POPULARITY_WINDOW_DAYS`). */
   recentCalls: number;
   /** The current version sits in a confirmed anchor batch. */
-  anchored: boolean;
 }
 
 export const CATALOG_PAGE_SIZE = 50;
@@ -49,14 +48,6 @@ const trustScore = sql<number>`coalesce((
 ), 0)`;
 
 /** Whether a version id sits in a confirmed anchor batch (`lib/application/anchors`). */
-const anchoredVersion = (versionId: SQL | typeof schema.library.currentVersionId) => sql<boolean>`exists(
-  select 1 from ${schema.anchorLeaf} l
-  join ${schema.anchorBatch} b on b.id = l.batch_id
-  where l.subject_type = 'version'
-    and l.subject_id = (${versionId})::text
-    and b.status = 'confirmed'
-)`;
-
 export async function countPublicLibraries(): Promise<number> {
   const [row] = await db()
     .select({ n: sql<number>`count(*)::int` })
@@ -108,7 +99,6 @@ export async function listPublicLibraries(input: {
       totalChunks: schema.libraryVersion.totalChunks,
       trustScore,
       recentCalls,
-      anchored: anchoredVersion(schema.library.currentVersionId),
     })
     .from(schema.library)
     .innerJoin(schema.libraryVersion, eq(schema.libraryVersion.id, schema.library.currentVersionId))
@@ -142,36 +132,7 @@ export async function listPublicLibraries(input: {
     totalChunks: row.totalChunks,
     updatedAt: (row.lastSuccessfulRefreshAt ?? row.createdAt)?.toISOString() ?? null,
     recentCalls: Number(row.recentCalls),
-    anchored: Boolean(row.anchored),
   }));
-}
-
-/**
- * Which of these public ids have their current version in a confirmed anchor
- * batch.
- *
- * The directory's search branch runs the resolver, which answers about
- * relevance and knows nothing about anchoring; it used to fill the column in
- * with a hardcoded `false`, so the same library read "unanchored" when found
- * by search and "anchored" when browsed. The Anchor column has one meaning,
- * so it has one source: the same `exists` the listing uses, asked for a set
- * of ids in one round trip.
- */
-export async function anchoredPublicIds(publicIds: readonly string[]): Promise<Set<string>> {
-  const wanted = [...new Set(publicIds)];
-  if (wanted.length === 0) return new Set();
-
-  const rows = await db()
-    .select({ publicId: schema.library.publicId })
-    .from(schema.library)
-    .where(
-      and(
-        ROUTABLE,
-        inArray(schema.library.publicId, wanted),
-        anchoredVersion(schema.library.currentVersionId),
-      ),
-    );
-  return new Set(rows.map((row) => row.publicId));
 }
 
 export interface PublicLibraryVersion {

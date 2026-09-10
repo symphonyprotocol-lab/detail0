@@ -14,7 +14,7 @@ import {
   TD,
   TH,
 } from '@/components/admin/ui';
-import { BadgeCheckIcon, ChevronDownIcon, ScrollTextIcon } from '@/components/ui/icons';
+import { ChevronDownIcon, ScrollTextIcon } from '@/components/ui/icons';
 import { listAuditEntries, type AuditResultFilter } from '@/lib/application/administration';
 import { diffAuditValues, type AuditValueChange } from '@/lib/domain/admin';
 import { requireAdminCapability } from '@/lib/http/admin';
@@ -88,10 +88,10 @@ function ValueDiff({
  * Audit log -- design source frame `Uko79`.
  *
  * Reads the real `audit_log`: append only, kept 365 days, and chained so the
- * daily head can be anchored (requirement.md 5.3, architecture.md 14). The
- * anchor card shows that head rather than an anchoring transaction, because
- * anchoring itself is not live yet (architecture.md 21) and a transaction hash
- * that nothing wrote would be the one lie a tamper-evident log cannot afford.
+ * daily head can be anchored (requirement.md 5.3). The head is shown as a
+ * value, not as a claim about a chain -- anchoring has no interface here, and
+ * a transaction hash this screen did not read would be the one lie a
+ * tamper-evident log cannot afford.
  *
  * The origin column is a digest, not the address the design frame draws: plain
  * IPs must not reach product storage (requirement.md 12), which is why
@@ -148,19 +148,6 @@ export default async function AdminAuditPage({
         }
       />
 
-      <ConsoleNotice
-        icon={<BadgeCheckIcon size={18} />}
-        title={a.anchorTitle}
-        body={a.anchorBody}
-        action={
-          <span className="flex flex-col gap-1">
-            <span className="text-[11px] tracking-[-0.023em] text-muted">{a.chainHead}</span>
-            <code className="rounded-[6px] bg-card px-2 py-1.5 font-mono text-[11px] text-brandink">
-              {chainHead ? `${chainHead.slice(0, 8)}…${chainHead.slice(-4)}` : a.chainHeadNone}
-            </code>
-          </span>
-        }
-      />
 
       <Panel>
         {/* GET, so a filtered page of the log is a URL an operator can keep. */}

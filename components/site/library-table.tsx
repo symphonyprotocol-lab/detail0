@@ -11,7 +11,6 @@ export interface LibraryTableEntry {
   trustScore: number;
   chunks: string;
   updated: string;
-  anchored: boolean;
   /** The listed library this one is nested under, when its parent is on the page too. */
   nestedUnder?: string | null;
 }
@@ -25,10 +24,8 @@ const COLS =
 
 export async function LibraryTable({
   entries,
-  showAnchor = true,
 }: {
   entries: LibraryTableEntry[];
-  showAnchor?: boolean;
 }) {
   const { table } = (await getMessages()).catalog;
 
@@ -44,7 +41,7 @@ export async function LibraryTable({
             <span>{table.trust}</span>
             <span>{table.chunks}</span>
             <span>{table.updated}</span>
-            <span>{showAnchor ? table.anchor : table.access}</span>
+            <span>{table.access}</span>
           </div>
           {entries.map((entry, i) => (
             <Link
@@ -82,20 +79,10 @@ export async function LibraryTable({
               </span>
               <span>{entry.chunks}</span>
               <span>{entry.updated}</span>
-              {showAnchor ? (
-                <span
-                  className={`text-[11px] font-semibold tracking-[-0.018em] ${
-                    entry.anchored ? 'text-good' : 'text-warn'
-                  }`}
-                >
-                  {entry.anchored ? table.anchored : table.unanchored}
-                </span>
-              ) : (
-                <span className="flex items-center gap-[5px] font-semibold text-brand">
-                  {table.public}
-                  <ArrowUpRightIcon size={14} />
-                </span>
-              )}
+              <span className="flex items-center gap-[5px] font-semibold text-brand">
+                {table.public}
+                <ArrowUpRightIcon size={14} />
+              </span>
             </Link>
           ))}
           {entries.length === 0 ? (

@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { Card, SectionHeading } from '@/components/ui/primitives';
-import { anchoringVisible } from '@/lib/application/anchors';
 import { getMessages } from '@/lib/i18n/server';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -18,7 +17,6 @@ const SECTION_IDS = [
   'content',
   'privacy',
   'billing',
-  'anchoring',
   'liability',
   'changes',
 ] as const;
@@ -51,18 +49,12 @@ export default async function LegalPage() {
   const c = g.clauses;
 
   /*
-   * Article 6 states as fact that digests are written to Aptos mainnet and that
-   * a public Verifier can check them; neither is true yet, and a false
-   * representation in the terms is the worst place for one (requirement.md 6.4).
-   *
-   * Filtered by SECTION_IDS rather than by text -- the ids are ours, not a
-   * translator's. The numbering deliberately keeps its gap: article numbers are
-   * referenced from outside this page, so 07 stays 07 while 06 is away.
+   * The table of contents is paired with SECTION_IDS by position, so the two
+   * arrays stay the same length: an article removed is removed from both, and
+   * the numbering closes up rather than leaving a hole a reader would take for
+   * a clause that went missing.
    */
-  const showAnchoring = anchoringVisible();
-  const toc = g.toc
-    .map((section, i) => ({ section, id: SECTION_IDS[i], n: i + 1 }))
-    .filter((entry) => showAnchoring || entry.id !== 'anchoring');
+  const toc = g.toc.map((section, i) => ({ section, id: SECTION_IDS[i], n: i + 1 }));
 
   return (
     <div className="mx-auto w-full max-w-[1080px]">
@@ -141,28 +133,17 @@ export default async function LegalPage() {
         <Clause n="5.5">{c.c55}</Clause>
       </Article>
 
-      {showAnchoring ? (
-      <Article id="anchoring" title={g.articles.anchoring}>
-        <Clause n="6.1">{c.c61}</Clause>
-        <Clause n="6.2">
-          {c.c62.lead}
-          <span className="font-medium text-ink">{c.c62.emphasis}</span>
-          {c.c62.tail}
-        </Clause>
-        <Clause n="6.3">{c.c63}</Clause>
-      </Article>
-      ) : null}
 
       <Article id="liability" title={g.articles.liability}>
-        <Clause n="7.1">{c.c71}</Clause>
-        <Clause n="7.2">{c.c72}</Clause>
-        <Clause n="7.3">{c.c73}</Clause>
-        <Clause n="7.4">{c.c74}</Clause>
+        <Clause n="6.1">{c.c71}</Clause>
+        <Clause n="6.2">{c.c72}</Clause>
+        <Clause n="6.3">{c.c73}</Clause>
+        <Clause n="6.4">{c.c74}</Clause>
       </Article>
 
       <Article id="changes" title={g.articles.changes}>
-        <Clause n="8.1">{c.c81}</Clause>
-        <Clause n="8.2">
+        <Clause n="7.1">{c.c81}</Clause>
+        <Clause n="7.2">
           {c.c82.lead}{' '}
           <a href="mailto:legal@re0.com" className="font-medium text-brandink hover:underline">
             legal@re0.com

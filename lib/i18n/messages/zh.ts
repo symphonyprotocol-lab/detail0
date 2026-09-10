@@ -53,23 +53,6 @@ export const zh = {
     sampleNote: '按近 {days} 天调用量显示前 {count} 个公开知识库',
     viewFullCatalog: '查看完整目录',
     surfacesNote: '一次接入，让可信知识在你的工作流中保持一致',
-    proofTitle: '每个版本都能被独立验证，不必先相信平台',
-    proof: [
-      {
-        title: '版本存证',
-        body: '每个已发布版本的内容摘要按小时聚合，写入 Aptos 主网。版本一旦发布，内容和时间都无法被平台悄悄改写。',
-      },
-      {
-        title: '审计锚定',
-        body: '平台管理操作的审计链每日写入链上。即使是数据库管理员，也无法无痕修改历史审计记录。',
-      },
-      {
-        title: '独立验证',
-        body: '公开验证工具不调用 Re0 任何接口。任何人都能用链上数据自行校验引用来自哪个版本。',
-      },
-    ],
-    proofNote:
-      '存证证明的是「某个时刻的内容就是这一份」，不构成对内容正确性的保证。存证不消耗调用额度，Free 与 Pro 都可使用。',
     ctaEyebrow: '从一次可追溯的查询开始',
     ctaTitle: '让 Agent 少一点猜测，多一点依据。',
     ctaPricing: '查看定价',
@@ -128,7 +111,6 @@ export const zh = {
       ['自建知识库', '最多 5 个', '最多 25 个', '沿用 Pro 权限'],
       ['单个知识库容量', '20 MB', '100 MB', '沿用 Pro 权限'],
       ['知识库构建', '每 2 万新增 Token 计 1 Call', '每 2 万新增 Token 计 1 Call', '沿用 Pro 权限'],
-      ['版本存证', '全部包含', '全部包含', '沿用 Pro 权限'],
       ['额外调用包', '—', '可购买', '本身即调用包'],
       ['Token 费用', '$0', '$0', '$0'],
     ] as [string, string, string, string][],
@@ -163,10 +145,6 @@ export const zh = {
       {
         q: '创建或刷新知识库会消耗 Call 吗？',
         a: '会，按新增内容量折算：每次成功构建计 1 Call 基础费，每 2 万新增 Token 计 1 Call，网站类来源每抓取 5 页计 1 Call。只有版本发布成功才扣减；来源未变化的刷新、构建失败和平台自身升级触发的重建都不计费。容量上限是上限而非额度：一个 20 MB 的满容量库约消耗 250 Calls。',
-      },
-      {
-        q: '版本存证会消耗 Call 吗？',
-        a: '不会。已发布版本的上链存证由平台自动完成，不计入 API Call 额度，Free 与 Pro 都可使用。存证只证明版本内容与时间，不构成对内容正确性的保证。',
       },
       {
         q: '我提交的公开知识库能拿到分成吗？',
@@ -205,10 +183,6 @@ export const zh = {
     principlesTitle: '我们坚持的原则',
     principles: [
       {
-        title: '可独立验证',
-        body: '已发布版本、审计链头和发布者结算单的摘要都写入 Aptos 主网。第三方用公开 Verifier 和链上数据即可校验，全程不调用 Re0 任何接口。',
-      },
-      {
         title: '只按调用计费',
         body: '一次成功受理的 API 或 MCP 查询记 1 Call，与返回的 Chunk 数量和 Token 数无关。所有公开知识库都能查询，不需要逐库购买。',
       },
@@ -218,11 +192,11 @@ export const zh = {
       },
       {
         title: '边界写清楚',
-        body: '我们提供检索与引用，不替你下结论；存证只证明版本内容与时间，不构成对内容正确性的保证；出账由外部支付服务完成，我们不保存银行账号、不持有用户资金。',
+        body: '我们提供检索与引用，不替你下结论；出账由外部支付服务完成，我们不保存银行账号、不持有用户资金。',
       },
     ],
     scopeTitle: '平台由哪几块组成',
-    scopeNote: '检索、接入、归属与存证，共用同一份版本化数据。',
+    scopeNote: '检索、接入与归属，共用同一份版本化数据。',
     scope: [
       {
         kicker: '知识库',
@@ -238,11 +212,6 @@ export const zh = {
         kicker: '归属',
         title: '认领与分成',
         body: '公开知识库的归属通过 DNS TXT 记录或 well-known 文件校验，在配置文件里写入声明不会改变所有权。认领完成后才参与收入分成。',
-      },
-      {
-        kicker: '存证',
-        title: '版本与审计上链',
-        body: '版本摘要按小时聚合写入 Aptos 主网，平台管理操作的审计链每日锚定。数据库管理员也无法无痕修改已锚定的历史。',
       },
     ],
     contactTitle: '想聊聊合作、认领或接入？',
@@ -324,9 +293,6 @@ export const zh = {
     reportCardBody:
       '附上出错时间、Library ID、请求返回的 request id 和 API Key 前 6 位，可以显著缩短定位时间。',
     reportCardLink: '前往联系我们 →',
-    anchorCardTitle: '存证不受服务状态影响',
-    anchorCardBody:
-      '已写入 Aptos 主网的版本摘要可以用公开 Verifier 独立校验，校验过程不调用 Re0 任何接口，本页显示的降级不会影响这一点。',
     live: {
       components: {
         retrieval: {
@@ -373,7 +339,6 @@ export const zh = {
       { title: '内容与版权', hint: '来源、归属与下架流程' },
       { title: '隐私政策', hint: '收集什么、保留多久' },
       { title: '计费与退款', hint: 'API Call、调用包与分成' },
-      { title: '存证声明', hint: '链上证明的边界' },
       { title: '免责与责任限制', hint: '服务可用性与赔偿上限' },
       { title: '条款变更', hint: '通知方式与联系渠道' },
     ],
@@ -383,9 +348,8 @@ export const zh = {
       content: '3. 内容与版权',
       privacy: '4. 隐私政策',
       billing: '5. 计费、额度与分成',
-      anchoring: '6. 存证与验证声明',
-      liability: '7. 免责与责任限制',
-      changes: '8. 条款变更与联系',
+      liability: '6. 免责与责任限制',
+      changes: '7. 条款变更与联系',
     },
     clauses: {
       c11: 'Re0 提供的是知识库的检索与引用服务。我们返回带来源、版本与引用的上下文片段，不代替你做出判断，也不对基于这些片段产生的决策承担责任。',
@@ -416,13 +380,6 @@ export const zh = {
       c53: '额度用尽后新的计费调用会暂停，已发布内容与账号数据不受影响。',
       c54: '完成认领的公开知识库参与收入分成，按被成功检索的次数从平台收入中线性分配，不按 Trust Score 加权；平台自建库、私有库与未认领的公开库不参与。出账门槛与持有期以定价与结算页面公布的规则为准，出账通过外部支付服务完成。',
       c55: '价格调整会提前通知，并自下一个账期生效，已购买的调用包不受影响。',
-      c61: '已发布版本的内容摘要、平台审计链头与发布者结算单摘要会写入 Aptos 主网。任何人都可以用公开 Verifier 与链上数据完成校验，全程不需要调用 Re0 的任何接口。',
-      c62: {
-        lead: '存证证明的是“某一版本的内容摘要在某一时间已存在且此后未被改写”，',
-        emphasis: '不构成对内容正确性、完整性或适用性的保证',
-        tail: '，也不代表平台对来源内容的立场。',
-      },
-      c63: '链上写入依赖公链网络，拥塞或分叉可能导致延迟。延迟不改变被证明的内容本身，补写完成后校验结果一致。',
       c71: '服务按“现状”提供。我们会努力维持可用性并在服务状态页公开事件记录，但不承诺不中断或无差错运行。',
       c72: '我们不对第三方来源内容的准确性负责，也不对你依据检索结果作出的决策、以及由此产生的间接损失、利润损失或数据损失承担责任。',
       c73: '在法律允许的范围内，我们在任何情况下的累计责任上限，为你在索赔事件发生前 12 个月内实际支付给 Re0 的费用总额。',
@@ -479,7 +436,7 @@ export const zh = {
     searchPlaceholder: '搜索名称、领域或 Library ID…',
     popular: '热门',
     recentlyUpdated: '最近更新',
-    filters: ['领域：全部', '语言：全部', '来源：全部', 'Trust ≥ 80', '更新于 30 天内', '仅看已存证'],
+    filters: ['领域：全部', '语言：全部', '来源：全部', 'Trust ≥ 80', '更新于 30 天内'],
     totalLine: '共 {total} 个公开知识库 · {sort}',
     freeNote: '公开库查询免费，仅消耗你的 API Call 额度',
     rangeLine: '显示 1–{shown}，共 {total} 个知识库',
@@ -491,10 +448,7 @@ export const zh = {
       trust: 'TRUST',
       chunks: 'CHUNKS',
       updated: '更新',
-      anchor: '存证',
       access: 'ACCESS',
-      anchored: '已存证',
-      unanchored: '待存证',
       nestedUnder: '归属 {parent}',
       public: '公开',
       empty: '没有匹配的知识库。',
@@ -539,16 +493,6 @@ export const zh = {
     examplesNote: '每次成功受理的查询计为 1 API Call，与返回的 Chunk 数或 Token 数无关。',
     sourcePanel: '来源',
     lastSync: '最近同步',
-    anchorPanel: '链上存证',
-    anchored: '已存证',
-    unanchored: '待存证',
-    aptosMainnet: 'Aptos 主网',
-    txHash: '交易哈希',
-    blockTime: '区块时间',
-    notAnchoredYet: '该版本尚未进入锚定批次，不影响检索与引用。',
-    verifyVersion: '独立验证此版本',
-    verifyNote:
-      '验证工具不调用 Re0 任何接口。存证只证明「该时刻内容即此版本」，不构成对内容正确性的保证。',
     ownershipPanel: '所有权',
     verificationMethod: '校验方式',
     verificationMethodValue: 'GitHub 仓库权限校验',
@@ -585,15 +529,7 @@ export const zh = {
       recentCalls: '近 {days} 天调用',
       scoredAt: '评分更新于 {when}',
       scoredNever: '尚未评分',
-      anchorPending: '等待锚定',
-      anchorUnavailable: '锚定未完成',
-      anchorPendingBody: '该版本已在待锚定队列中；批次每小时聚合一次写入 Aptos 主网，不影响检索与引用。',
-      anchorUnavailableBody: '最近一次锚定批次失败或已被替代，平台会在下一批重新锚定。',
       batchId: '批次',
-      merkleRoot: 'Merkle 根',
-      leafIndex: '叶位置',
-      contentRoot: '内容摘要',
-      anchorProofLink: '查看存证数据（JSON）',
       restPanel: 'REST',
       mcpPanel: 'MCP',
       codeNote: '要固定版本，把 Library ID 写成 {pinned}。',
@@ -732,8 +668,6 @@ export const zh = {
       reviewNoticeTitle: '公开知识库发布前必须通过审核',
       reviewNoticeBody:
         '平台会检查内容权利、来源透明度、适用边界、质量和安全规则；私有知识库无需审核。',
-      anchorNoticeTitle: '已发布版本在链上留存内容证明',
-      anchorNoticeBody: '版本内容摘要按小时聚合写入 Aptos 主网，可独立验证，不代表内容正确。',
       viewPlans: '查看套餐',
       searchPlaceholder: '搜索知识库…',
       columns: ['知识库', '访问范围', '文档片段', '审核状态', '最近更新'],
@@ -962,25 +896,6 @@ export const zh = {
         source: '来源',
         chunks: '{n} 个 Chunk · {tokens} Token',
         chunk: 'Chunk {ordinal}',
-      },
-      anchor: {
-        title: '链上存证',
-        description: '当前版本的存证状态。私有库的原像只有本工作空间看得到。',
-        pending: '待存证',
-        anchored: '已存证',
-        unavailable: '锚定未完成',
-        pendingBody: '该版本已在待锚定队列中，不影响检索与引用。',
-        unavailableBody: '最近一次锚定批次失败或已被替代，平台会重新锚定。',
-        network: '网络',
-        txHash: '交易',
-        merkleRoot: 'Merkle Root',
-        leafHash: 'Leaf 哈希',
-        leafIndex: '批次内序号',
-        blockTime: '确认时间',
-        preimageSummary: '展开可自行校验的原像（{count} 项）',
-        preimageNote:
-          '按提案第 4.2.1 节的顺序与 framing 规则重新哈希这些字段，应当得到上面的 Leaf 哈希。',
-        saltEmpty: '（空，公开库不加盐）',
       },
       versions: {
         title: '版本历史',
@@ -3084,9 +2999,6 @@ export const zh = {
       retentionTitle: '审计记录保存 365 天',
       retentionBody: '登录、审批、用户状态、套餐与权限变更均不可篡改。',
       exportLog: '导出日志',
-      anchorTitle: '链上锚定尚未启用',
-      anchorBody:
-        '审计日志按哈希链追加，下方是当前链头。启用后每日链头写入 Aptos 主网，届时管理员无法无痕修改历史记录。',
       searchPlaceholder: '搜索管理员、操作或目标对象',
       columns: ['时间', '管理员', '操作', '目标', '来源摘要', '结果'],
       unknownAdmin: '未知管理员',

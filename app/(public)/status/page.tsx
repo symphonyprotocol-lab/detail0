@@ -3,7 +3,6 @@ import { unstable_cache } from 'next/cache';
 import Link from 'next/link';
 import { Card, Chip, SectionHeading } from '@/components/ui/primitives';
 import { CircleCheckIcon, ClockIcon, ShieldCheckIcon } from '@/components/ui/icons';
-import { anchoringVisible } from '@/lib/application/anchors';
 import { platformStatus, type ComponentStatus } from '@/lib/application/status';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
@@ -274,22 +273,6 @@ export default async function StatusPage() {
               {st.reportCardLink}
             </Link>
           </Card>
-          {/*
-            * "已写入 Aptos 主网的版本摘要可以用公开 Verifier 独立校验" names two
-            * things that do not exist yet -- the writes and the Verifier. Behind
-            * the flag until both do (requirement.md 6.4).
-            */}
-          {anchoringVisible() ? (
-            <Card className="p-6">
-              <p className="flex items-center gap-2 text-[13.5px] font-semibold tracking-[-0.02em] text-ink">
-                <span className="text-brand">
-                  <ShieldCheckIcon size={16} />
-                </span>
-                {st.anchorCardTitle}
-              </p>
-              <p className="mt-2.5 text-[12.5px] leading-[1.75] text-muted">{st.anchorCardBody}</p>
-            </Card>
-          ) : null}
         </div>
       </section>
     </>

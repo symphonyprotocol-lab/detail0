@@ -3,7 +3,6 @@ import { cache } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Button, Card, Chip } from '@/components/ui/primitives';
-import { anchoringVisible } from '@/lib/application/anchors';
 import { publicClaimStatus } from '@/lib/application/claims';
 import { POPULARITY_WINDOW_DAYS, publicLibraryDetail } from '@/lib/application/libraries';
 import { API_KEY_PLACEHOLDER } from '@/lib/dashboard/snippets';
@@ -375,56 +374,6 @@ export default async function LibraryDetailPage({ params }: Params) {
             />
           </Panel>
 
-          {/*
-            * Status, transaction, root: every line here reads as a live
-            * capability, and the copy below it says batches go to Aptos
-            * mainnet hourly. Nothing does yet (requirement.md 6.4).
-            */}
-          {anchoringVisible() ? (
-          <Panel title={l.anchorPanel}>
-            <div className="flex items-center gap-2">
-              {anchor.status === 'anchored' ? (
-                <Chip tone="good">{l.anchored}</Chip>
-              ) : anchor.status === 'pending' ? (
-                <Chip tone="warn">{d.anchorPending}</Chip>
-              ) : (
-                <Chip tone="warn">{d.anchorUnavailable}</Chip>
-              )}
-              <span className="text-[11.5px] text-muted">{anchor.network ?? l.aptosMainnet}</span>
-            </div>
-            {anchor.status === 'anchored' ? (
-              <div className="flex flex-col">
-                {anchor.txHash ? <Row k={l.txHash} v={short(anchor.txHash)} mono /> : null}
-                {anchor.blockTime ? <Row k={l.blockTime} v={when(anchor.blockTime)} /> : null}
-                {anchor.batchId ? <Row k={d.batchId} v={short(anchor.batchId)} mono /> : null}
-                {anchor.merkleRoot ? <Row k={d.merkleRoot} v={short(anchor.merkleRoot)} mono /> : null}
-                {anchor.leafIndex !== null ? (
-                  <Row
-                    k={d.leafIndex}
-                    v={`${anchor.leafIndex}${anchor.leafCount !== null ? ` / ${anchor.leafCount}` : ''}`}
-                  />
-                ) : null}
-              </div>
-            ) : (
-              <p className="text-[11.5px] text-muted">
-                {anchor.status === 'pending' ? d.anchorPendingBody : d.anchorUnavailableBody}
-              </p>
-            )}
-            {anchor.contentMerkleRoot ? (
-              <Row k={d.contentRoot} v={short(anchor.contentMerkleRoot)} mono />
-            ) : null}
-            <Button href={proofHref} variant="outline" className="mt-1 w-full">
-              {l.verifyVersion}
-            </Button>
-            <a
-              href={proofHref}
-              className="text-center text-[11px] font-medium text-brandink underline-offset-2 hover:underline"
-            >
-              {d.anchorProofLink}
-            </a>
-            <p className="text-[11px] leading-[1.65] text-faint">{l.verifyNote}</p>
-          </Panel>
-          ) : null}
 
           <Panel title={l.ownershipPanel}>
             {entry.claimedBy ? (

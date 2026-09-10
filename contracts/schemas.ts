@@ -345,9 +345,8 @@ export const verifyClaimOutputSchema = z.object({
  * The fields are listed in the order 4.2.1 frames them, and `publishedAt` is
  * the exact string that was hashed rather than a re-rendering of the timestamp.
  *
- * A private version's preimage carries the salt its workspace derived, and is
- * served only to that workspace (6.4); the credential-free route answers with
- * the public shape below, whose salt is empty by construction.
+ * Public libraries only. A private version's preimage is salted and belongs to
+ * whoever owns it (6.4); nothing serves one, so nothing needs a shape for it.
  */
 export const anchorPreimageSchema = z.object({
   domainSeparator: z.string(),
@@ -358,19 +357,9 @@ export const anchorPreimageSchema = z.object({
   contentMerkleRoot: z.string(),
   publishedAt: z.string(),
   /**
-   * Empty for a public library, whose preimage is publishable in full. For a
-   * private one it is the workspace's derived salt -- which is the whole reason
-   * this shape is not served without a credential (proposal 3.2, 4.2).
+   * Always empty, and a literal so it stays that way: a preimage with a salt to
+   * hide is not served from an endpoint that asks for nothing (proposal 3.2).
    */
-  salt: z.string(),
-});
-
-/**
- * The shape the credential-free route returns, where the empty salt is a
- * guarantee rather than a happenstance: anything with a salt to hide is not
- * served from an endpoint that asks for nothing.
- */
-export const publicAnchorPreimageSchema = anchorPreimageSchema.extend({
   salt: z.literal(''),
 });
 
@@ -399,4 +388,3 @@ export type ClaimChallenge = z.infer<typeof claimChallengeSchema>;
 export type VerifyClaimOutput = z.infer<typeof verifyClaimOutputSchema>;
 export type Anchor = z.infer<typeof anchorSchema>;
 export type AnchorPreimage = z.infer<typeof anchorPreimageSchema>;
-export type PublicAnchorPreimage = z.infer<typeof publicAnchorPreimageSchema>;

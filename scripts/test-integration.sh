@@ -33,10 +33,14 @@ docker run -d --name "${PG_CONTAINER}" \
   -p "127.0.0.1:${PG_PORT}:5432" \
   pgvector/pgvector:pg16 >/dev/null
 
+# Waits for the database, not just the server. Postgres accepts connections
+# part-way through its own initialisation, so `pg_isready` can succeed seconds
+# before POSTGRES_DB exists -- and then the first migration fails with
+# "database re0 does not exist", which reads like a broken migration.
 echo "waiting for postgres..."
 pg_ready=
-for _ in $(seq 1 30); do
-  if docker exec "${PG_CONTAINER}" pg_isready -U postgres -q; then
+for _ in $(seq 1 60); do
+  if docker exec "${PG_CONTAINER}" psql -U postgres -d re0 -c 'select 1' >/dev/null 2>&1; then
     pg_ready=1
     break
   fi

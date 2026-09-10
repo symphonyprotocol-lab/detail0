@@ -55,23 +55,6 @@ export const en: Dictionary = {
     sampleNote: 'Top {count} public libraries by calls in the last {days} days',
     viewFullCatalog: 'View the full directory',
     surfacesNote: 'Connect once and keep trustworthy knowledge consistent across your workflow',
-    proofTitle: 'Every version can be verified independently — no need to trust the platform first',
-    proof: [
-      {
-        title: 'Version proofs',
-        body: 'Content digests for every published version are batched hourly onto Aptos mainnet. Once a version ships, neither its content nor its timestamp can be quietly rewritten by us.',
-      },
-      {
-        title: 'Audit anchoring',
-        body: 'The audit chain covering platform administration is written on-chain daily. Not even a database administrator can alter historical audit records without leaving a trace.',
-      },
-      {
-        title: 'Independent verification',
-        body: 'The public verifier calls no Re0 endpoint. Anyone can use on-chain data to check for themselves which version a citation came from.',
-      },
-    ],
-    proofNote:
-      'A proof establishes that "this exact content existed at this moment" — it is not a guarantee that the content is correct. Anchoring consumes no call quota and is available on both Free and Pro.',
     ctaEyebrow: 'Start with one traceable query',
     ctaTitle: 'Less guessing from your agent, more grounding.',
     ctaPricing: 'See pricing',
@@ -131,7 +114,6 @@ export const en: Dictionary = {
       ['Your own libraries', 'Up to 5', 'Up to 25', 'Inherits Pro'],
       ['Size per library', '20 MB', '100 MB', 'Inherits Pro'],
       ['Library builds', '1 call per 20k new tokens', '1 call per 20k new tokens', 'Inherits Pro'],
-      ['Version proofs', 'Included', 'Included', 'Inherits Pro'],
       ['Extra call packs', '—', 'Available', 'Is a call pack'],
       ['Token charges', '$0', '$0', '$0'],
     ] as [string, string, string, string][],
@@ -166,10 +148,6 @@ export const en: Dictionary = {
       {
         q: 'Does creating or refreshing a library consume calls?',
         a: 'Yes, priced from what the build adds: 1 call per successful build, 1 call per 20,000 new tokens, and 1 call per 5 pages fetched for website sources. Calls are debited only when the version publishes; a refresh of an unchanged source, a failed build and a rebuild forced by a platform upgrade cost nothing. The size limit is a ceiling, not an allowance: a full 20 MB library costs roughly 250 calls.',
-      },
-      {
-        q: 'Does anchoring a version consume calls?',
-        a: 'No. On-chain proofs for published versions are produced by the platform and do not count against your API call allowance; both Free and Pro get them. A proof attests to a version’s content and timestamp only, not to its correctness.',
       },
       {
         q: 'Can I earn a share from a public library I submit?',
@@ -208,10 +186,6 @@ export const en: Dictionary = {
     principlesTitle: 'What we hold to',
     principles: [
       {
-        title: 'Independently verifiable',
-        body: 'Digests of published versions, audit chain heads and publisher statements all go to Aptos mainnet. A third party can verify them with the public verifier and on-chain data alone, without calling any Re0 endpoint.',
-      },
-      {
         title: 'Billed per call, nothing else',
         body: 'One accepted API or MCP query is 1 call, whatever the chunk or token count. Every public library is queryable without buying access library by library.',
       },
@@ -221,11 +195,11 @@ export const en: Dictionary = {
       },
       {
         title: 'Boundaries stated plainly',
-        body: 'We provide retrieval and citation, not conclusions. A proof attests to a version’s content and timestamp, not to its correctness. Payouts run through an external payment provider — we store no bank account numbers and hold no user funds.',
+        body: 'We provide retrieval and citation, not conclusions. Payouts run through an external payment provider — we store no bank account numbers and hold no user funds.',
       },
     ],
     scopeTitle: 'What the platform is made of',
-    scopeNote: 'Retrieval, integration, ownership and proofs, over one versioned dataset.',
+    scopeNote: 'Retrieval, integration and ownership, over one versioned dataset.',
     scope: [
       {
         kicker: 'Libraries',
@@ -241,11 +215,6 @@ export const en: Dictionary = {
         kicker: 'Ownership',
         title: 'Claiming and revenue share',
         body: 'Ownership of a public library is proven by a DNS TXT record or a well-known file; a declaration inside a config file changes nothing. Revenue share begins only once a claim completes.',
-      },
-      {
-        kicker: 'Proofs',
-        title: 'Versions and audits on-chain',
-        body: 'Version digests are batched hourly onto Aptos mainnet, and the audit chain for platform administration is anchored daily. Not even a database administrator can silently rewrite anchored history.',
       },
     ],
     contactTitle: 'Want to talk about partnering, claiming or integrating?',
@@ -333,9 +302,6 @@ export const en: Dictionary = {
     reportCardBody:
       'The time it failed, the Library ID, the request id from the response and the first 6 characters of the API key will cut the investigation down sharply.',
     reportCardLink: 'Go to contact →',
-    anchorCardTitle: 'Proofs are unaffected by service status',
-    anchorCardBody:
-      'Version digests already on Aptos mainnet can be checked with the public verifier, which calls no Re0 endpoint — degradation shown on this page cannot touch that.',
     live: {
       components: {
         retrieval: {
@@ -384,7 +350,6 @@ export const en: Dictionary = {
       { title: 'Content and copyright', hint: 'Sources, ownership and takedowns' },
       { title: 'Privacy policy', hint: 'What we collect, how long we keep it' },
       { title: 'Billing and refunds', hint: 'API calls, packs and revenue share' },
-      { title: 'Proof statement', hint: 'What an on-chain proof does not say' },
       { title: 'Disclaimer and liability', hint: 'Availability and liability cap' },
       { title: 'Changes to these terms', hint: 'Notice and contact' },
     ],
@@ -394,9 +359,8 @@ export const en: Dictionary = {
       content: '3. Content and copyright',
       privacy: '4. Privacy policy',
       billing: '5. Billing, quota and revenue share',
-      anchoring: '6. Proof and verification statement',
-      liability: '7. Disclaimer and limitation of liability',
-      changes: '8. Changes and contact',
+      liability: '6. Disclaimer and limitation of liability',
+      changes: '7. Changes and contact',
     },
     clauses: {
       c11: 'Re0 provides retrieval and citation over knowledge libraries. We return context passages carrying their source, version and citation. We do not make judgements for you, and we are not responsible for decisions taken on the basis of those passages.',
@@ -427,13 +391,6 @@ export const en: Dictionary = {
       c53: 'When quota is exhausted, new billable calls pause. Published content and account data are unaffected.',
       c54: 'Claimed public libraries take part in revenue share, allocated linearly from platform revenue by successful retrievals rather than weighted by Trust Score. Platform-owned, private and unclaimed public libraries do not take part. Payout thresholds and holding periods follow the rules published on the pricing and settlement pages, and payouts run through an external payment provider.',
       c55: 'Price changes are announced in advance and take effect from the next billing period. Call packs already purchased are unaffected.',
-      c61: 'Content digests of published versions, the platform audit chain head and publisher statement digests are written to Aptos mainnet. Anyone can verify them with the public verifier and on-chain data, without calling any Re0 endpoint.',
-      c62: {
-        lead: 'A proof establishes that "the content digest of a given version existed at a given time and has not been rewritten since". It is',
-        emphasis: 'not a guarantee of the correctness, completeness or fitness of the content',
-        tail: ', nor does it represent a platform position on the source material.',
-      },
-      c63: 'On-chain writes depend on a public network, and congestion or forks can delay them. A delay does not change what is being proven, and verification matches once the backfill completes.',
       c71: 'The service is provided "as is". We work to keep it available and publish incidents on the status page, but we do not promise uninterrupted or error-free operation.',
       c72: 'We are not responsible for the accuracy of third-party source content, nor for decisions you make on the basis of retrieval results, nor for indirect loss, lost profit or lost data arising from them.',
       c73: 'To the extent the law allows, our aggregate liability in any circumstance is capped at the total fees you actually paid Re0 in the 12 months before the event giving rise to the claim.',
@@ -498,7 +455,6 @@ export const en: Dictionary = {
       'Source: all',
       'Trust ≥ 80',
       'Updated in 30 days',
-      'Anchored only',
     ],
     totalLine: '{total} public libraries · {sort}',
     freeNote: 'Public queries are free and only draw on your API call quota',
@@ -511,10 +467,7 @@ export const en: Dictionary = {
       trust: 'TRUST',
       chunks: 'CHUNKS',
       updated: 'UPDATED',
-      anchor: 'PROOF',
       access: 'ACCESS',
-      anchored: 'Anchored',
-      unanchored: 'Pending',
       nestedUnder: 'Under {parent}',
       public: 'Public',
       empty: 'No libraries match.',
@@ -560,17 +513,6 @@ export const en: Dictionary = {
       'Each accepted query counts as 1 API call, whatever the chunk or token count.',
     sourcePanel: 'Source',
     lastSync: 'Last sync',
-    anchorPanel: 'On-chain proof',
-    anchored: 'Anchored',
-    unanchored: 'Pending',
-    aptosMainnet: 'Aptos mainnet',
-    txHash: 'Transaction',
-    blockTime: 'Block time',
-    notAnchoredYet:
-      'This version has not entered an anchoring batch yet, which does not affect retrieval or citation.',
-    verifyVersion: 'Verify this version',
-    verifyNote:
-      'The verifier calls no Re0 endpoint. A proof establishes only that "the content at that moment was this version" — never that the content is correct.',
     ownershipPanel: 'Ownership',
     verificationMethod: 'Verified by',
     verificationMethodValue: 'GitHub repository permissions',
@@ -607,15 +549,7 @@ export const en: Dictionary = {
       recentCalls: 'Calls, last {days} days',
       scoredAt: 'Scores computed {when}',
       scoredNever: 'Not scored yet',
-      anchorPending: 'Awaiting anchor',
-      anchorUnavailable: 'Anchor incomplete',
-      anchorPendingBody: 'This version is queued for anchoring; batches are written to Aptos mainnet hourly. Retrieval and citations are unaffected.',
-      anchorUnavailableBody: 'The latest anchor batch failed or was superseded; the platform re-anchors it in the next batch.',
       batchId: 'Batch',
-      merkleRoot: 'Merkle root',
-      leafIndex: 'Leaf index',
-      contentRoot: 'Content digest',
-      anchorProofLink: 'View proof data (JSON)',
       restPanel: 'REST',
       mcpPanel: 'MCP',
       codeNote: 'To pin the version, write the Library ID as {pinned}.',
@@ -760,9 +694,6 @@ export const en: Dictionary = {
       reviewNoticeTitle: 'Public libraries are reviewed before they publish',
       reviewNoticeBody:
         'We check content rights, source transparency, stated boundaries, quality and safety rules. Private libraries skip review.',
-      anchorNoticeTitle: 'Published versions leave a content proof on-chain',
-      anchorNoticeBody:
-        'Version digests are batched hourly onto Aptos mainnet — independently verifiable, and never a claim that the content is correct.',
       viewPlans: 'See plans',
       searchPlaceholder: 'Search libraries…',
       columns: ['Library', 'Scope', 'Chunks', 'Review', 'Updated'],
@@ -999,27 +930,6 @@ export const en: Dictionary = {
         source: 'Source',
         chunks: '{n} chunks · {tokens} tokens',
         chunk: 'Chunk {ordinal}',
-      },
-      anchor: {
-        title: 'On-chain proof',
-        description:
-          "The current version's anchor state. A private library's preimage is visible to this workspace only.",
-        pending: 'Pending',
-        anchored: 'Anchored',
-        unavailable: 'Anchor incomplete',
-        pendingBody: 'This version is queued for anchoring; retrieval and citations are unaffected.',
-        unavailableBody:
-          'The last batch failed or was superseded, and the version will be anchored again.',
-        network: 'Network',
-        txHash: 'Transaction',
-        merkleRoot: 'Merkle root',
-        leafHash: 'Leaf hash',
-        leafIndex: 'Index in batch',
-        blockTime: 'Confirmed',
-        preimageSummary: 'Show the preimage you can check yourself ({count} fields)',
-        preimageNote:
-          'Hash these fields in the order and framing of proposal 4.2.1 and you should get the leaf hash above.',
-        saltEmpty: '(empty \u2014 a public library carries no salt)',
       },
       versions: {
         title: 'Versions',
@@ -3207,9 +3117,6 @@ export const en: Dictionary = {
       retentionBody:
         'Sign-ins, approvals, account state, plan and permission changes are all tamper-evident.',
       exportLog: 'Export log',
-      anchorTitle: 'Anchoring is not live yet',
-      anchorBody:
-        'The audit log is a hash chain and the value below is its current head. Once anchoring is live, each day’s head is written to Aptos mainnet, and history cannot be rewritten without a trace.',
       searchPlaceholder: 'Search administrator, action or target',
       columns: ['Time', 'Administrator', 'Action', 'Target', 'Origin digest', 'Result'],
       unknownAdmin: 'Unknown administrator',

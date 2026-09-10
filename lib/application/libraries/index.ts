@@ -12,7 +12,6 @@ export {
   type WorkspaceLibraryRow,
 } from './workspace';
 export {
-  anchoredPublicIds,
   countPublicLibraries,
   listPublicLibraries,
   publicLibraryDetail,

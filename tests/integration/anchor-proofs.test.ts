@@ -16,7 +16,6 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
-const { anchoredPublicIds } = await import('@/lib/application/libraries/catalog');
 const { publicVersionAnchor, splitPinnedId, versionAnchor } = await import(
   '@/lib/application/anchors'
 );
@@ -195,24 +194,6 @@ describeWithDb('anchor proofs', () => {
     await database.delete(schema.workspace).where(eq(schema.workspace.id, workspaceId));
   });
 
-  it('reads back only the libraries whose current version is in a confirmed batch', async () => {
-    const asked = [
-      confirmed.publicId,
-      unanchored.publicId,
-      openBatch.publicId,
-      unready.publicId,
-      noCurrentVersion.publicId,
-      privateLibrary.publicId,
-      `/anchors-${stamp}/never-existed`,
-    ];
-    const anchored = await anchoredPublicIds(asked);
-    expect([...anchored]).toEqual([confirmed.publicId]);
-  });
-
-  it('answers nothing for an empty ask without touching the database', async () => {
-    expect(await anchoredPublicIds([])).toEqual(new Set());
-  });
-
   it('returns the proof a confirmed batch holds for a pinned public version', async () => {
     const proof = await publicVersionAnchor(`${confirmed.publicId}/${LABEL}`);
     expect(proof).toMatchObject({
@@ -261,9 +242,6 @@ describeWithDb('anchor proofs', () => {
     /* An open re-anchor never downgrades a version that is already anchored. */
     const held = await publicVersionAnchor(`${supersededSchema.publicId}/${LABEL}`);
     expect(held).toMatchObject({ status: 'anchored', leafSchemaVersion: 1 });
-    expect(await anchoredPublicIds([supersededSchema.publicId])).toEqual(
-      new Set([supersededSchema.publicId]),
-    );
   });
 
   it('refuses an id whose last segment is not a version label', async () => {
