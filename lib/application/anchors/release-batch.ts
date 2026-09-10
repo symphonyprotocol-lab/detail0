@@ -21,12 +21,6 @@
 import { and, count, eq } from 'drizzle-orm';
 import { AdminChangeRefused } from '@/lib/domain/admin';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
-import { recordAudit } from './audit';
-
-export interface AnchorAdminActor {
-  administratorId: string;
-  clientAddress?: string | null;
-}
 
 export interface ReleasedBatch {
   batchId: string;
@@ -46,14 +40,7 @@ export interface ReleasedBatch {
  */
 export async function releaseFailedBatch(input: {
   batchId: string;
-  reason: string;
-  actor: AnchorAdminActor;
 }): Promise<ReleasedBatch> {
-  const reason = input.reason.trim();
-  if (reason.length === 0) {
-    throw new AdminChangeRefused('reason_required', 'a reason is required');
-  }
-
   const [batch] = await db()
     .select({
       id: schema.anchorBatch.id,
@@ -90,17 +77,6 @@ export async function releaseFailedBatch(input: {
       .where(and(eq(schema.anchorBatch.id, batch.id), eq(schema.anchorBatch.status, 'failed')));
   });
 
-  await recordAudit({
-    administratorId: input.actor.administratorId,
-    action: 'anchor.release_batch',
-    targetType: 'anchor_batch',
-    targetId: batch.id,
-    reason,
-    beforeValue: { status: batch.status, attempts: batch.attempts, merkleRoot: batch.merkleRoot },
-    afterValue: { status: 'superseded', releasedLeaves: leaves?.n ?? 0 },
-    clientAddress: input.actor.clientAddress ?? null,
-    result: 'success',
-  });
 
   return { batchId: batch.id, subjectType: batch.subjectType, released: leaves?.n ?? 0 };
 }

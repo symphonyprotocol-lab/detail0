@@ -28,18 +28,6 @@ export {
   type AuditResultFilter,
   type ConsoleAuditRow,
 } from './list-audit';
-export { releaseFailedBatch, type ReleasedBatch } from './manage-anchors';
-export {
-  listAnchorBatches,
-  ANCHOR_BATCH_STATUSES,
-  ANCHOR_SLO_HOURS,
-  type AnchorList,
-  type AnchorListInput,
-  type AnchorStats,
-  type AnchorStatusFilter,
-  type AnchorSubjectFilter,
-  type ConsoleAnchorBatchRow,
-} from './list-anchors';
 export {
   listUserLibraries,
   listClaims,

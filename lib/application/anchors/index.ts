@@ -39,35 +39,9 @@ export function anchoringVisible(): boolean {
   );
 }
 
-/**
- * How anchoring is wired, for the console's operations view.
- *
- * Addresses only. The signing key is reported as configured or not and never
- * read out: it is the one environment entry that is key material rather than a
- * credential (aptos-anchoring-proposal.md 4.6), and a screen that prints it
- * turns every operator's browser history into a copy.
- */
-export interface AnchoringSettings {
-  network: string | null;
-  objectAddress: string | null;
-  signerAddress: string | null;
-  signerConfigured: boolean;
-}
-
-export function anchoringSettings(): AnchoringSettings {
-  const value = (name: string): string | null => {
-    const raw = process.env[name]?.trim();
-    return raw ? raw : null;
-  };
-  return {
-    network: value('APTOS_NETWORK'),
-    objectAddress: value('APTOS_ANCHOR_OBJECT_ADDRESS'),
-    signerAddress: value('APTOS_ANCHOR_ACCOUNT_ADDRESS'),
-    signerConfigured: value('APTOS_ANCHOR_SIGNER_KEY') !== null,
-  };
-}
 
 export { anchorHealth, type AnchorHealth } from './health';
+export { releaseFailedBatch, type ReleasedBatch } from './release-batch';
 export { anchorAlerts, reportAnchorAlerts } from './alerts';
 
 export {

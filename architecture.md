@@ -192,7 +192,6 @@ app/
     billing/
     settlements/
     administrators/
-    anchors/                # 锚定运维视图，见 §14
     audit/
   api/v1/
     libraries/
@@ -523,8 +522,8 @@ Step 输出只保存可序列化摘要；大对象保存在对象存储。外部
 - Anchor Signer 的私钥由环境变量持有，只允许 `lib/infrastructure/chain` 的 Signer Adapter 读取；业务代码不得直接引用它，也不得引用链 SDK；密钥不进日志、Trace 与告警内容，见 §17.1；
 - 链或节点不可用时批次停留在 `pending` 并重试告警，发布、刷新、检索、计量、审核和出账全部不受影响；
 - Context 与 Search 响应默认不返回 Anchor 字段，避免影响 `maxTokens` 裁剪与响应体积；存证信息走独立的 Anchor 查询接口；
-- 管理后台的锚定视图只读批次与 leaf 哈希，**不读原像**，见 §14；
-- 链上读数走 `APTOS_INDEXER_*` 一套凭据，与写入路径分开，避免供应商故障同时打掉锚定与读回（提案 §4.9）；读数**只呈现数字、不与配置比对**，判断留给运维；读取本身不可达是一种要处置的状态，不是空数据；
+- 存证在管理后台没有界面；任何读取锚定的查询停在 leaf 哈希，**不读原像**，见 §14；
+- 链上读数走 `APTOS_INDEXER_*` 一套凭据，与写入路径分开，避免供应商故障同时打掉锚定与读回（提案 §4.9）；读取不可达是一种要处置的状态，不是空数据；
 - **存证没有自己的开关**：是否对外表述存证，由 `APTOS_ANCHOR_OBJECT_ADDRESS` 与 `APTOS_ANCHOR_SIGNER_KEY` 是否配置推导。把这几项从某个环境移除，该环境就不再有任何存证痕迹——这是 §8.5「移除后系统行为不变」在配置层的对应物；
 - 公开 Verifier 作为独立包发布，**不允许 import 任何服务端 `lib/` 代码**，以保证「校验不依赖 re0」这一验收标准成立；
 - 存证不产生 Usage Event，不进入 §11 的额度链路。
@@ -879,17 +878,15 @@ authenticate admin
 
 Audit Log 采用只追加表，并保存前一条记录 Hash 形成链式校验。每日把审计链头部签名/摘要写入独立对象存储 Object，降低数据库管理员无痕修改风险。导出使用短期对象并审计下载。
 
-**锚定运维视图**（`app/admin/(console)/anchors`）读 §6 的 `anchor_batch` 与 `anchor_leaf`，同样经 Admin Use Case 与 Audit Decorator，不直连表。它按批次组织：Subject 类型、状态（`pending | submitted | confirmed | failed | superseded`）、Merkle Root、Leaf 数、窗口区间、网络、交易哈希、重试次数与确认时间；聚合层给出待锚定积压、§8.5 那条 SLO 的达成情况、Anchor Signer 余额与 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md) §4.9 的合约变更告警。
+存证**在管理后台没有界面**。它是 §8.5 的旁路系统：观测面是 Cron 每次触发时打到日志的 `anchor-alert <severity> <code> k=v` 行（见 §17.2）；失败批次的恢复是 `npm run anchor:release`，由持有数据库凭据的人执行，与 `admin:create` 同类，不经过控制台，也因此不进审计链。
 
-有一条查询边界是硬的：**一律停在 `anchor_leaf.leaf_hash`，不 join `library_version`、`revenue_period` 或任何 Subject 表**。Leaf 原像的可见范围由所属方决定，管理员不在其中任何一列（requirement.md §6.4）；而这里 join 一次，后台就成了绕开该边界的旁路——私有库锚了什么、某发布者那期拿了多少钱，都会顺着 `subject_id` 落到屏幕上。批次级数据本身没有这个问题：链上公开的就只有 Root 和批次元数据，后台展示它不多泄露一个比特。
-
-后台有一个高风险命令，走本节开头那条 Command Handler，留痕与其他管理员操作一致，要求 reason，不提供批量入口。
-
-**释放失败批次**把一个从未上链的批次标为 `superseded` 并删掉它的 Leaf，让其中的 Subject 回到待锚定队列。批次行保留、Leaf 删除这个不对称是有意的：行保住了「存在过这个批次」的记录，而 Leaf 必须走,因为 `anchor_leaf` 的唯一约束正是拦住 Workflow 重新拾取这些 Subject 的东西。**只允许 `failed`**：`confirmed` 的 Leaf 是第三方要校验的证据,`pending` 与 `submitted` 还在动,释放一个随后被链接受的批次会把同一批 Subject 锚两次。
-
-存证**没有暂停开关**。要让它停下来，把该环境的 `APTOS_*` 移除即可——Workflow 随即视自己为未配置，与前后台文案消失是同一个开关（§19.1）。为一个可随时整体移除的旁路系统再造一个停机开关，是多余的一层状态。
+**释放失败批次**把一个从未上链的批次标为 `superseded` 并删掉它的 Leaf，让其中的 Subject 回到待锚定队列。批次行保留、Leaf 删除这个不对称是有意的：行保住了「存在过这个批次」的记录，而 Leaf 必须走，因为 `anchor_leaf` 的唯一约束正是拦住 Workflow 重新拾取这些 Subject 的东西。**只允许 `failed`**：`confirmed` 的 Leaf 是第三方要校验的证据，`pending` 与 `submitted` 还在动，释放一个随后被链接受的批次会把同一批 Subject 锚两次。
 
 注意这不是提案 §4.5.1 的「重锚」。那一条针对的是 **Leaf 构造本身有缺陷**：受影响的 Subject 以新的 `leaf_schema_version` 重新锚定，旧批次作为历史保留——那是一次发布，不是一个按钮。
+
+存证**也没有暂停开关**。要让它停下来，把该环境的 `APTOS_*` 移除即可——Workflow 随即视自己为未配置，与前后台文案消失是同一个开关（§19.1）。
+
+有一条边界即使没有界面也仍然成立，并且写在查询里而不是留给记忆：**任何读取锚定的代码一律停在 `anchor_leaf.leaf_hash`，不 join `library_version`、`revenue_period` 或任何 Subject 表**。批次行本身不泄露什么——链上公开的就只有 Root 和批次元数据——危险的是顺着 `subject_id` 一 join，私有库的内容与发布者的结算金额就绕过了 requirement.md §6.4 的可见性规则。
 
 ## 15. 安全设计
 
@@ -966,9 +963,9 @@ duration_ms
 
 告警中只包含 ID 和稳定错误码，通过受控后台查看必要详情。
 
-平台尚未选定告警投递通道。锚定侧的告警规则是 `lib/domain/anchor-alerts.ts` 里的纯函数，判定结果由 Cron 以 `anchor-alert <severity> <code> k=v` 的固定格式打到日志（严重走 `console.error`），并在 §14 的锚定运维视图上展示。接一条真正的通道属于配置，不需要改这段判定。
+平台尚未选定告警投递通道。锚定侧的告警规则是 `lib/domain/anchor-alerts.ts` 里的纯函数，判定结果由 Cron 以 `anchor-alert <severity> <code> k=v` 的固定格式打到日志（严重走 `console.error`）。接一条真正的通道属于配置，不需要改这段判定。
 
-锚定的告警条件**刻意很少，且都不依赖任何配置项**：监控不可达、余额为零或偏低、批次已放弃、积压超过 SLO 窗口。合约发布次数与签名账户交易数只作为**数字**呈现在运维视图上，不与预期值比对——存证是可随时移除的旁路系统（§8.5），一条需要自带配置的规则会与那份配置脱节，届时告警反映的是配置而不是平台。
+锚定的告警条件**刻意很少，且都不依赖任何配置项**：监控不可达、余额为零或偏低、批次已放弃、积压超过 SLO 窗口。合约发布次数与签名账户交易数不产生告警——存证是可随时移除的旁路系统（§8.5），一条需要自带配置基线的规则会与那份基线脱节，届时告警反映的是配置而不是平台。要核对它们，`0x1::code::PackageRegistry.upgrade_number` 与公共节点即可，不必经过本平台。
 
 ## 18. 测试策略
 

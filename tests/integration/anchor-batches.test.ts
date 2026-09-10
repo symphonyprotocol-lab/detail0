@@ -25,7 +25,7 @@ process.env.APTOS_NETWORK ??= 'testnet';
 
 const { anchorAuditHead, anchorPublishedVersions, runAnchorTick, workspaceVersionAnchor } =
   await import('@/lib/application/anchors');
-const { releaseFailedBatch } = await import('@/lib/application/administration');
+const { releaseFailedBatch } = await import('@/lib/application/anchors');
 const { AdminChangeRefused } = await import('@/lib/domain/admin');
 const { verifyAnchorProof, versionLeaf } = await import('@/lib/domain/anchor-leaf');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
@@ -35,8 +35,6 @@ import type { AnchorSigner, AnchorSubmission } from '@/lib/infrastructure/chain/
 
 const stamp = Date.now();
 const workspaceId = crypto.randomUUID();
-const administratorId = crypto.randomUUID();
-const actor = { administratorId, clientAddress: null };
 const libraryIds: string[] = [];
 const versionIds: string[] = [];
 
@@ -125,13 +123,6 @@ const batches = () =>
 describeWithDb('anchor batches', () => {
   beforeAll(async () => {
     await db().insert(schema.workspace).values({ id: workspaceId, name: 'anchor-batches-test' });
-    /* The audit rows these actions write reference a real administrator. */
-    await db().insert(schema.administrator).values({
-      id: administratorId,
-      username: `anchor-batches-${stamp}`,
-      email: `anchor-batches-${stamp}@local.test`,
-      status: 'active',
-    });
   });
 
   beforeEach(async () => {
@@ -153,10 +144,6 @@ describeWithDb('anchor batches', () => {
       await db().delete(schema.library).where(inArray(schema.library.id, libraryIds));
     }
     await db().delete(schema.workspace).where(eq(schema.workspace.id, workspaceId));
-    await db()
-      .delete(schema.auditLog)
-      .where(eq(schema.auditLog.administratorId, administratorId));
-    await db().delete(schema.administrator).where(eq(schema.administrator.id, administratorId));
   });
 
   it('plans one batch over the versions that were never anchored', async () => {
@@ -413,7 +400,7 @@ describeWithDb('anchor batches', () => {
     it('puts its subjects back in the queue', async () => {
       const batchId = await failedBatch('release-me');
 
-      const released = await releaseFailedBatch({ batchId, reason: 'node was down', actor });
+      const released = await releaseFailedBatch({ batchId });
       expect(released.released).toBeGreaterThanOrEqual(1);
 
       const rows = await batches();
@@ -440,18 +427,14 @@ describeWithDb('anchor batches', () => {
 
       const [batch] = await batches();
       expect(batch?.status).toBe('confirmed');
-      await expect(
-        releaseFailedBatch({ batchId: batch?.id as string, reason: 'nope', actor }),
-      ).rejects.toBeInstanceOf(AdminChangeRefused);
+      await expect(releaseFailedBatch({ batchId: batch?.id as string })).rejects.toBeInstanceOf(
+        AdminChangeRefused,
+      );
     });
 
-    it('refuses a blank reason and an unknown batch', async () => {
-      const batchId = await failedBatch('release-guards');
+    it('refuses a batch it has never heard of', async () => {
       await expect(
-        releaseFailedBatch({ batchId, reason: '  ', actor }),
-      ).rejects.toBeInstanceOf(AdminChangeRefused);
-      await expect(
-        releaseFailedBatch({ batchId: crypto.randomUUID(), reason: 'x', actor }),
+        releaseFailedBatch({ batchId: crypto.randomUUID() }),
       ).rejects.toBeInstanceOf(AdminChangeRefused);
     });
   });
