@@ -19,6 +19,7 @@ import {
   PlusIcon,
   ShieldCheckIcon,
 } from '@/components/ui/icons';
+import { anchoringVisible } from '@/lib/application/anchors';
 import { listWorkspaceClaims, ownershipForLibraries } from '@/lib/application/claims';
 import {
   canDeleteLibraries,
@@ -239,11 +240,19 @@ export default async function DashboardLibrariesPage() {
         title={l.reviewNoticeTitle}
         body={l.reviewNoticeBody}
       />
-      <Notice
-        icon={<BadgeCheckIcon size={18} />}
-        title={l.anchorNoticeTitle}
-        body={l.anchorNoticeBody}
-      />
+      {/*
+        * States that published versions are already on Aptos mainnet. Behind
+        * the flag with every other such claim (requirement.md 6.4, 未启用即不得
+        * 声称已启用) -- this one was missed when the public pages were gated,
+        * because it lives on the dashboard rather than among them.
+        */}
+      {anchoringVisible() ? (
+        <Notice
+          icon={<BadgeCheckIcon size={18} />}
+          title={l.anchorNoticeTitle}
+          body={l.anchorNoticeBody}
+        />
+      ) : null}
 
       {/* requirement.md 5.2: refresh and deletion are for the library's
           owner side only; everyone else reads. */}
