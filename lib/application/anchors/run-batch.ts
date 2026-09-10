@@ -68,6 +68,22 @@ function oneSubmission(): SubmitBudget {
   return { left: 1 };
 }
 
+export interface AnchorRunOptions {
+  now?: Date;
+  /** Shared across subjects within one tick; see `SubmitBudget`. */
+  budget?: SubmitBudget;
+  /**
+   * A signer to use instead of the one the environment describes.
+   *
+   * The seam exists for the tests, and only for them: the rules worth testing
+   * here are the state machine's -- one transaction in flight, confirm before
+   * submit, a re-run that continues rather than duplicates -- and none of them
+   * should need a funded account and a live chain to exercise. Production never
+   * passes this.
+   */
+  signer?: AnchorSigner;
+}
+
 export interface AnchorRunResult {
   /** What the run did, for the cron response and the log line. */
   planned: number;
@@ -102,17 +118,20 @@ function saltSecret(): string | null {
  * publish in the batch to its confirmation.
  */
 export async function anchorPublishedVersions(
-  now = new Date(),
-  budget: SubmitBudget = oneSubmission(),
+  options: AnchorRunOptions = {},
 ): Promise<AnchorRunResult> {
-  if (!isAnchorSignerConfigured()) return { ...NOTHING, skipped: 'not_configured' };
+  const now = options.now ?? new Date();
+  const budget = options.budget ?? oneSubmission();
+  if (!options.signer && !isAnchorSignerConfigured()) {
+    return { ...NOTHING, skipped: 'not_configured' };
+  }
   const secret = saltSecret();
   if (!secret) return { ...NOTHING, skipped: 'not_configured' };
 
   const database = db();
 
   /* An open batch is finished before another is planned. */
-  const resumed = await advanceOpenBatches('version', now, budget);
+  const resumed = await advanceOpenBatches('version', now, budget, options.signer);
   if (resumed.submitted > 0 || resumed.confirmed > 0 || resumed.failed > 0) return resumed;
 
   const [recent] = await database
@@ -189,7 +208,10 @@ export async function anchorPublishedVersions(
   const windowStart = candidates[0]?.publishedAt as Date;
   const windowEnd = candidates[candidates.length - 1]?.publishedAt as Date;
   await planBatch('version', leaves, windowStart, windowEnd);
-  return { ...(await advanceOpenBatches('version', now, budget)), planned: leaves.length };
+  return {
+    ...(await advanceOpenBatches('version', now, budget, options.signer)),
+    planned: leaves.length,
+  };
 }
 
 /* --------------------------------------------------------------- audit head */
@@ -215,13 +237,16 @@ export function previousUtcDay(now: Date): { date: string; endsAt: Date } {
  * of the day does the same thing.
  */
 export async function anchorAuditHead(
-  now = new Date(),
-  budget: SubmitBudget = oneSubmission(),
+  options: AnchorRunOptions = {},
 ): Promise<AnchorRunResult> {
-  if (!isAnchorSignerConfigured()) return { ...NOTHING, skipped: 'not_configured' };
+  const now = options.now ?? new Date();
+  const budget = options.budget ?? oneSubmission();
+  if (!options.signer && !isAnchorSignerConfigured()) {
+    return { ...NOTHING, skipped: 'not_configured' };
+  }
   const database = db();
 
-  const resumed = await advanceOpenBatches('audit_head', now, budget);
+  const resumed = await advanceOpenBatches('audit_head', now, budget, options.signer);
   if (resumed.submitted > 0 || resumed.confirmed > 0 || resumed.failed > 0) return resumed;
 
   const { date, endsAt } = previousUtcDay(now);
@@ -259,7 +284,10 @@ export async function anchorAuditHead(
     new Date(endsAt.getTime() - 86_400_000),
     endsAt,
   );
-  return { ...(await advanceOpenBatches('audit_head', now, budget)), planned: 1 };
+  return {
+    ...(await advanceOpenBatches('audit_head', now, budget, options.signer)),
+    planned: 1,
+  };
 }
 
 /**
@@ -268,13 +296,13 @@ export async function anchorAuditHead(
  * Sequential and budgeted for the same reason -- see `SubmitBudget`. Running
  * the two concurrently is the reliable way to make them collide.
  */
-export async function runAnchorTick(now = new Date()): Promise<{
+export async function runAnchorTick(options: AnchorRunOptions = {}): Promise<{
   versions: AnchorRunResult;
   audit: AnchorRunResult;
 }> {
-  const budget = oneSubmission();
-  const versions = await anchorPublishedVersions(now, budget);
-  const audit = await anchorAuditHead(now, budget);
+  const shared = { ...options, budget: options.budget ?? oneSubmission() };
+  const versions = await anchorPublishedVersions(shared);
+  const audit = await anchorAuditHead(shared);
   return { versions, audit };
 }
 
@@ -343,6 +371,7 @@ async function advanceOpenBatches(
   subjectType: Subject,
   now: Date,
   budget: SubmitBudget,
+  injected?: AnchorSigner,
 ): Promise<AnchorRunResult> {
   const database = db();
   const result: AnchorRunResult = { ...NOTHING };
@@ -368,7 +397,7 @@ async function advanceOpenBatches(
 
   let signer: AnchorSigner;
   try {
-    signer = anchorSigner();
+    signer = injected ?? anchorSigner();
   } catch {
     /* Misconfigured is not failed: the batches stay open for the next run. */
     return { ...result, skipped: 'not_configured' };

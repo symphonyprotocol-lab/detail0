@@ -69,6 +69,7 @@ export {
   anchorPublishedVersions,
   previousUtcDay,
   runAnchorTick,
+  type AnchorRunOptions,
   type AnchorRunResult,
   type SubmitBudget,
 } from './run-batch';
