@@ -364,7 +364,7 @@ Upgrade Authority 私钥**不在此列，也不得加入**，见第 4.6 节。�
 
 以上八条只覆盖 Version 与 Audit Anchor。结算单存证在阶段 F 上线前另需逐条通过：
 
-1. Anchor Signer 的**密钥轮换演练已在 Testnet 完整走通一遍**——生成新账户、重新编译、用 Upgrade Authority 升级 Code Object、重锚受影响批次，四步都做过且有书面记录。这是本版把 KMS 换成环境变量后新增的门禁：轮换从「吊销一个凭据」变成了一次合约升级，出事时现学的代价太高，见第 4.6 节与第 0.1 节；
+1. Anchor Signer 的**密钥轮换演练已在 Testnet 完整走通一遍**——生成新账户、重新编译、用 Upgrade Authority 升级 Code Object、由新账户完成一次锚定，全部有书面记录。**已于 2026-09-10 完成**，见 [move/rotation-drill.md](./move/rotation-drill.md)。这是本版把 KMS 换成环境变量后新增的门禁：轮换从「吊销一个凭据」变成了一次合约升级，出事时现学的代价太高，见第 4.6 节与第 0.1 节；
 2. [publisher-revenue-share.md](./publisher-revenue-share.md) 阶段 1 的记账数据连续两个账期可被独立复算，复算结果与结算单逐项一致；
 3. 结算单加盐路径经过验证，确认链上数据不可用于判定发布者存在性或收益金额；
 4. 发布者协议已写明存证的含义与边界，明确它不构成分配正确性的保证；
