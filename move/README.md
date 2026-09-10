@@ -49,9 +49,9 @@ public entry fun submit_batch(
 
 ### 两条不能改的性质
 
-**Event 结构在首次主网发布后即冻结。** 包按提案第 4.5 节以 `upgrade_policy = "compatible"` 发布，链上会拒绝任何改变 `BatchAnchored` 字段布局或 `submit_batch` 签名的升级。公开 Verifier 未来要从链上读的每一个字段，必须第一天就在这里——这正是提案第 4.11 节门禁 1 要求「Leaf 构造与 `leaf_schema_version` 先冻结再评审」的原因。函数体可以升级，字段不行。
+**包一经发布即不可变更。** `upgrade_policy = "immutable"`（提案第 0.2 节）：事件字段、鉴权断言、乃至一个笔误，发布之后都改不了。校验方将来要读的每一样东西必须第一次就对——这正是门禁 1 要求先冻结 Leaf 构造、门禁 3 的内部评审是**唯一一次机会**的原因。修复缺陷只能发布一个新的 Code Object 并重锚。
 
-**Anchor Signer 地址编译期绑定，不上链存储。** `Move.toml` 的 `anchor_signer` 命名地址在 build 时传入，合约里只有一句相等断言。因此签名密钥失陷的攻击者**改不了授权地址**——换签名账户要动离线的 Upgrade Authority（提案第 4.6 节）。代价是轮换签名账户等于一次合约升级，这是有意的取舍。
+**Anchor Signer 地址编译期绑定，不上链存储。** `Move.toml` 的 `anchor_signer` 命名地址在 build 时传入，合约里只有一句相等断言。因此签名密钥失陷的攻击者**改不了授权地址**，也改不了别的任何东西——包不可变更。代价是轮换签名账户意味着**发布一个新的 Code Object**，旧对象下的锚定仍然有效，所以校验方最终持有一组「对象 + 签名地址」，见 [rotation-drill.md](./rotation-drill.md)。
 
 合约内的调用者检查不是多余的：模块事件由模块发出，如果没有这句断言，任何人都能从**这个模块**发出一条 `BatchAnchored`，只校验模块地址而不校验 sender 的 Verifier 就会认。
 
@@ -72,7 +72,7 @@ aptos move test --package-dir move/re0_anchor
 
 ```bash
 scripts/deploy-anchor.sh --profile <profile>                          # 首次发布
-scripts/deploy-anchor.sh --profile <profile> --object-address 0x...   # 原地升级
+scripts/deploy-anchor.sh --profile <profile> --object-address 0x...   # 升级（仅对早于 immutable 的旧对象有效）
 ```
 
 脚本先跑单元测试，再用 Object Code Deployment 发布，并把 profile 账户作为 `anchor_signer` 传进去。**脚本硬拒绝 mainnet**：主网首发受提案第 4.11 节八条门禁约束，且要用离线的 Upgrade Authority，那是一次刻意的人工操作，不是谁都能跑的脚本。
@@ -106,7 +106,7 @@ CLI profile 落在仓库根的 `.aptos/`，已在 `.gitignore` 里，那里只�
 | develop | `0x56be51cf…8bbdc` | `0xf7c4b0c7d523eb01b09f331edf9b85f594c9b1ef5325bbbaeae872845bf6d37a` |
 | preview | `0x794b41dc…6a4c` | `0x03d6ccfd7372388ea1bb5ecf5a54aef3fc99c71a8c466dd80b765047dbb958f4` |
 
-develop 的签名账户已于 2026-09-10 轮换为 `0x27bbfed5…ea96b`，Code Object 不变（轮换是一次 `compatible` 升级，见 [rotation-drill.md](./rotation-drill.md)）。Code Object 的 Owner 仍是轮换前的 `0x56be51cf…8bbdc`——Upgrade Authority 不随签名账户轮换。
+develop 的签名账户已于 2026-09-10 轮换为 `0x27bbfed5…ea96b`，Code Object 不变——当时包还是 `compatible`，轮换是一次升级（见 [rotation-drill.md](./rotation-drill.md)）。**此后新发布的对象一律 `immutable`**，这两个测试网对象保留原策略，因为链上策略无法从仓库改回。
 
 主网尚未发布，见上文的门禁说明。
 

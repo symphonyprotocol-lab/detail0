@@ -4,12 +4,26 @@ version = "1.0.0"
 license = "Apache-2.0"
 authors = ["Symphony Protocol Lab"]
 
-# aptos-anchoring-proposal.md 4.5: keep the upgrade capability, and keep it on
-# `compatible` so a later publish cannot silently change what a Root means --
-# the chain rejects any upgrade that breaks a struct layout or a public
-# signature. Aptos only lets a package's policy get stricter, so this may later
-# be hardened to `immutable` (proposal 4.5, stage E) and never loosened again.
-upgrade_policy = "compatible"
+# aptos-anchoring-proposal.md 0.2: no upgrade capability at all.
+#
+# 1.3 waived the separate upgrade authority and the inspector, which left one
+# key in an environment variable able to sign anchors, rewrite this module and
+# take the code object away, with nothing responsible for noticing. Removing
+# the upgrade capability removes all three at once: an immutable package cannot
+# be rewritten, and it does not matter who owns an object nobody can publish to.
+#
+# The price is real and is not a detail. The signer address is bound at compile
+# time, so rotating it was an upgrade -- and now it cannot be. Recovering from
+# a stolen key means publishing a NEW code object, pointing the environment at
+# it, and anchoring afresh; anchors made under the old object stay valid, so a
+# verifier ends up holding a set of code objects as well as a set of signer
+# addresses. A defect in this module has the same remedy and no other.
+#
+# Aptos only lets a policy get stricter, so this is one-way. It binds the first
+# publish of any new object, mainnet included; the testnet object deployed
+# before this change keeps `compatible` because a published policy cannot be
+# changed from here.
+upgrade_policy = "immutable"
 
 [addresses]
 # The Code Object address, filled in by `aptos move deploy-object

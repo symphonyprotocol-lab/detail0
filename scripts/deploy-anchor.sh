@@ -11,10 +11,11 @@
 #   scripts/deploy-anchor.sh --profile re0-anchor-testnet
 #   scripts/deploy-anchor.sh --profile re0-anchor-testnet --object-address 0x...
 #
-# With --object-address it upgrades that Code Object in place instead of
-# publishing a new one. The upgrade policy is `compatible` (Move.toml), so the
-# chain rejects any publish that changes the BatchAnchored layout or the
-# submit_batch signature -- an upgrade cannot silently change what a Root means.
+# With --object-address it upgrades that Code Object in place. That only works
+# on objects published before the policy became `immutable` (Move.toml, and
+# proposal 0.2); anything published since refuses every upgrade, and the way to
+# change the module -- or the signer address compiled into it -- is to publish a
+# new object and anchor afresh.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

@@ -12,12 +12,13 @@
 /// source URL, no amount, no publisher identity -- proposal 6, and the same
 /// line architecture.md 17.1 draws for logs.
 ///
-/// Because the package is published with `upgrade_policy = "compatible"`, the
-/// layout of `BatchAnchored` is frozen from the first mainnet publish: the
-/// chain rejects an upgrade that changes it. Every field the public Verifier
-/// will ever read from the chain has to be here on day one, which is why
-/// proposal 4.11 gate 1 wants the leaf construction frozen and reviewed before
-/// the first production submission.
+/// The package is published `immutable` (proposal 0.2), so nothing here can be
+/// changed after the fact -- not the event's fields, not the authorisation
+/// check, not a typo. Everything a verifier will ever read has to be right on
+/// the first publish, which is why proposal 4.11 gate 1 wants the leaf
+/// construction frozen and reviewed beforehand and why gate 3's internal review
+/// is the only chance this module gets. Fixing a defect means publishing a new
+/// code object and anchoring afresh.
 module re0_anchor::anchor {
     use std::signer;
     use std::string::{Self, String};
