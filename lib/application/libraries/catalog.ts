@@ -5,7 +5,6 @@
  * query would then refuse (architecture.md 5.2).
  */
 import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, sql, type SQL } from 'drizzle-orm';
-import { versionAnchor, type VersionAnchorProof } from '@/lib/application/anchors';
 import { refreshSchedule, type ScheduledSource } from '@/lib/application/ingestion';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { ref } from '@/lib/application/administration/column-ref';
@@ -20,7 +19,6 @@ export interface CatalogEntry {
   updatedAt: string | null;
   /** Served retrievals in the popularity window (`POPULARITY_WINDOW_DAYS`). */
   recentCalls: number;
-  /** The current version sits in a confirmed anchor batch. */
 }
 
 export const CATALOG_PAGE_SIZE = 50;
@@ -47,7 +45,6 @@ const trustScore = sql<number>`coalesce((
   order by s.computed_at desc limit 1
 ), 0)`;
 
-/** Whether a version id sits in a confirmed anchor batch (`lib/application/anchors`). */
 export async function countPublicLibraries(): Promise<number> {
   const [row] = await db()
     .select({ n: sql<number>`count(*)::int` })
@@ -190,7 +187,6 @@ export interface PublicLibraryDetail {
     /** A refresh is queued or running now. */
     refreshOpen: boolean;
   };
-  anchor: VersionAnchorProof;
   /** Served retrievals in the popularity window. */
   recentCalls: number;
   updatedAt: string | null;
@@ -237,7 +233,7 @@ export async function publicLibraryDetail(publicId: string): Promise<PublicLibra
 
   const since = new Date(Date.now() - POPULARITY_WINDOW_DAYS * DAY_MS);
 
-  const [[documents], [score], sources, versions, [calls], anchor, schedule] = await Promise.all([
+  const [[documents], [score], sources, versions, [calls], schedule] = await Promise.all([
     database
       .select({ n: sql<number>`count(*)::int` })
       .from(schema.document)
@@ -286,11 +282,6 @@ export async function publicLibraryDetail(publicId: string): Promise<PublicLibra
           lt(schema.requestLog.statusCode, 400),
         ),
       ),
-    versionAnchor({
-      versionId: row.versionId,
-      contentMerkleRoot: row.contentMerkleRoot,
-      pinnedId: `${row.publicId}/${row.label}`,
-    }),
     /* The scheduler's own view of the sources (schedule-refreshes.ts), so the
        "next check" the page shows is the one the drain will act on. Platform
        libraries only: a workspace's sources are never on the timer. */
@@ -382,7 +373,6 @@ export async function publicLibraryDetail(publicId: string): Promise<PublicLibra
       nextDueAt: due[0]?.toISOString() ?? null,
       refreshOpen: schedule.some((source) => source.open),
     },
-    anchor,
     recentCalls: calls?.n ?? 0,
     updatedAt: (row.lastSuccessfulRefreshAt ?? row.createdAt)?.toISOString() ?? null,
   };

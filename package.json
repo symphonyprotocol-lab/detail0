@@ -19,7 +19,8 @@
     "admin:create": "tsx scripts/create-administrator.mts",
     "profiles:rebuild": "tsx scripts/rebuild-profiles.mts",
     "uploads:purge": "tsx scripts/purge-uploads.mts",
-    "anchor:release": "tsx scripts/release-anchor-batch.mts"
+    "anchor:release": "tsx scripts/release-anchor-batch.mts",
+    "anchor:remove": "tsx scripts/remove-anchoring.mts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.41",

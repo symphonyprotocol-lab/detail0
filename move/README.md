@@ -118,3 +118,47 @@ develop 的签名账户已于 2026-09-10 轮换为 `0x27bbfed5…ea96b`，Code O
 - `lib/infrastructure/chain/anchor-signer.ts` 的 Signer Adapter，从 `APTOS_ANCHOR_SIGNER_KEY` 读 Ed25519 私钥。它是唯一允许读这个变量的地方，且密钥不得进入日志、Trace 或错误信息；
 - `workflows/anchor-versions.ts` 与 `workflows/anchor-audit.ts`；
 - `packages/verifier` —— 它同时是提案第 4.11 节门禁 2 要求的第二份独立实现，必须由不同的人、不共享代码地完成，所以不能等到最后顺手写。
+
+## 整体移除
+
+存证是旁路能力（提案第 4.1 节），移除它不该是一次考古。下面就是全部。
+
+**先决定要移除哪一种。** 停止锚定但保留证据，只需把某个环境的 `APTOS_*` 移除——Workflow 随即视自己为未配置并跳过，已有的 Proof 照常可校验，前后台本来就没有任何存证界面。以下清单是**彻底移除**，它会销毁 Proof。
+
+### 1. 数据库
+
+```bash
+npm run anchor:remove              # 干跑，报出将被销毁的批次与 Proof 数量
+npm run anchor:remove -- --confirm # 执行
+```
+
+SQL 在 [db/teardown/anchoring.sql](../db/teardown/anchoring.sql)，预先写好并审阅过，**不在 journal 里**，所以不会自己跑。
+
+**这一步销毁全部 Merkle Proof。** 链上的 `BatchAnchored` 事件仍在、仍为真，但把某个版本连到某个 Root 的那条路径只存在于 `anchor_leaf`。此后包括我们在内没有任何人能为已锚定的内容出具 Proof，链上的 Root 就成了无从比对的数字。
+
+两张表建在 `0000_init.sql` 里，而那个文件事后不可编辑，所以一次全新的 `npm run db:migrate` 会把它们重新建出来。要让移除永久生效，把 teardown 文件复制进 `db/migrations` 编上下一个号并加进 journal——此后它像任何 migration 一样，在每个环境执行一次。
+
+### 2. 删除这些路径
+
+```text
+app/api/cron/anchor/          app/api/v1/anchors/
+lib/application/anchors/      lib/domain/anchor-leaf.ts    lib/domain/anchor-alerts.ts
+lib/infrastructure/chain/     workflows/anchor-versions.ts workflows/anchor-audit.ts
+move/                         scripts/deploy-anchor.sh     scripts/release-anchor-batch.mts
+scripts/remove-anchoring.mts  db/teardown/
+tests/contract/anchor-*.test.ts   tests/integration/anchor-*.test.ts
+aptos-anchoring-proposal.md
+```
+
+### 3. 共享文件里的三处
+
+- `vercel.json`：删掉 `/api/cron/anchor` 那条 cron；
+- `package.json`：删掉 `anchor:release` 与 `anchor:remove`；
+- `db/schema.ts`：删掉 `anchorBatch`、`anchorLeaf` 与两个 `pgEnum`；
+- `contracts/schemas.ts`：删掉 `anchorSchema`、`anchorPreimageSchema` 与 `anchorStatusSchema`；
+- `.github/workflows/test.yml`：删掉 `move` job；
+- 九项 `APTOS_*` / `ANCHOR_LEAF_SALT_SECRET` 环境变量。
+
+`library_version.content_merkle_root` **留下**：它是版本自身的内容根，随发布计算，与锚定无关。
+
+以上之外，共享代码里对存证的引用为零——没有页面 import 它、没有 i18n、没有权限、没有别的路由调它。

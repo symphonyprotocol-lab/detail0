@@ -20,7 +20,7 @@ const PUBLIC_ORIGIN = 'https://re0.com';
  *
  * Next calls `generateMetadata` and the component for the same navigation,
  * and both need the whole detail. `publicLibraryDetail` is around eight
- * queries plus the anchor proof and the refresh schedule, so an uncached pair
+ * queries plus the refresh schedule, so an uncached pair
  * doubled all of it for every visit to a public library page. `cache()` is
  * per-request, so this shares the read within one render and never across
  * requests -- the same pattern `lib/http/dashboard.ts` uses for the workspace
@@ -95,7 +95,7 @@ function short(hash: string): string {
  * decides existence (an invisible library 404s exactly like a missing one),
  * every figure comes from the pinned current version, and the panels read
  * what the tables hold -- the versions built, the scope the index obeyed,
- * where the refresh timer stands, what the anchor tables say. Nothing is
+ * where the refresh timer stands. Nothing is
  * shown that a row did not say (requirement.md 5.1, 6.4).
  */
 export default async function LibraryDetailPage({ params }: Params) {
@@ -115,8 +115,6 @@ export default async function LibraryDetailPage({ params }: Params) {
   const pinnedId = `${entry.publicId}/${entry.version.label}`;
   const current = indexStatusLabel(entry.version.indexStatus, d.indexStatus);
   const origin = (process.env.APP_BASE_URL ?? PUBLIC_ORIGIN).replace(/\/$/, '');
-  const proofHref = `/api/v1/anchors?version=${encodeURIComponent(pinnedId)}`;
-  const anchor = entry.anchor;
 
   const restSample = [
     `curl "${origin}/api/v1/context?libraryId=${encodeURIComponent(entry.publicId)}&query=how+do+I+get+started" \\`,
