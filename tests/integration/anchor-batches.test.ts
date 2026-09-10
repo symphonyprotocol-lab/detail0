@@ -25,7 +25,7 @@ process.env.APTOS_NETWORK ??= 'testnet';
 
 const { anchorAuditHead, anchorPublishedVersions, runAnchorTick, workspaceVersionAnchor } =
   await import('@/lib/application/anchors');
-const { releaseFailedBatch, setAnchorPause } = await import('@/lib/application/administration');
+const { releaseFailedBatch } = await import('@/lib/application/administration');
 const { AdminChangeRefused } = await import('@/lib/domain/admin');
 const { verifyAnchorProof, versionLeaf } = await import('@/lib/domain/anchor-leaf');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
@@ -137,7 +137,6 @@ describeWithDb('anchor batches', () => {
   beforeEach(async () => {
     await db().delete(schema.anchorLeaf);
     await db().delete(schema.anchorBatch);
-    await db().delete(schema.anchorControl);
   });
 
   afterAll(async () => {
@@ -154,7 +153,6 @@ describeWithDb('anchor batches', () => {
       await db().delete(schema.library).where(inArray(schema.library.id, libraryIds));
     }
     await db().delete(schema.workspace).where(eq(schema.workspace.id, workspaceId));
-    await db().delete(schema.anchorControl);
     await db()
       .delete(schema.auditLog)
       .where(eq(schema.auditLog.administratorId, administratorId));
@@ -398,63 +396,7 @@ describeWithDb('anchor batches', () => {
     });
   });
 
-  /*
-   * The operator's two moves over anchoring (architecture.md 14). Both are
-   * audited elsewhere; what matters here is what they do to the machine.
-   */
-  describe('pausing', () => {
-    it('stops planning and submitting', async () => {
-      await publishedVersion({ slug: 'pause-a' });
-      await setAnchorPause({ paused: true, reason: 'rotating the signer', actor });
-      const signer = fakeSigner();
-
-      const result = await anchorPublishedVersions({ signer });
-
-      expect(result.skipped).toBe('paused');
-      expect(signer.submissions).toHaveLength(0);
-      expect(await batches()).toHaveLength(0);
-    });
-
-    /*
-     * The nuance worth a test: a batch already on its way is finished. Without
-     * it, pausing strands a transaction the chain has accepted and the batch
-     * reads `submitted` for as long as the switch is off.
-     */
-    it('still confirms a batch that is already in flight', async () => {
-      await publishedVersion({ slug: 'pause-inflight' });
-      const signer = fakeSigner();
-      signer.outcome = 'pending';
-      await anchorPublishedVersions({ signer });
-
-      await setAnchorPause({ paused: true, reason: 'chain looks unhealthy', actor });
-      signer.outcome = 'confirmed';
-      const result = await anchorPublishedVersions({ signer });
-
-      expect(result.confirmed).toBe(1);
-      const [batch] = await batches();
-      expect(batch?.status).toBe('confirmed');
-    });
-
-    it('plans again once resumed', async () => {
-      await publishedVersion({ slug: 'pause-resume' });
-      await setAnchorPause({ paused: true, reason: 'holding', actor });
-      await setAnchorPause({ paused: false, reason: 'all clear', actor });
-
-      const result = await anchorPublishedVersions({ signer: fakeSigner() });
-      expect(result.skipped).toBeNull();
-      expect(result.submitted).toBe(1);
-    });
-
-    it('refuses a blank reason and a pause that changes nothing', async () => {
-      await expect(setAnchorPause({ paused: true, reason: '   ', actor })).rejects.toBeInstanceOf(
-        AdminChangeRefused,
-      );
-      await expect(
-        setAnchorPause({ paused: false, reason: 'already running', actor }),
-      ).rejects.toBeInstanceOf(AdminChangeRefused);
-    });
-  });
-
+  /* The operator's one move over anchoring (architecture.md 14). */
   describe('releasing a failed batch', () => {
     async function failedBatch(slug: string): Promise<string> {
       await publishedVersion({ slug });

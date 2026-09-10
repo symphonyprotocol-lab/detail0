@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { unstable_cache } from 'next/cache';
-import { AnchorPauseControl, AnchorReleaseControl } from '@/components/admin/anchor-controls';
+import { AnchorReleaseControl } from '@/components/admin/anchor-controls';
 import { FilterSelect } from '@/components/admin/list-controls';
 import {
   ConsoleButton,
@@ -25,8 +25,8 @@ import {
   type AnchorStatusFilter,
   type AnchorSubjectFilter,
 } from '@/lib/application/administration';
-import { anchorAlerts, anchorHealth, anchoringSettings, anchorPauseState } from '@/lib/application/anchors';
-import { releaseAnchorBatchAction, setAnchorPauseAction } from './actions';
+import { anchorAlerts, anchorHealth, anchoringSettings } from '@/lib/application/anchors';
+import { releaseAnchorBatchAction } from './actions';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
@@ -115,13 +115,7 @@ export default async function AdminAnchorsPage({
   const page = pageNumber(params.page);
 
   const settings = anchoringSettings();
-  const [health, alerts, pause] = await Promise.all([
-    cachedHealth(),
-    cachedAlerts(),
-    /* Never cached: an operator who just paused must see it, and the row is one
-       indexed read. */
-    anchorPauseState(),
-  ]);
+  const [health, alerts] = await Promise.all([cachedHealth(), cachedAlerts()]);
   const { rows, total, stats } = await listAnchorBatches({
     subject,
     status,
@@ -151,23 +145,7 @@ export default async function AdminAnchorsPage({
 
   return (
     <div className="flex flex-col gap-[18px]">
-      <ConsolePageHeader
-        eyebrow={t.admin.eyebrow}
-        title={a.title}
-        description={a.description}
-        action={<AnchorPauseControl action={setAnchorPauseAction} paused={pause.paused} />}
-      />
-
-      {pause.paused ? (
-        <div className="rounded-[9px] border-2 border-warn/40 bg-warn/5 px-4 py-3">
-          <p className="text-[12.5px] text-warn">
-            {fill(a.controls.pausedSince, {
-              at: pause.since ? utcStamp(pause.since) : NONE,
-              reason: pause.reason ?? NONE,
-            })}
-          </p>
-        </div>
-      ) : null}
+      <ConsolePageHeader eyebrow={t.admin.eyebrow} title={a.title} description={a.description} />
 
       {stats.total === 0 ? (
         <ConsoleNotice icon={<LinkIcon size={18} />} title={a.notLiveTitle} body={a.notLiveBody} />

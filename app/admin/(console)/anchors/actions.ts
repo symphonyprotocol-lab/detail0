@@ -2,22 +2,22 @@
 
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
-import { releaseFailedBatch, setAnchorPause } from '@/lib/application/administration';
+import { releaseFailedBatch } from '@/lib/application/administration';
 import { AdminChangeRefused } from '@/lib/domain/admin';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { clientAddress } from '@/lib/http/client-address';
 
 /**
- * The console's two moves over anchoring. architecture.md 14.
+ * The console's one move over anchoring. architecture.md 14.
  *
- * Each re-resolves the session and re-checks the capability. That is not belt
- * and braces: a server action is a public endpoint with a generated name, and
+ * It re-resolves the session and re-checks the capability. That is not belt and
+ * braces: a server action is a public endpoint with a generated name, and
  * the page only rendering these controls for an entitled operator says nothing
  * about who can post to them.
  *
- * Each takes a reason, and the use case writes the audit row. Both change what
- * does or does not reach an irreversible ledger, which is precisely the kind of
- * action requirement.md 5.3 wants a record of.
+ * It takes a reason, and the use case writes the audit row. It changes what does or does
+ * not reach an irreversible ledger, which is precisely the kind of action
+ * requirement.md 5.3 wants a record of.
  */
 export interface AnchorAdminActionResult {
   ok: boolean;
@@ -46,23 +46,6 @@ async function actor() {
     administratorId: session.administratorId,
     clientAddress: clientAddress(await headers()),
   };
-}
-
-export async function setAnchorPauseAction(
-  _state: AnchorAdminActionResult | null,
-  form: FormData,
-): Promise<AnchorAdminActionResult> {
-  try {
-    await setAnchorPause({
-      paused: form.get('paused') === 'true',
-      reason: String(form.get('reason') ?? ''),
-      actor: await actor(),
-    });
-    revalidatePath('/admin/anchors');
-    return { ok: true };
-  } catch (error) {
-    return refused(error, 'anchor pause');
-  }
 }
 
 export async function releaseAnchorBatchAction(

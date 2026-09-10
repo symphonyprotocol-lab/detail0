@@ -1,11 +1,11 @@
 /**
- * The two moves the console has over anchoring.
+ * The one move the console has over anchoring.
  *
- * Both are high-risk in architecture.md 14's sense -- they change what does or
- * does not reach an irreversible ledger -- so both take a reason and write an
- * audit row, like every other console action.
+ * High-risk in architecture.md 14's sense -- it changes what does or does not
+ * reach an irreversible ledger -- so it takes a reason and writes an audit row,
+ * like every other console action.
  *
- * They are deliberately narrow, and the naming matters. aptos-anchoring-
+ * It is deliberately narrow, and the naming matters. aptos-anchoring-
  * proposal.md 4.5.1's "re-anchor" is what happens when the *leaf construction*
  * is found defective: the affected subjects are anchored again under a new
  * `leaf_schema_version` and the old batches stay, superseded, as history. That
@@ -19,53 +19,13 @@
  * are evidence, and this is not a tool for editing evidence.
  */
 import { and, count, eq } from 'drizzle-orm';
-import { anchorPauseState, type AnchorPauseState } from '@/lib/application/anchors/pause';
 import { AdminChangeRefused } from '@/lib/domain/admin';
-import { uuidv7 } from '@/lib/domain/id';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { recordAudit } from './audit';
 
 export interface AnchorAdminActor {
   administratorId: string;
   clientAddress?: string | null;
-}
-
-export async function setAnchorPause(input: {
-  paused: boolean;
-  reason: string;
-  actor: AnchorAdminActor;
-}): Promise<AnchorPauseState> {
-  const reason = input.reason.trim();
-  if (reason.length === 0) {
-    throw new AdminChangeRefused('reason_required', 'a reason is required');
-  }
-
-  const before = await anchorPauseState();
-  /* Appending the state it is already in would fake a decision nobody made. */
-  if (before.paused === input.paused) {
-    throw new AdminChangeRefused('invalid_input', 'anchoring is already in that state');
-  }
-
-  await db().insert(schema.anchorControl).values({
-    id: uuidv7(),
-    paused: input.paused,
-    reason,
-    administratorId: input.actor.administratorId,
-  });
-
-  await recordAudit({
-    administratorId: input.actor.administratorId,
-    action: input.paused ? 'anchor.pause' : 'anchor.resume',
-    targetType: 'anchor',
-    targetId: 'anchoring',
-    reason,
-    beforeValue: { paused: before.paused },
-    afterValue: { paused: input.paused },
-    clientAddress: input.actor.clientAddress ?? null,
-    result: 'success',
-  });
-
-  return anchorPauseState();
 }
 
 export interface ReleasedBatch {

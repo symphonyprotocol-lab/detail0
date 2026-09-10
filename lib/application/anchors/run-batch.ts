@@ -36,7 +36,6 @@ import {
   type AnchorSigner,
 } from '@/lib/infrastructure/chain/anchor-signer';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
-import { anchorPauseState } from './pause';
 
 /** Leaves per batch. One transaction either way; this bounds the run's memory. */
 const VERSION_BATCH_LIMIT = 500;
@@ -91,7 +90,7 @@ export interface AnchorRunResult {
   submitted: number;
   confirmed: number;
   failed: number;
-  skipped: 'not_configured' | 'nothing_due' | 'too_soon' | 'paused' | null;
+  skipped: 'not_configured' | 'nothing_due' | 'too_soon' | null;
 }
 
 const NOTHING: AnchorRunResult = {
@@ -108,20 +107,6 @@ function saltSecret(): string | null {
 }
 
 /* ------------------------------------------------------------------ version */
-
-/**
- * A paused deployment still finishes what it started.
- *
- * Pausing stops planning and submitting; it must not stop confirming, or the
- * pause strands a transaction the chain has already accepted and the batch
- * reads `submitted` for as long as someone leaves the switch off. So a paused
- * run gets a budget of zero rather than an early return.
- */
-async function pausedBudget(budget: SubmitBudget): Promise<boolean> {
-  const state = await anchorPauseState();
-  if (state.paused) budget.left = 0;
-  return state.paused;
-}
 
 /**
  * Anchor the published versions that have never entered a batch.
@@ -146,10 +131,8 @@ export async function anchorPublishedVersions(
   const database = db();
 
   /* An open batch is finished before another is planned. */
-  const paused = await pausedBudget(budget);
   const resumed = await advanceOpenBatches('version', now, budget, options.signer);
   if (resumed.submitted > 0 || resumed.confirmed > 0 || resumed.failed > 0) return resumed;
-  if (paused) return { ...NOTHING, skipped: 'paused' };
 
   const [recent] = await database
     .select({ windowEnd: schema.anchorBatch.windowEnd })
@@ -263,10 +246,8 @@ export async function anchorAuditHead(
   }
   const database = db();
 
-  const paused = await pausedBudget(budget);
   const resumed = await advanceOpenBatches('audit_head', now, budget, options.signer);
   if (resumed.submitted > 0 || resumed.confirmed > 0 || resumed.failed > 0) return resumed;
-  if (paused) return { ...NOTHING, skipped: 'paused' };
 
   const { date, endsAt } = previousUtcDay(now);
   const [existing] = await database

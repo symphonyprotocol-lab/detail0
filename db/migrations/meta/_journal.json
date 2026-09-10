@@ -253,6 +253,13 @@
       "when": 1789027802071,
       "tag": "0035_anchor_control",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1789032532264,
+      "tag": "0036_drop_anchor_control",
+      "breakpoints": true
     }
   ]
 }

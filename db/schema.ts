@@ -1218,30 +1218,6 @@ export const anchorLeaf = pgTable(
   ],
 );
 
-/**
- * Whether anchoring is paused, as an append-only chain like `retrieval_config`.
- *
- * The newest row is in force. Nothing is ever updated, so the record of who
- * paused, when and why survives being resumed -- a boolean an operator can flip
- * back leaves no trace of the window it was off for, which is the window
- * someone asks about afterwards.
- *
- * A pause stops planning and submitting, never confirming: a batch already on
- * its way has to be finished, or pausing strands a transaction the chain has
- * accepted (aptos-anchoring-proposal.md 4.3).
- */
-export const anchorControl = pgTable(
-  'anchor_control',
-  {
-    id: uuid('id').primaryKey(),
-    paused: boolean('paused').notNull(),
-    reason: text('reason').notNull(),
-    administratorId: uuid('administrator_id').references(() => administrator.id),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index('anchor_control_time_idx').on(t.createdAt.desc())],
-);
-
 // ---------------------------------------------------------------- operations & admin
 
 export const workflowOperation = pgTable(

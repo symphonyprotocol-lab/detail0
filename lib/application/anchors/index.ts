@@ -68,7 +68,6 @@ export function anchoringSettings(): AnchoringSettings {
 }
 
 export { anchorHealth, type AnchorHealth } from './health';
-export { anchorPauseState, type AnchorPauseState } from './pause';
 export { anchorAlerts, reportAnchorAlerts } from './alerts';
 
 export {

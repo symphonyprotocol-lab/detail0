@@ -11,7 +11,7 @@
 
 | # | 动作 | 结果 |
 | --- | --- | --- |
-| 1 | 后台暂停锚定 | `anchor_control` 追加一行，Workflow 停止规划与提交 |
+| 1 | 暂停锚定 | 演练当时用的是后台暂停开关；该功能随后按简化决定移除，现在等效做法是临时移除该环境的 `APTOS_*` |
 | 2 | 生成新签名账户 | `0x27bbfed5…ea96b` |
 | 3 | 以新地址重编译并升级 Code Object | tx `0x66f2f16d…c46c80`，gas 1269 units |
 | 4 | 验证旧账户被拒 | 旧账户 `0x56be51cf…8bbdc` 调用 `submit_batch` 返回 `E_UNAUTHORIZED(0x1)` |
@@ -45,7 +45,7 @@ anchor-alert critical unannounced_upgrade publishes=2 expected=1 unannounced=1
 ## 复现步骤
 
 ```bash
-# 1. 暂停（后台或 use case）
+# 1. 暂停：移除该环境的 APTOS_* 配置
 # 2. 新账户
 aptos init --profile <new> --network testnet
 # 3. 升级，由 Upgrade Authority 签名，把新地址编译进去

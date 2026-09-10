@@ -3099,13 +3099,6 @@ export const zh = {
         lastConfirmedCaption: 'UTC，最后一个确认的批次',
       },
       controls: {
-        pause: '暂停锚定',
-        resume: '恢复锚定',
-        pauseTitle: '暂停锚定',
-        pauseBody:
-          '暂停后不再规划新批次、不再提交交易；已在途的交易仍会继续确认，否则链已接受的那一笔会被搁死。',
-        resumeTitle: '恢复锚定',
-        resumeBody: '下一次 Cron 触发时恢复规划与提交。',
         release: '释放批次',
         releaseTitle: '释放这个失败批次',
         releaseBody:
@@ -3113,7 +3106,6 @@ export const zh = {
         reason: '原因',
         reasonPlaceholder: '这条会写入审计日志',
         cancel: '取消',
-        pausedSince: '已于 {at} 暂停：{reason}',
         errors: {
           not_found: '找不到该批次。',
           invalid_input: '当前状态不允许这个操作。',

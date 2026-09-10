@@ -3222,13 +3222,6 @@ export const en: Dictionary = {
         lastConfirmedCaption: 'UTC, the most recent confirmed batch',
       },
       controls: {
-        pause: 'Pause anchoring',
-        resume: 'Resume anchoring',
-        pauseTitle: 'Pause anchoring',
-        pauseBody:
-          'No new batches are planned and nothing is submitted. A transaction already in flight is still confirmed — otherwise pausing strands one the chain has accepted.',
-        resumeTitle: 'Resume anchoring',
-        resumeBody: 'Planning and submitting start again at the next scheduled tick.',
         release: 'Release batch',
         releaseTitle: 'Release this failed batch',
         releaseBody:
@@ -3236,7 +3229,6 @@ export const en: Dictionary = {
         reason: 'Reason',
         reasonPlaceholder: 'This goes in the audit log',
         cancel: 'Cancel',
-        pausedSince: 'Paused {at}: {reason}',
         errors: {
           not_found: 'No such batch.',
           invalid_input: 'That is not allowed in the current state.',

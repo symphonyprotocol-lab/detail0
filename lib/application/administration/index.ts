@@ -28,11 +28,7 @@ export {
   type AuditResultFilter,
   type ConsoleAuditRow,
 } from './list-audit';
-export {
-  releaseFailedBatch,
-  setAnchorPause,
-  type ReleasedBatch,
-} from './manage-anchors';
+export { releaseFailedBatch, type ReleasedBatch } from './manage-anchors';
 export {
   listAnchorBatches,
   ANCHOR_BATCH_STATUSES,
