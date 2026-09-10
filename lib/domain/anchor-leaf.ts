@@ -33,6 +33,17 @@ const DOMAIN_SEPARATOR = {
 
 export type AnchorSubject = keyof typeof DOMAIN_SEPARATOR;
 
+/**
+ * The constant a subject's preimage opens with.
+ *
+ * Published alongside a public preimage so the response is self-describing: a
+ * verifier can check it against proposal 4.2.1 rather than having to trust that
+ * the field order it was handed is the one that was hashed.
+ */
+export function anchorDomainSeparator(subject: AnchorSubject): string {
+  return DOMAIN_SEPARATOR[subject];
+}
+
 const encoder = new TextEncoder();
 
 /**

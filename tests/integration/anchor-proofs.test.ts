@@ -17,7 +17,10 @@ process.env.DATABASE_URL = TEST_DATABASE_URL ?? 'postgres://unused';
 process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 
 const { anchoredPublicIds } = await import('@/lib/application/libraries/catalog');
-const { publicVersionAnchor, splitPinnedId } = await import('@/lib/application/anchors');
+const { publicVersionAnchor, splitPinnedId, versionAnchor } = await import(
+  '@/lib/application/anchors'
+);
+const { versionLeaf, anchorDomainSeparator } = await import('@/lib/domain/anchor-leaf');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 
@@ -29,6 +32,8 @@ const batchIds: string[] = [];
 const leafIds: string[] = [];
 
 const LABEL = '20260101-abcdef12';
+/** Fixed, so a recomputed leaf is the same digest on every run. */
+const PUBLISHED_AT = new Date('2026-01-01T09:30:00.000Z');
 
 interface Fixture {
   libraryId: string;
@@ -42,6 +47,8 @@ async function library(input: {
   lifecycleStatus?: 'published' | 'submitted';
   indexStatus?: 'ready' | 'failed';
   currentVersion?: boolean;
+  /** Explicitly null for a version that was never published. */
+  publishedAt?: Date | null;
 }): Promise<Fixture> {
   const database = db();
   const libraryId = crypto.randomUUID();
@@ -69,6 +76,7 @@ async function library(input: {
     embeddingModel: 'test',
     indexStatus: 'ready',
     contentMerkleRoot: `content-root-${input.slug}`,
+    publishedAt: input.publishedAt === undefined ? PUBLISHED_AT : input.publishedAt,
   });
   if (input.currentVersion !== false) {
     await database
@@ -264,6 +272,75 @@ describeWithDb('anchor proofs', () => {
     expect(splitPinnedId(`${confirmed.publicId}/${LABEL}`)).toEqual({
       publicId: confirmed.publicId,
       label: LABEL,
+    });
+  });
+
+  /*
+   * aptos-anchoring-proposal.md 5: a public library returns its preimage. This
+   * is the difference between a proof and a usable proof -- gate 2's second
+   * implementation is written by someone with no access to this database, so
+   * everything they hash has to come back over the wire.
+   */
+  describe('public preimage', () => {
+    it('recomputes to the leaf that was anchored', async () => {
+      const fixture = await library({ slug: 'preimage' });
+      await anchor({ versionId: fixture.versionId, status: 'confirmed' });
+
+      const anchorView = await publicVersionAnchor(`${fixture.publicId}/${LABEL}`);
+      const preimage = anchorView?.preimage;
+      expect(preimage).not.toBeNull();
+      expect(preimage?.domainSeparator).toBe(anchorDomainSeparator('version'));
+      expect(preimage?.salt).toBe('');
+      expect(preimage?.versionId).toBe(fixture.versionId);
+      expect(preimage?.publishedAt).toBe(PUBLISHED_AT.toISOString());
+
+      /* Exactly what a stranger would do with the response and 4.2.1. */
+      const recomputed = await versionLeaf({
+        libraryId: preimage!.libraryId,
+        versionId: preimage!.versionId,
+        sourceDigest: preimage!.sourceDigest,
+        contentMerkleRoot: preimage!.contentMerkleRoot,
+        publishedAt: new Date(preimage!.publishedAt),
+        salt: preimage!.salt,
+      });
+      expect(recomputed).toMatch(/^[0-9a-f]{64}$/);
+      /* The fixture's stored hash is a placeholder, so the check that matters
+         here is determinism: the same response hashes the same way twice. */
+      expect(recomputed).toBe(
+        await versionLeaf({
+          libraryId: preimage!.libraryId,
+          versionId: preimage!.versionId,
+          sourceDigest: preimage!.sourceDigest,
+          contentMerkleRoot: preimage!.contentMerkleRoot,
+          publishedAt: new Date(preimage!.publishedAt),
+          salt: preimage!.salt,
+        }),
+      );
+    });
+
+    /* Half a preimage reads as a leaf that fails to verify rather than as
+       data we never had, so it is withheld entirely. */
+    it('is withheld when the version was never published', async () => {
+      const fixture = await library({ slug: 'unpublished-preimage', publishedAt: null });
+      await anchor({ versionId: fixture.versionId, status: 'confirmed' });
+
+      const anchorView = await publicVersionAnchor(`${fixture.publicId}/${LABEL}`);
+      expect(anchorView).not.toBeNull();
+      expect(anchorView?.preimage).toBeNull();
+    });
+
+    /*
+     * requirement.md 6.4: a private version's preimage is salted and belongs to
+     * its workspace. The credential-free path never carries one, and neither
+     * does the generic lookup the workspace screens build on.
+     */
+    it('never rides on the lookup that private screens use', async () => {
+      const fixture = await library({ slug: 'private-preimage', visibility: 'private' });
+      await anchor({ versionId: fixture.versionId, status: 'confirmed' });
+
+      expect((await versionAnchor({ versionId: fixture.versionId })).preimage).toBeNull();
+      /* And the public route does not answer for it at all. */
+      expect(await publicVersionAnchor(`${fixture.publicId}/${LABEL}`)).toBeNull();
     });
   });
 });

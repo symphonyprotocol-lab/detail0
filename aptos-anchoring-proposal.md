@@ -388,6 +388,25 @@ GET /v1/publisher/periods/{periodId}/anchor
 
 返回字段：存证状态、网络、Code Object 地址、Leaf Schema 版本、交易哈希、Merkle Root、Leaf 哈希、Proof 路径、确认时间。同一 Version 存在多个 Schema 版本的锚定时，默认返回最新一条并附带历史条目。公开库额外返回可公开的原像字段，私有库仅对通过工作空间检查的调用者返回原像。结算单接口只对该发布者本人开放，返回逐项明细原像与 `statement_digest`，供其在本地重算 leaf。
 
+**公开原像的具体形状。** 这是「一份 Proof」和「一份能用的 Proof」的差别：门禁 2 的第二份实现由拿不到本库的人完成，他要哈希的每一样东西都必须从接口回来。公开库的响应里附一个 `preimage` 对象，字段顺序即第 4.2.1 节 framing 的顺序：
+
+```json
+{
+  "domainSeparator": "re0/anchor/version",
+  "leafSchemaVersion": 1,
+  "libraryId": "…", "versionId": "…",
+  "sourceDigest": "…", "contentMerkleRoot": "…",
+  "publishedAt": "2026-01-01T09:30:00.000Z",
+  "salt": ""
+}
+```
+
+- `domainSeparator` 一并返回，使响应自解释：校验方可以拿它与第 4.2.1 节核对，而不必相信「拿到手的字段顺序就是被哈希的那个顺序」；
+- `publishedAt` 是**当时被哈希的那个字符串本身**，不是时间戳的重新渲染；
+- `salt` 恒为空串——公开原像不加盐，且空串仍参与 framing；
+- **原像不完整时整个省略**，不返回半份。缺内容根或缺发布时间的版本没有可哈希的东西，给半份会表现为「一个校验不过的 leaf」，而不是「我们本来就没有这份数据」；
+- 私有库与结算单**不走这条路**：它们的原像加盐且分别属于工作空间与发布者本人（第 3.2 节），免密端点一概不返回。
+
 该接口遵循 [architecture.md](./architecture.md) 第 12 节的统一错误与鉴权模型，且不计 Call。
 
 ## 6. 隐私与合规

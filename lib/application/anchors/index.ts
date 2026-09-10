@@ -11,7 +11,12 @@
  * `unavailable` when every attempt failed or was superseded.
  */
 import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
-import type { Anchor } from '@/contracts/schemas';
+import type { Anchor, AnchorPreimage } from '@/contracts/schemas';
+import {
+  ANCHOR_LEAF_SCHEMA_VERSION,
+  anchorDomainSeparator,
+  anchorInstant,
+} from '@/lib/domain/anchor-leaf';
 import { anchoringMode, type AnchoringMode } from '@/lib/domain/anchoring';
 import { isVersionLabelShaped } from '@/lib/domain/library';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
@@ -81,6 +86,15 @@ export interface VersionAnchorProof extends Anchor {
   /** The version's own content root, the input to the leaf (proposal 4.2). */
   contentMerkleRoot: string | null;
   batchStatus: string | null;
+  /**
+   * What a stranger needs to rebuild the leaf, for public libraries only.
+   *
+   * Null everywhere else, and not because the data is missing: a private
+   * version's preimage is salted and belongs to its workspace (requirement.md
+   * 6.4), so it is reached through that workspace's own screens rather than
+   * from an endpoint that needs no credential.
+   */
+  preimage: AnchorPreimage | null;
 }
 
 const BATCH_RANK: Record<string, number> = {
@@ -147,6 +161,7 @@ export async function versionAnchor(input: {
       merkleProof: null,
       leafCount: null,
       batchStatus: null,
+      preimage: null,
     };
   }
 
@@ -171,6 +186,7 @@ export async function versionAnchor(input: {
     merkleProof: best.merkleProof ?? null,
     leafCount: best.leafCount,
     batchStatus: best.status,
+    preimage: null,
   };
 }
 
@@ -199,7 +215,10 @@ export async function publicVersionAnchor(pinnedId: string): Promise<VersionAnch
   const [row] = await db()
     .select({
       versionId: schema.libraryVersion.id,
+      libraryId: schema.libraryVersion.libraryId,
+      sourceDigest: schema.libraryVersion.sourceDigest,
       contentMerkleRoot: schema.libraryVersion.contentMerkleRoot,
+      publishedAt: schema.libraryVersion.publishedAt,
     })
     .from(schema.libraryVersion)
     .innerJoin(schema.library, eq(schema.library.id, schema.libraryVersion.libraryId))
@@ -226,9 +245,30 @@ export async function publicVersionAnchor(pinnedId: string): Promise<VersionAnch
     .limit(1);
   if (!row) return null;
 
-  return versionAnchor({
+  const anchor = await versionAnchor({
     versionId: row.versionId,
     contentMerkleRoot: row.contentMerkleRoot,
     pinnedId: `${split.publicId}/${split.label}`,
   });
+
+  /*
+   * The preimage rides along only when it is complete. A version with no
+   * content root or no publish time has nothing a verifier could hash, and
+   * handing back a half preimage would look like a leaf that fails to verify
+   * rather than like data we never had.
+   */
+  if (!row.contentMerkleRoot || !row.publishedAt) return anchor;
+  return {
+    ...anchor,
+    preimage: {
+      domainSeparator: anchorDomainSeparator('version'),
+      leafSchemaVersion: anchor.leafSchemaVersion ?? ANCHOR_LEAF_SCHEMA_VERSION,
+      libraryId: row.libraryId,
+      versionId: row.versionId,
+      sourceDigest: row.sourceDigest,
+      contentMerkleRoot: row.contentMerkleRoot,
+      publishedAt: anchorInstant(row.publishedAt),
+      salt: '',
+    },
+  };
 }

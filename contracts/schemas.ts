@@ -337,6 +337,30 @@ export const verifyClaimOutputSchema = z.object({
 
 // --- Anchors. requirement.md 6.4. Never inlined into context responses. ---
 
+/**
+ * Everything a stranger needs to rebuild a public version's leaf.
+ *
+ * aptos-anchoring-proposal.md 5 requires a public library to return its
+ * preimage; without it a proof is unusable, because there is nothing to hash.
+ * The fields are listed in the order 4.2.1 frames them, and `publishedAt` is
+ * the exact string that was hashed rather than a re-rendering of the timestamp.
+ *
+ * Public libraries only. A private version's preimage is salted and belongs to
+ * its workspace, and a settlement's to its publisher (6.4); neither is served
+ * from a credential-free endpoint.
+ */
+export const anchorPreimageSchema = z.object({
+  domainSeparator: z.string(),
+  leafSchemaVersion: z.number().int(),
+  libraryId: z.string(),
+  versionId: z.string(),
+  sourceDigest: z.string(),
+  contentMerkleRoot: z.string(),
+  publishedAt: z.string(),
+  /** Always empty here: a public preimage carries no salt (proposal 3.2). */
+  salt: z.literal(''),
+});
+
 export const anchorSchema = z.object({
   subjectType: z.enum(['version', 'audit_head', 'earning_statement']),
   subjectId: z.string(),
@@ -361,3 +385,4 @@ export type Usage = z.infer<typeof usageSchema>;
 export type ClaimChallenge = z.infer<typeof claimChallengeSchema>;
 export type VerifyClaimOutput = z.infer<typeof verifyClaimOutputSchema>;
 export type Anchor = z.infer<typeof anchorSchema>;
+export type AnchorPreimage = z.infer<typeof anchorPreimageSchema>;
