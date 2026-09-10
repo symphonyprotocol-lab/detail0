@@ -106,6 +106,8 @@ CLI profile 落在仓库根的 `.aptos/`，已在 `.gitignore` 里，那里只�
 | develop | `0x56be51cf…8bbdc` | `0xf7c4b0c7d523eb01b09f331edf9b85f594c9b1ef5325bbbaeae872845bf6d37a` |
 | preview | `0x794b41dc…6a4c` | `0x03d6ccfd7372388ea1bb5ecf5a54aef3fc99c71a8c466dd80b765047dbb958f4` |
 
+develop 的签名账户已于 2026-09-10 轮换为 `0x27bbfed5…ea96b`，Code Object 不变（轮换是一次 `compatible` 升级，见 [rotation-drill.md](./rotation-drill.md)）。Code Object 的 Owner 仍是轮换前的 `0x56be51cf…8bbdc`——Upgrade Authority 不随签名账户轮换。
+
 主网尚未发布，见上文的门禁说明。
 
 ## 阶段 A 还差什么
