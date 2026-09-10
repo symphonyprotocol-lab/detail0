@@ -23,10 +23,9 @@ process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 process.env.ANCHOR_LEAF_SALT_SECRET ??= 'test-anchor-salt-secret';
 process.env.APTOS_NETWORK ??= 'testnet';
 
-const { anchorAuditHead, anchorPublishedVersions, runAnchorTick } = await import(
-  '@/lib/application/anchors'
-);
-const { verifyAnchorProof } = await import('@/lib/domain/anchor-leaf');
+const { anchorAuditHead, anchorPublishedVersions, runAnchorTick, workspaceVersionAnchor } =
+  await import('@/lib/application/anchors');
+const { verifyAnchorProof, versionLeaf } = await import('@/lib/domain/anchor-leaf');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
 const { eq, inArray } = await import('drizzle-orm');
@@ -313,5 +312,72 @@ describeWithDb('anchor batches', () => {
     await runAnchorTick({ signer });
 
     expect(signer.submissions).toHaveLength(1);
+  });
+
+  /*
+   * requirement.md 6.4: a private library's preimage belongs to its workspace.
+   * The test that matters is not that a preimage comes back but that it is the
+   * right one -- the salt scope here has to be the scope the workflow used, or
+   * the workspace is handed fields that hash to something no batch contained.
+   */
+  describe('the workspace view of its own anchors', () => {
+    it('returns a salted preimage that rebuilds the anchored leaf', async () => {
+      const versionId = await publishedVersion({ slug: 'ws-private', visibility: 'private' });
+      const signer = fakeSigner();
+      await anchorPublishedVersions({ signer });
+
+      const view = await workspaceVersionAnchor({ workspaceId, versionId });
+      const preimage = view?.preimage;
+      expect(preimage).toBeTruthy();
+      expect(preimage?.salt).toMatch(/^[0-9a-f]{64}$/);
+
+      const recomputed = await versionLeaf({
+        libraryId: preimage!.libraryId,
+        versionId: preimage!.versionId,
+        sourceDigest: preimage!.sourceDigest,
+        contentMerkleRoot: preimage!.contentMerkleRoot,
+        publishedAt: new Date(preimage!.publishedAt),
+        salt: preimage!.salt,
+      });
+      /* The leaf the workflow actually anchored, not one recomputed alongside. */
+      const [leaf] = await db()
+        .select({ hash: schema.anchorLeaf.leafHash })
+        .from(schema.anchorLeaf)
+        .where(eq(schema.anchorLeaf.subjectId, versionId));
+      expect(recomputed).toBe(leaf?.hash);
+    });
+
+    it('leaves a public library unsalted, and still rebuilds', async () => {
+      const versionId = await publishedVersion({ slug: 'ws-public' });
+      const signer = fakeSigner();
+      await anchorPublishedVersions({ signer });
+
+      const preimage = (await workspaceVersionAnchor({ workspaceId, versionId }))?.preimage;
+      expect(preimage?.salt).toBe('');
+
+      const [leaf] = await db()
+        .select({ hash: schema.anchorLeaf.leafHash })
+        .from(schema.anchorLeaf)
+        .where(eq(schema.anchorLeaf.subjectId, versionId));
+      expect(
+        await versionLeaf({
+          libraryId: preimage!.libraryId,
+          versionId: preimage!.versionId,
+          sourceDigest: preimage!.sourceDigest,
+          contentMerkleRoot: preimage!.contentMerkleRoot,
+          publishedAt: new Date(preimage!.publishedAt),
+          salt: preimage!.salt,
+        }),
+      ).toBe(leaf?.hash);
+    });
+
+    /* Not found, not refused: the answer must say nothing about what exists
+       inside another workspace. */
+    it('does not answer for another workspace', async () => {
+      const versionId = await publishedVersion({ slug: 'ws-other', visibility: 'private' });
+      expect(
+        await workspaceVersionAnchor({ workspaceId: crypto.randomUUID(), versionId }),
+      ).toBeNull();
+    });
   });
 });

@@ -29,6 +29,8 @@ import {
   listVersionDocuments,
   workspaceLibraryDetail,
 } from '@/lib/application/libraries';
+import type { Dictionary } from '@/lib/i18n/dictionary';
+import { anchoringVisible, workspaceVersionAnchor } from '@/lib/application/anchors';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { quoteBuild } from '@/lib/application/plans';
@@ -90,6 +92,17 @@ export default async function DashboardLibraryPage({
     fetchesPages: buildFetchesPages(library.source?.type),
   });
   const currentVersionId = library.versions.find((version) => version.isCurrent)?.id ?? null;
+
+  /*
+   * requirement.md 6.4 gives a private library's preimage to its workspace and
+   * nobody else, so this lookup is scoped by ownership rather than filtered
+   * afterwards. Behind the same flag as every other surface that describes
+   * anchoring as something happening today.
+   */
+  const anchor =
+    anchoringVisible() && currentVersionId
+      ? await workspaceVersionAnchor({ workspaceId: session.workspace.id, versionId: currentVersionId })
+      : null;
   const docsPage = documentsPage(query.docs);
   const docsSize = documentsPageSize(query.size);
   const documents = currentVersionId
@@ -474,6 +487,8 @@ export default async function DashboardLibraryPage({
         />
       </section>
 
+      {anchor ? <AnchorPanel anchor={anchor} t={d.anchor} /> : null}
+
       {library.visibility === 'public' || library.reviews.length > 0 ? (
         <section className={`${PANEL} p-0.5`}>
           <div className="px-6 py-4">
@@ -537,5 +552,88 @@ function Table({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * The current version's anchor, for the workspace that owns it.
+ *
+ * The preimage is folded shut: it is the part that makes the proof checkable
+ * rather than the part anyone reads daily, and a native `<details>` keeps it a
+ * click away without any client code. Nothing here is shown for a library this
+ * workspace does not own -- the lookup already returned null.
+ */
+function AnchorPanel({
+  anchor,
+  t,
+}: {
+  anchor: NonNullable<Awaited<ReturnType<typeof workspaceVersionAnchor>>>;
+  t: Dictionary['dashboard']['libraryDetail']['anchor'];
+}) {
+  const short = (value: string) => (value.length <= 22 ? value : `${value.slice(0, 12)}…${value.slice(-8)}`);
+  const rows: [string, string][] = [];
+  if (anchor.network) rows.push([t.network, anchor.network]);
+  if (anchor.txHash) rows.push([t.txHash, short(anchor.txHash)]);
+  if (anchor.merkleRoot) rows.push([t.merkleRoot, short(anchor.merkleRoot)]);
+  if (anchor.leafHash) rows.push([t.leafHash, short(anchor.leafHash)]);
+  if (anchor.leafIndex !== null) {
+    rows.push([t.leafIndex, `${anchor.leafIndex}${anchor.leafCount === null ? '' : ` / ${anchor.leafCount}`}`]);
+  }
+  if (anchor.blockTime) rows.push([t.blockTime, anchor.blockTime.slice(0, 16).replace('T', ' ')]);
+
+  const preimage = anchor.preimage
+    ? (Object.entries(anchor.preimage) as [string, string | number][])
+    : [];
+
+  return (
+    <section className={`${PANEL} flex flex-col gap-3 p-6`}>
+      <div className="flex flex-wrap items-center gap-2.5">
+        <h2 className="text-[15px] font-semibold tracking-[-0.025em] text-ink">{t.title}</h2>
+        <Badge tone={anchor.status === 'anchored' ? 'brand' : 'neutral'}>
+          {anchor.status === 'anchored'
+            ? t.anchored
+            : anchor.status === 'pending'
+              ? t.pending
+              : t.unavailable}
+        </Badge>
+      </div>
+      <p className="text-[12.5px] leading-[1.7] text-muted">
+        {anchor.status === 'anchored'
+          ? t.description
+          : anchor.status === 'pending'
+            ? t.pendingBody
+            : t.unavailableBody}
+      </p>
+
+      {rows.length > 0 ? (
+        <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
+          {rows.map(([label, value]) => (
+            <div key={label} className="flex items-baseline justify-between gap-3 border-b border-line/60 py-1.5">
+              <dt className="text-[11.5px] text-muted">{label}</dt>
+              <dd className="font-mono text-[11.5px] text-ink">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+
+      {preimage.length > 0 ? (
+        <details className="group text-[12px]">
+          <summary className="cursor-pointer list-none text-brandink hover:underline [&::-webkit-details-marker]:hidden">
+            {fill(t.preimageSummary, { count: preimage.length })}
+          </summary>
+          <p className="mt-2 text-[11.5px] leading-[1.6] text-muted">{t.preimageNote}</p>
+          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg bg-subtle px-3 py-2.5">
+            {preimage.map(([key, value]) => (
+              <div key={key} className="contents">
+                <dt className="font-mono text-[11px] text-muted">{key}</dt>
+                <dd className="font-mono text-[11px] break-all text-ink">
+                  {value === '' ? t.saltEmpty : String(value)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+      ) : null}
+    </section>
   );
 }

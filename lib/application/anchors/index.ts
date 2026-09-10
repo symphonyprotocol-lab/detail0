@@ -16,6 +16,7 @@ import {
   ANCHOR_LEAF_SCHEMA_VERSION,
   anchorDomainSeparator,
   anchorInstant,
+  deriveAnchorSalt,
 } from '@/lib/domain/anchor-leaf';
 import { anchoringMode, type AnchoringMode } from '@/lib/domain/anchoring';
 import { isVersionLabelShaped } from '@/lib/domain/library';
@@ -270,6 +271,77 @@ export async function publicVersionAnchor(pinnedId: string): Promise<VersionAnch
       contentMerkleRoot: row.contentMerkleRoot,
       publishedAt: anchorInstant(row.publishedAt),
       salt: '',
+    },
+  };
+}
+
+/**
+ * The proof for one of a workspace's own versions, preimage included.
+ *
+ * requirement.md 6.4 gives a private library's preimage to that workspace and
+ * to nobody else, which is exactly what this is for: the salt comes back, so a
+ * member can rebuild the leaf and check it against the chain the same way a
+ * stranger checks a public one. The scope is the ownership check itself --
+ * a version whose library another workspace owns is not found, rather than
+ * refused, so the answer says nothing about what exists elsewhere.
+ *
+ * The salt is derived, never stored, so a deployment without the secret gets
+ * the anchor without a preimage rather than a preimage that cannot be right.
+ */
+export async function workspaceVersionAnchor(input: {
+  workspaceId: string;
+  versionId: string;
+}): Promise<VersionAnchorProof | null> {
+  const [row] = await db()
+    .select({
+      versionId: schema.libraryVersion.id,
+      libraryId: schema.libraryVersion.libraryId,
+      sourceDigest: schema.libraryVersion.sourceDigest,
+      contentMerkleRoot: schema.libraryVersion.contentMerkleRoot,
+      publishedAt: schema.libraryVersion.publishedAt,
+      visibility: schema.library.visibility,
+      ownerWorkspaceId: schema.library.ownerWorkspaceId,
+    })
+    .from(schema.libraryVersion)
+    .innerJoin(schema.library, eq(schema.library.id, schema.libraryVersion.libraryId))
+    .where(
+      and(
+        eq(schema.libraryVersion.id, input.versionId),
+        eq(schema.library.ownerWorkspaceId, input.workspaceId),
+        isNull(schema.library.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!row) return null;
+
+  const anchor = await versionAnchor({
+    versionId: row.versionId,
+    contentMerkleRoot: row.contentMerkleRoot,
+  });
+
+  const secret = process.env.ANCHOR_LEAF_SALT_SECRET?.trim();
+  if (!row.contentMerkleRoot || !row.publishedAt) return anchor;
+  if (row.visibility !== 'public' && !secret) return anchor;
+
+  return {
+    ...anchor,
+    preimage: {
+      domainSeparator: anchorDomainSeparator('version'),
+      leafSchemaVersion: anchor.leafSchemaVersion ?? ANCHOR_LEAF_SCHEMA_VERSION,
+      libraryId: row.libraryId,
+      versionId: row.versionId,
+      sourceDigest: row.sourceDigest,
+      contentMerkleRoot: row.contentMerkleRoot,
+      publishedAt: anchorInstant(row.publishedAt),
+      /*
+       * The same scope the workflow salted with: the owning workspace, falling
+       * back to the library when ownership is unset. Getting this wrong would
+       * produce a preimage that hashes to something the batch never contained.
+       */
+      salt:
+        row.visibility === 'public'
+          ? ''
+          : await deriveAnchorSalt(secret as string, row.ownerWorkspaceId ?? row.libraryId),
     },
   };
 }

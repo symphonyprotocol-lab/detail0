@@ -1000,6 +1000,27 @@ export const en: Dictionary = {
         chunks: '{n} chunks · {tokens} tokens',
         chunk: 'Chunk {ordinal}',
       },
+      anchor: {
+        title: 'On-chain proof',
+        description:
+          "The current version's anchor state. A private library's preimage is visible to this workspace only.",
+        pending: 'Pending',
+        anchored: 'Anchored',
+        unavailable: 'Anchor incomplete',
+        pendingBody: 'This version is queued for anchoring; retrieval and citations are unaffected.',
+        unavailableBody:
+          'The last batch failed or was superseded, and the version will be anchored again.',
+        network: 'Network',
+        txHash: 'Transaction',
+        merkleRoot: 'Merkle root',
+        leafHash: 'Leaf hash',
+        leafIndex: 'Index in batch',
+        blockTime: 'Confirmed',
+        preimageSummary: 'Show the preimage you can check yourself ({count} fields)',
+        preimageNote:
+          'Hash these fields in the order and framing of proposal 4.2.1 and you should get the leaf hash above.',
+        saltEmpty: '(empty \u2014 a public library carries no salt)',
+      },
       versions: {
         title: 'Versions',
         columns: ['Version', 'Status', 'Documents / chunks', 'Build cost', 'Published'],
