@@ -57,6 +57,7 @@ export function anchoringSettings(): AnchoringSettings {
 }
 
 export { anchorHealth, type AnchorHealth } from './health';
+export { anchorAlerts, reportAnchorAlerts } from './alerts';
 
 export {
   anchorAuditHead,

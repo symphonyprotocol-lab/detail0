@@ -24,7 +24,7 @@ import {
   type AnchorStatusFilter,
   type AnchorSubjectFilter,
 } from '@/lib/application/administration';
-import { anchorHealth, anchoringSettings } from '@/lib/application/anchors';
+import { anchorAlerts, anchorHealth, anchoringSettings } from '@/lib/application/anchors';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
@@ -55,6 +55,10 @@ const NONE = '—';
 const HEALTH_SECONDS = 60;
 
 const cachedHealth = unstable_cache(() => anchorHealth(), ['admin-anchor-health'], {
+  revalidate: HEALTH_SECONDS,
+});
+
+const cachedAlerts = unstable_cache(() => anchorAlerts(), ['admin-anchor-alerts'], {
   revalidate: HEALTH_SECONDS,
 });
 
@@ -109,7 +113,7 @@ export default async function AdminAnchorsPage({
   const page = pageNumber(params.page);
 
   const settings = anchoringSettings();
-  const health = await cachedHealth();
+  const [health, alerts] = await Promise.all([cachedHealth(), cachedAlerts()]);
   const { rows, total, stats } = await listAnchorBatches({
     subject,
     status,
@@ -124,7 +128,8 @@ export default async function AdminAnchorsPage({
    * has no label for still has to render -- printing the raw code beats
    * dropping the row from an operations screen.
    */
-  const monitorErrors: Record<string, string> = a.health.errors;
+  /* An alert this build has no wording for still shows -- as its code. */
+  const alertMessages: Record<string, string> = a.alerts.codes;
   const subjectLabels: Record<string, string> = a.subjects;
   const statusLabels: Record<string, string> = a.statuses;
 
@@ -143,6 +148,36 @@ export default async function AdminAnchorsPage({
       {stats.total === 0 ? (
         <ConsoleNotice icon={<LinkIcon size={18} />} title={a.notLiveTitle} body={a.notLiveBody} />
       ) : null}
+
+      {/*
+        * The evaluated conditions, ahead of the numbers they were read from.
+        * An operator opening this screen during an incident is asking what is
+        * wrong, not what the balance is -- and proposal 4.9's alerts are the
+        * answer, in the same words the log lines carry.
+        */}
+      <Panel>
+        <PanelHead
+          title={a.alerts.title}
+          description={fill(a.alerts.checked, {
+            at: utcStamp(new Date(health.monitor.checkedAt)),
+          })}
+        />
+        <div className="flex flex-col gap-2 px-[15px] py-3.5">
+          {alerts.length === 0 ? (
+            <p className="text-[12px] tracking-[-0.023em] text-muted">{a.alerts.none}</p>
+          ) : null}
+          {alerts.map((alert) => (
+            <div key={alert.code} className="flex items-start gap-2.5">
+              <Pill tone={alert.severity === 'critical' ? 'danger' : 'warn'}>
+                {a.alerts.severities[alert.severity]}
+              </Pill>
+              <p className="text-[12px] leading-[1.6] tracking-[-0.023em] text-steel">
+                {fill(alertMessages[alert.code] ?? alert.code, alert.detail)}
+              </p>
+            </div>
+          ))}
+        </div>
+      </Panel>
 
       <section className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
         <Metric
@@ -184,19 +219,6 @@ export default async function AdminAnchorsPage({
 
       <Panel>
         <PanelHead title={a.health.title} description={a.health.description} />
-        {/*
-          * A watch that cannot answer is a state to act on, not an empty
-          * panel: with the key in the environment there is nothing else that
-          * would notice it being used (proposal 4.9, and 1.1's 0.1).
-          */}
-        {!health.monitor.reachable ? (
-          <div className="mx-[15px] mt-3.5 rounded-[8px] border-2 border-err/40 bg-err/5 px-4 py-3">
-            <p className="text-[12.5px] font-semibold text-err">{a.health.monitorDown}</p>
-            <p className="mt-1 text-[11.5px] leading-[1.6] text-muted">
-              {monitorErrors[health.monitor.error ?? ''] ?? a.health.monitorDownBody}
-            </p>
-          </div>
-        ) : null}
         <dl className="grid gap-x-8 px-[15px] sm:grid-cols-2">
           <Fact
             label={a.health.balance}

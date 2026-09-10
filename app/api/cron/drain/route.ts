@@ -12,7 +12,7 @@
  * do work on demand.
  */
 import { NextResponse } from 'next/server';
-import { runAnchorTick } from '@/lib/application/anchors';
+import { reportAnchorAlerts, runAnchorTick } from '@/lib/application/anchors';
 import { drainOperations, isIngestionConfigured, scheduleDueRefreshes } from '@/lib/application/ingestion';
 
 export const maxDuration = 300;
@@ -39,6 +39,13 @@ export async function GET(request: Request): Promise<Response> {
    * the ten-minute schedule does not turn into ten-minute anchoring.
    */
   const anchors = await runAnchorTick();
+  /*
+   * Evaluated after the tick, so a batch this run confirmed is not still being
+   * reported as stalled. The lines go to the log because that is the delivery
+   * that exists (architecture.md 17.2 names what to watch, not where to send
+   * it); routing them to a channel is configuration, not code.
+   */
+  const alerts = await reportAnchorAlerts();
 
   return NextResponse.json(
     {
@@ -46,6 +53,7 @@ export async function GET(request: Request): Promise<Response> {
       drained: outcomes.length,
       outcomes: outcomes.map((outcome) => outcome.status),
       anchors,
+      alerts: alerts.map((alert) => `${alert.severity}:${alert.code}`),
     },
     { headers: { 'cache-control': 'no-store' } },
   );

@@ -959,6 +959,8 @@ duration_ms
 
 告警中只包含 ID 和稳定错误码，通过受控后台查看必要详情。
 
+平台尚未选定告警投递通道。锚定侧的告警规则是 `lib/domain/anchor-alerts.ts` 里的纯函数，判定结果由 Cron 以 `anchor-alert <severity> <code> k=v` 的固定格式打到日志（严重走 `console.error`），并在 §14 的锚定运维视图上展示。接一条真正的通道属于配置，不需要改这段判定；判定本身有测试逐条证明可触发，见 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md) §4.11 门禁 8。
+
 ## 18. 测试策略
 
 ### 18.1 Contract Tests

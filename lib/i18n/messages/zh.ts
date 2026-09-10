@@ -3079,6 +3079,27 @@ export const zh = {
         lastConfirmed: '最近确认',
         lastConfirmedCaption: 'UTC，最后一个确认的批次',
       },
+      alerts: {
+        title: '当前告警',
+        none: '没有告警。',
+        checked: '最近检查 {at}',
+        severities: { critical: '严重', warning: '提醒' },
+        codes: {
+          unannounced_upgrade:
+            'Code Object 出现 {unannounced} 次未公告的发布（共 {publishes} 次，预期 {expected} 次）。这可能是一次未通报的升级，也可能是升级授权密钥已失陷。',
+          monitor_unreachable:
+            '链上监控无法应答（{reason}）。在它恢复之前，「没有告警」不代表没有问题。',
+          monitor_key_not_isolated:
+            '监控凭据与写入凭据相同，检查已拒绝执行。共用一把 key 会让供应商故障同时打掉锚定与唯一的入侵检测。',
+          signer_balance_empty: '签名账户余额为零，锚定已停止。',
+          signer_balance_low: '签名账户余额 {octas} octas，低于下限 {floor}。',
+          unexplained_signer_activity:
+            '签名账户有 {count} 笔交易无法与平台记录对应。',
+          batches_failed: '{count} 个批次已放弃重试，需要人工处置。',
+          backlog_stalled:
+            '最早的未确认批次已等待 {oldestOpenMinutes} 分钟，超过 {sloMinutes} 分钟的 SLO 窗口。',
+        },
+      },
       health: {
         title: '签名账户与链上监控',
         description:
@@ -3094,15 +3115,6 @@ export const zh = {
         signerKnown: '平台已知 {known} 笔',
         signerUnexplained: '{count} 笔无法归因',
         heartbeat: '最近检查',
-        monitorDown: '监控不可用',
-        monitorDownBody:
-          '「没有告警」现在无法与「监控已死」区分。按提案第 4.9 节这是必须处理的状态，不是空数据。',
-        errors: {
-          not_configured: '未配置签名账户或 Code Object 地址。',
-          indexer_url_missing: '未配置 APTOS_INDEXER_URL。',
-          monitor_key_not_isolated:
-            '监控凭据与写入凭据相同。共用一把 key 会让供应商故障同时打掉锚定与唯一的入侵检测。',
-        },
       },
       config: {
         title: '签名与合约配置',

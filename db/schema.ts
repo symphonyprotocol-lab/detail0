@@ -1186,6 +1186,13 @@ export const anchorBatch = pgTable(
     status: anchorBatchStatusEnum('status').notNull(),
     attempts: integer('attempts').notNull().default(0),
     confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    /**
+     * When the batch was planned, not when its window closed. A backfill
+     * anchors versions published days earlier, so `window_end` would make every
+     * catch-up batch look overdue the moment it existed; the staleness alarm
+     * needs this clock instead (aptos-anchoring-proposal.md 4.8).
+     */
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('anchor_batch_tx_uq').on(t.txHash)],
 );

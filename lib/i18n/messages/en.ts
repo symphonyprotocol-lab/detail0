@@ -3200,6 +3200,27 @@ export const en: Dictionary = {
         lastConfirmed: 'Last confirmed',
         lastConfirmedCaption: 'UTC, the most recent confirmed batch',
       },
+      alerts: {
+        title: 'Open alerts',
+        none: 'Nothing to report.',
+        checked: 'Last checked {at}',
+        severities: { critical: 'Critical', warning: 'Warning' },
+        codes: {
+          unannounced_upgrade:
+            '{unannounced} publish(es) to the code object nobody announced ({publishes} seen, {expected} expected). Either an upgrade went out unnotified, or the upgrade authority is in someone else\u2019s hands.',
+          monitor_unreachable:
+            'The chain watch cannot answer ({reason}). Until it recovers, "no alarm" means nothing.',
+          monitor_key_not_isolated:
+            'The monitoring credential equals the write credential, so the check refused to run. One key lets a provider outage remove anchoring and its only intrusion detection together.',
+          signer_balance_empty: 'The signing account is empty and anchoring has stopped.',
+          signer_balance_low: 'The signing account holds {octas} octas, below the {floor} floor.',
+          unexplained_signer_activity:
+            '{count} signer transaction(s) cannot be matched to anything this platform sent.',
+          batches_failed: '{count} batch(es) were given up on and need an operator.',
+          backlog_stalled:
+            'The oldest unconfirmed batch has waited {oldestOpenMinutes} minutes, past the {sloMinutes} minute SLO window.',
+        },
+      },
       health: {
         title: 'Signer and chain watch',
         description:
@@ -3215,15 +3236,6 @@ export const en: Dictionary = {
         signerKnown: '{known} known to the platform',
         signerUnexplained: '{count} unaccounted for',
         heartbeat: 'Last checked',
-        monitorDown: 'The watch is not answering',
-        monitorDownBody:
-          '"No alarm" can no longer be told apart from "the watch died". Proposal 4.9 treats this as a condition to act on, not as empty data.',
-        errors: {
-          not_configured: 'No signing account or code object address configured.',
-          indexer_url_missing: 'APTOS_INDEXER_URL is not set.',
-          monitor_key_not_isolated:
-            'The monitoring credential equals the write credential. Sharing one key lets a provider outage remove anchoring and its only intrusion detection at the same moment.',
-        },
       },
       config: {
         title: 'Signer and contract',
