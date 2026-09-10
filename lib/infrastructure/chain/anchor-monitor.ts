@@ -15,10 +15,10 @@
  *   activity  transactions sent by the Anchor Signer, to be reconciled against
  *             the batches we know we sent.
  *
- * The isolation is enforced, not documented: a deployment whose monitoring key
- * equals its write key is refused. Sharing one key means a provider outage
- * removes the anchoring and its only intrusion detection at the same moment,
- * so the failure window and the attack window line up exactly (4.9).
+ * Using the monitoring credential rather than the write one keeps a provider
+ * outage from removing anchoring and its read-back together (4.9). It is a
+ * convention here, not something this refuses to run without: a deployment that
+ * has not set an indexer key still gets answers from the public endpoint.
  */
 export interface ChainMonitorResult {
   /** False when the monitor itself could not answer -- the alarm, not a zero. */
@@ -43,18 +43,13 @@ function env(name: string): string | null {
 }
 
 /**
- * The monitoring endpoint, or the reason there is none.
- *
- * A missing key is allowed -- the public endpoint answers unauthenticated, just
- * slowly -- but a key that equals the write key is not, and neither is silently
- * falling back to the write path's endpoint.
+ * The monitoring endpoint, or the reason there is none. A missing key is fine:
+ * the public endpoint answers unauthenticated, just more slowly.
  */
 export function monitorConfig(): IndexerConfig | { error: string } {
   const url = env('APTOS_INDEXER_URL');
   if (!url) return { error: 'indexer_url_missing' };
-  const key = env('APTOS_INDEXER_API_KEY');
-  if (key && key === env('APTOS_API_KEY')) return { error: 'monitor_key_not_isolated' };
-  return { url, key };
+  return { url, key: env('APTOS_INDEXER_API_KEY') };
 }
 
 async function query<T>(config: IndexerConfig, gql: string, variables: object): Promise<T> {

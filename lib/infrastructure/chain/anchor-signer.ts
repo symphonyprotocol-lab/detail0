@@ -52,19 +52,13 @@ export interface AnchorSigner {
 /**
  * When the balance stops being enough to keep anchoring.
  *
- * An anchor costs 31 gas units, measured on testnet, so at proposal 4.10's
- * ~9,000 transactions a year the account spends roughly 0.28 APT annually. The
- * default floor is half an APT: months of warning rather than days, because
- * topping it up is a manual act by whoever holds the funds and an empty account
- * stops anchoring altogether (4.8). Proposal 4.11 gate 7 wants this alarm live
- * before the first mainnet batch.
+ * A constant, not a setting. An anchor costs 31 gas units, measured, so at
+ * proposal 4.10's ~9,000 transactions a year the account spends about 0.28 APT
+ * annually; half an APT is months of warning rather than days. Nothing about a
+ * deployment makes that number different, so nothing about a deployment should
+ * have to state it.
  */
-export const DEFAULT_MIN_BALANCE_OCTAS = 50_000_000;
-
-export function minBalanceOctas(): number {
-  const raw = Number.parseInt(process.env.APTOS_ANCHOR_MIN_BALANCE_OCTAS ?? '', 10);
-  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_MIN_BALANCE_OCTAS;
-}
+export const MIN_BALANCE_OCTAS = 50_000_000;
 
 const NETWORKS: Record<string, Network> = {
   mainnet: Network.MAINNET,

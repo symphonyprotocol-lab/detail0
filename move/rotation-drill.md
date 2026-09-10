@@ -15,7 +15,7 @@
 | 2 | 生成新签名账户 | `0x27bbfed5…ea96b` |
 | 3 | 以新地址重编译并升级 Code Object | tx `0x66f2f16d…c46c80`，gas 1269 units |
 | 4 | 验证旧账户被拒 | 旧账户 `0x56be51cf…8bbdc` 调用 `submit_batch` 返回 `E_UNAUTHORIZED(0x1)` |
-| 5 | 公告升级、切换 env | `APTOS_ANCHOR_EXPECTED_PUBLISHES=2`，签名私钥与地址换成新账户 |
+| 5 | 切换 env | 签名私钥与地址换成新账户 |
 | 6 | 新账户提交一笔锚定 | **未完成**：新账户余额为 0，测试网水龙头需人工网页领取 |
 
 Upgrade Authority 全程是 `0x56be51cf…8bbdc`（Code Object 的 Owner），也就是轮换前的签名账户。这不构成演练缺陷：**Upgrade Authority 本来就不随 Anchor Signer 轮换**，生产上它是离线冷钥。但测试网上这两把钥匙目前仍是同一个账户，与第 4.6 节「两把密钥的分离是强制的」不符——分离是独立的一项待办，见下。
@@ -34,7 +34,7 @@ anchor-alert critical unannounced_upgrade publishes=2 expected=1 unannounced=1
 
 这比翻标志位模拟一次更有说服力，可一并作为**第 4.11 节门禁 8「验证可触发」的证据**。
 
-**公告机制是闭合的。** 把 `APTOS_ANCHOR_EXPECTED_PUBLISHES` 调到 2（这就是「公告」在软件里的落点）之后告警消失，同时新账户余额为 0 触发了另一条严重告警——两条都对。
+**升级在运维视图上可见。** 运维视图显示的「Code Object 发布次数」随这次升级从 1 变成 2，`PackageRegistry.upgrade_number` 同步变为 1。演练当时还存在一条基于配置的「未公告升级」告警并如实触发；该机制随后按简化决定移除——发布次数改为只呈现数字，是否异常由运维判断，见 architecture.md §17.2。
 
 ## 演练暴露的一个规格缺口
 
@@ -53,8 +53,7 @@ scripts/deploy-anchor.sh --profile <upgrade-authority> \
   --object-address <object> --anchor-signer <new-address>
 # 4. 确认旧账户被拒
 aptos move run --function-id <object>::anchor::submit_batch ... --profile <old>
-# 5. 切换 APTOS_ANCHOR_SIGNER_KEY / _ACCOUNT_ADDRESS，并把
-#    APTOS_ANCHOR_EXPECTED_PUBLISHES 加一（这就是公告）
+# 5. 切换 APTOS_ANCHOR_SIGNER_KEY / _ACCOUNT_ADDRESS
 # 6. 给新账户充值，恢复锚定，确认下一批次由新账户提交并确认
 ```
 

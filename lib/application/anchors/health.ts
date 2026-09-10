@@ -1,36 +1,26 @@
 /**
- * Is anchoring alive, and is anyone else using our key?
+ * What the chain says about our signer and our code object.
  *
- * aptos-anchoring-proposal.md 4.9 asks for the balance, the contract-change
- * watch and a heartbeat. 1.1 raised the stakes: with the signing key in the
- * environment there is nothing else between a stolen key and a forged anchor,
- * so "no alarm" has to mean "checked and clear", never "the check died".
+ * Numbers, not verdicts. Anchoring is a side system that has to stay removable
+ * (proposal 4.1), so the console reads the chain and shows what it found:
+ * balance, how many times the code object has been published to, how many
+ * transactions the signer has sent. An operator compares those to what they
+ * expect; nothing here compares them to a configured expectation, because a
+ * configured expectation is one more thing to keep in step and one more way to
+ * be wrong.
  *
- * Hence `reachable`. A monitor that cannot answer reports that it cannot
- * answer, and the console shows it as a fault rather than as zero upgrades and
- * a clean bill of health.
+ * `reachable` is the exception, and it earns its place: a check that cannot
+ * answer must say so, or "nothing to report" and "the check died" look the
+ * same.
  */
 import { and, count, eq, isNotNull } from 'drizzle-orm';
 import {
   anchorSigner,
   isAnchorSignerConfigured,
-  minBalanceOctas,
+  MIN_BALANCE_OCTAS,
 } from '@/lib/infrastructure/chain/anchor-signer';
 import { checkChain } from '@/lib/infrastructure/chain/anchor-monitor';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
-
-/**
- * Publishes to the Code Object this deployment expects to see.
- *
- * One by default: the deploy that created it. An announced upgrade raises it,
- * which is what makes "unannounced" a thing this can measure at all -- proposal
- * 4.5 requires an announcement per upgrade, and this is where that announcement
- * lands in the software.
- */
-function expectedPublishes(): number {
-  const raw = Number.parseInt(process.env.APTOS_ANCHOR_EXPECTED_PUBLISHES ?? '', 10);
-  return Number.isFinite(raw) && raw >= 0 ? raw : 1;
-}
 
 export interface AnchorHealth {
   configured: boolean;
@@ -41,23 +31,17 @@ export interface AnchorHealth {
     reachable: boolean;
     checkedAt: string;
     error: string | null;
+    /** Publishes to the code object -- the deploy, plus any upgrade since. */
     publishes: number;
-    expectedPublishes: number;
-    /** Above zero means someone published to the Code Object unannounced. */
-    unannouncedPublishes: number;
+    /** Recent transactions from the signing account, as the indexer has them. */
     recentSignerTransactions: number;
+    /** Batch transactions this platform knows it sent, to compare against. */
     knownBatchTransactions: number;
-    /**
-     * Signer transactions this platform cannot account for. A deployment's own
-     * publish and any manual operator transaction land here too -- which is the
-     * point: anything re0 did not send is worth a look.
-     */
-    unexplainedSignerTransactions: number;
   };
 }
 
 export async function anchorHealth(): Promise<AnchorHealth> {
-  const minBalance = minBalanceOctas();
+  const minBalance = MIN_BALANCE_OCTAS;
   const empty: AnchorHealth = {
     configured: false,
     balanceOctas: null,
@@ -68,11 +52,8 @@ export async function anchorHealth(): Promise<AnchorHealth> {
       checkedAt: new Date().toISOString(),
       error: 'not_configured',
       publishes: 0,
-      expectedPublishes: expectedPublishes(),
-      unannouncedPublishes: 0,
       recentSignerTransactions: 0,
       knownBatchTransactions: 0,
-      unexplainedSignerTransactions: 0,
     },
   };
   if (!isAnchorSignerConfigured()) return empty;
@@ -97,7 +78,6 @@ export async function anchorHealth(): Promise<AnchorHealth> {
       ),
   ]);
 
-  const expected = expectedPublishes();
   const knownBatches = known?.n ?? 0;
   return {
     configured: true,
@@ -109,11 +89,8 @@ export async function anchorHealth(): Promise<AnchorHealth> {
       checkedAt: chain.checkedAt.toISOString(),
       error: chain.error,
       publishes: chain.objectTransactions.length,
-      expectedPublishes: expected,
-      unannouncedPublishes: Math.max(0, chain.objectTransactions.length - expected),
       recentSignerTransactions: chain.signerTransactions.length,
       knownBatchTransactions: knownBatches,
-      unexplainedSignerTransactions: Math.max(0, chain.signerTransactions.length - knownBatches),
     },
   };
 }

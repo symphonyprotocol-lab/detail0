@@ -258,26 +258,13 @@ export default async function AdminAnchorsPage({
               </span>
             }
           />
-          <Fact
-            label={a.health.publishes}
-            value={
-              <span className="flex flex-wrap items-center gap-2">
-                {number(health.monitor.publishes)}
-                <span className="text-faint">
-                  {fill(a.health.publishesExpected, {
-                    expected: number(health.monitor.expectedPublishes),
-                  })}
-                </span>
-                {health.monitor.unannouncedPublishes > 0 ? (
-                  <Pill tone="danger">
-                    {fill(a.health.publishesUnannounced, {
-                      count: number(health.monitor.unannouncedPublishes),
-                    })}
-                  </Pill>
-                ) : null}
-              </span>
-            }
-          />
+          {/*
+            * Numbers, not verdicts. An operator who knows how many upgrades
+            * were announced, and how much this platform sent, reads these at a
+            * glance; encoding either expectation in configuration would only
+            * give it something new to disagree with.
+            */}
+          <Fact label={a.health.publishes} value={number(health.monitor.publishes)} />
           <Fact
             label={a.health.signerActivity}
             value={
@@ -288,13 +275,6 @@ export default async function AdminAnchorsPage({
                     known: number(health.monitor.knownBatchTransactions),
                   })}
                 </span>
-                {health.monitor.unexplainedSignerTransactions > 0 ? (
-                  <Pill tone="warn">
-                    {fill(a.health.signerUnexplained, {
-                      count: number(health.monitor.unexplainedSignerTransactions),
-                    })}
-                  </Pill>
-                ) : null}
               </span>
             }
           />
@@ -309,7 +289,6 @@ export default async function AdminAnchorsPage({
       <Panel>
         <PanelHead title={a.config.title} description={a.config.description} />
         <dl className="grid gap-x-8 px-[15px] sm:grid-cols-2">
-          <Fact label={a.config.mode} value={a.config.modes[settings.mode]} />
           <Fact label={a.config.network} value={settings.network ?? NONE} />
           <Fact
             label={a.config.objectAddress}

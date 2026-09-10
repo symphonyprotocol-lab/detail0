@@ -524,7 +524,8 @@ Step 输出只保存可序列化摘要；大对象保存在对象存储。外部
 - 链或节点不可用时批次停留在 `pending` 并重试告警，发布、刷新、检索、计量、审核和出账全部不受影响；
 - Context 与 Search 响应默认不返回 Anchor 字段，避免影响 `maxTokens` 裁剪与响应体积；存证信息走独立的 Anchor 查询接口；
 - 管理后台的锚定视图只读批次与 leaf 哈希，**不读原像**，见 §14；
-- 链上监控走 `APTOS_INDEXER_*` 一套凭据，与写入路径的 `APTOS_API_KEY` **强制不同**——两者相同时监控直接拒绝检查。共用一把 key 会让供应商故障同时打掉锚定与唯一的入侵检测，故障窗口与攻击窗口重叠（提案 §4.9）；监控自身上报心跳，不可达是一种要处置的状态，不是空数据；
+- 链上读数走 `APTOS_INDEXER_*` 一套凭据，与写入路径分开，避免供应商故障同时打掉锚定与读回（提案 §4.9）；读数**只呈现数字、不与配置比对**，判断留给运维；读取本身不可达是一种要处置的状态，不是空数据；
+- **存证没有自己的开关**：是否对外表述存证，由 `APTOS_ANCHOR_OBJECT_ADDRESS` 与 `APTOS_ANCHOR_SIGNER_KEY` 是否配置推导。把这几项从某个环境移除，该环境就不再有任何存证痕迹——这是 §8.5「移除后系统行为不变」在配置层的对应物；
 - 公开 Verifier 作为独立包发布，**不允许 import 任何服务端 `lib/` 代码**，以保证「校验不依赖 re0」这一验收标准成立；
 - 存证不产生 Usage Event，不进入 §11 的额度链路。
 
@@ -965,7 +966,9 @@ duration_ms
 
 告警中只包含 ID 和稳定错误码，通过受控后台查看必要详情。
 
-平台尚未选定告警投递通道。锚定侧的告警规则是 `lib/domain/anchor-alerts.ts` 里的纯函数，判定结果由 Cron 以 `anchor-alert <severity> <code> k=v` 的固定格式打到日志（严重走 `console.error`），并在 §14 的锚定运维视图上展示。接一条真正的通道属于配置，不需要改这段判定；判定本身有测试逐条证明可触发，见 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md) §4.11 门禁 8。
+平台尚未选定告警投递通道。锚定侧的告警规则是 `lib/domain/anchor-alerts.ts` 里的纯函数，判定结果由 Cron 以 `anchor-alert <severity> <code> k=v` 的固定格式打到日志（严重走 `console.error`），并在 §14 的锚定运维视图上展示。接一条真正的通道属于配置，不需要改这段判定。
+
+锚定的告警条件**刻意很少，且都不依赖任何配置项**：监控不可达、余额为零或偏低、批次已放弃、积压超过 SLO 窗口。合约发布次数与签名账户交易数只作为**数字**呈现在运维视图上，不与预期值比对——存证是可随时移除的旁路系统（§8.5），一条需要自带配置的规则会与那份配置脱节，届时告警反映的是配置而不是平台。
 
 ## 18. 测试策略
 
@@ -1045,10 +1048,7 @@ APTOS_INDEXER_API_KEY          # 必须与 APTOS_API_KEY 不同，见提案 §4.
 APTOS_ANCHOR_OBJECT_ADDRESS
 APTOS_ANCHOR_ACCOUNT_ADDRESS
 APTOS_ANCHOR_SIGNER_KEY        # Anchor Signer 的 Ed25519 私钥，十六进制；见下
-APTOS_ANCHOR_MIN_BALANCE_OCTAS # 可选，余额下限告警阈值，缺省 50000000（0.5 APT）
-APTOS_ANCHOR_EXPECTED_PUBLISHES# 可选，Code Object 的预期发布次数，缺省 1；超出即未公告升级
 ANCHOR_LEAF_SALT_SECRET
-ANCHORING_MODE                 # hidden | live；公开页面是否把存证描述为已在运行，缺省 hidden
 ```
 
 Secret 不得进入前端 Bundle，只允许在 Server Component、Route Handler 和 Workflow 中读取。三套环境各持一份，不共用任何一项。

@@ -3250,16 +3250,10 @@ export const en: Dictionary = {
         checked: 'Last checked {at}',
         severities: { critical: 'Critical', warning: 'Warning' },
         codes: {
-          unannounced_upgrade:
-            '{unannounced} publish(es) to the code object nobody announced ({publishes} seen, {expected} expected). Either an upgrade went out unnotified, or the upgrade authority is in someone else\u2019s hands.',
           monitor_unreachable:
             'The chain watch cannot answer ({reason}). Until it recovers, "no alarm" means nothing.',
-          monitor_key_not_isolated:
-            'The monitoring credential equals the write credential, so the check refused to run. One key lets a provider outage remove anchoring and its only intrusion detection together.',
           signer_balance_empty: 'The signing account is empty and anchoring has stopped.',
           signer_balance_low: 'The signing account holds {octas} octas, below the {floor} floor.',
-          unexplained_signer_activity:
-            '{count} signer transaction(s) cannot be matched to anything this platform sent.',
           batches_failed: '{count} batch(es) were given up on and need an operator.',
           backlog_stalled:
             'The oldest unconfirmed batch has waited {oldestOpenMinutes} minutes, past the {sloMinutes} minute SLO window.',
@@ -3274,19 +3268,14 @@ export const en: Dictionary = {
         balanceLow: 'Below the floor',
         balanceUnknown: 'Node did not answer',
         publishes: 'Publishes to the code object',
-        publishesExpected: '{expected} expected',
-        publishesUnannounced: '{count} unannounced',
         signerActivity: 'Recent signer transactions',
         signerKnown: '{known} known to the platform',
-        signerUnexplained: '{count} unaccounted for',
         heartbeat: 'Last checked',
       },
       config: {
         title: 'Signer and contract',
         description:
           'Read from this environment. The signing key is reported as configured or not, and is never printed.',
-        mode: 'Public pages',
-        modes: { hidden: 'Hidden', live: 'Live' },
         network: 'Network',
         objectAddress: 'Code object address',
         signerAddress: 'Anchor Signer address',

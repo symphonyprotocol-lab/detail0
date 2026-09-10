@@ -18,18 +18,25 @@ import {
   anchorInstant,
   deriveAnchorSalt,
 } from '@/lib/domain/anchor-leaf';
-import { anchoringMode, type AnchoringMode } from '@/lib/domain/anchoring';
 import { isVersionLabelShaped } from '@/lib/domain/library';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 
 /**
- * Whether the public pages may describe anchoring as something the platform
- * does. Off unless ANCHORING_MODE says otherwise (lib/domain/anchoring.ts).
- * The per-version status the tables report is unaffected: `pending` is true
+ * Whether the product may describe anchoring as something it does.
+ *
+ * The answer is whether anchoring is configured: a deployment with no code
+ * object and no signing key cannot anchor, so it must not say it does
+ * (requirement.md 6.4). No separate flag, which means no way for the two to
+ * disagree and nothing extra to unset when the side system is removed.
+ *
+ * The per-version status the tables report is unaffected -- `pending` is true
  * whether or not the surrounding copy is shown.
  */
 export function anchoringVisible(): boolean {
-  return anchoringMode(process.env.ANCHORING_MODE) === 'live';
+  return Boolean(
+    process.env.APTOS_ANCHOR_OBJECT_ADDRESS?.trim() &&
+      process.env.APTOS_ANCHOR_SIGNER_KEY?.trim(),
+  );
 }
 
 /**
@@ -41,7 +48,6 @@ export function anchoringVisible(): boolean {
  * turns every operator's browser history into a copy.
  */
 export interface AnchoringSettings {
-  mode: AnchoringMode;
   network: string | null;
   objectAddress: string | null;
   signerAddress: string | null;
@@ -54,7 +60,6 @@ export function anchoringSettings(): AnchoringSettings {
     return raw ? raw : null;
   };
   return {
-    mode: anchoringMode(process.env.ANCHORING_MODE),
     network: value('APTOS_NETWORK'),
     objectAddress: value('APTOS_ANCHOR_OBJECT_ADDRESS'),
     signerAddress: value('APTOS_ANCHOR_ACCOUNT_ADDRESS'),

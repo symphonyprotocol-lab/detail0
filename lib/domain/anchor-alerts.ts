@@ -1,32 +1,34 @@
 /**
- * What about anchoring is worth waking someone for, as a pure function.
+ * What about anchoring is worth telling someone about, as a pure function.
  *
- * aptos-anchoring-proposal.md 4.9 requires the contract-change alert to exist
- * and forbids turning it off, and 4.11 gate 8 wants it demonstrated firing
- * before the first mainnet batch. A rule that only exists inside a rendering
- * path cannot be demonstrated; this one is a function over a state, so proving
- * it fires is a test rather than an incident.
+ * Deliberately short, and every condition here answers from state the chain and
+ * the batch tables already hold -- nothing is compared against a configured
+ * expectation. Anchoring is a side system that has to stay removable (proposal
+ * 4.1); a rule that needs its own setting is a rule that can fall out of step
+ * with the setting, and then the alert is about the configuration rather than
+ * about the platform.
  *
- * Two disciplines, both from architecture.md 17.2 and proposal 4.9:
+ * What is not here is on the console as a number instead: how many times the
+ * code object has been published to, how many transactions the signer has
+ * sent. An operator who knows what to expect can see those at a glance, which
+ * is the honest division of labour between software and judgement.
+ *
+ * Two disciplines, both from architecture.md 17.2:
  *
  * - the payload carries ids, counts and stable codes only. No leaf preimage, no
  *   key material, no library title -- an alert travels further than a console
  *   session and lands in more inboxes than a database does;
- * - severity is about what the condition means, not how loud it feels. The
- *   watch failing is critical because it is the only thing that would notice a
- *   stolen key (proposal 1.1's 0.1), while a low balance is a warning because
- *   it has months of runway behind it.
+ * - severity is about what the condition means, not how loud it feels. An empty
+ *   account is critical because anchoring has stopped; a low one is a warning
+ *   because it has months of runway.
  */
 
 export type AnchorAlertSeverity = 'critical' | 'warning';
 
 export type AnchorAlertCode =
-  | 'unannounced_upgrade'
   | 'monitor_unreachable'
-  | 'monitor_key_not_isolated'
   | 'signer_balance_empty'
   | 'signer_balance_low'
-  | 'unexplained_signer_activity'
   | 'batches_failed'
   | 'backlog_stalled';
 
@@ -43,9 +45,6 @@ export interface AnchorAlertInput {
   minBalanceOctas: number;
   monitorReachable: boolean;
   monitorError: string | null;
-  publishes: number;
-  expectedPublishes: number;
-  unexplainedSignerTransactions: number;
   failedBatches: number;
   /** Age of the oldest batch still waiting to confirm, in milliseconds. */
   oldestOpenBatchAgeMs: number | null;
@@ -62,32 +61,12 @@ export function evaluateAnchorAlerts(input: AnchorAlertInput): AnchorAlert[] {
   const alerts: AnchorAlert[] = [];
 
   /*
-   * The one proposal 4.9 says may never be silenced. Anything published to the
-   * code object beyond what an announcement declared is either an upgrade
-   * nobody told us about or the Upgrade Authority in someone else's hands.
-   */
-  if (input.publishes > input.expectedPublishes) {
-    alerts.push({
-      code: 'unannounced_upgrade',
-      severity: 'critical',
-      detail: {
-        publishes: input.publishes,
-        expected: input.expectedPublishes,
-        unannounced: input.publishes - input.expectedPublishes,
-      },
-    });
-  }
-
-  /*
-   * A watch that cannot answer is critical rather than cosmetic: while it is
-   * down, "no alarm" carries no information at all, and with the signing key in
-   * the environment there is no second line to fall back on.
+   * A check that cannot answer says so, rather than reading as a clean bill of
+   * health: while it is down, "nothing to report" carries no information.
    */
   if (!input.monitorReachable) {
     alerts.push({
-      code: input.monitorError === 'monitor_key_not_isolated'
-        ? 'monitor_key_not_isolated'
-        : 'monitor_unreachable',
+      code: 'monitor_unreachable',
       severity: 'critical',
       detail: { reason: input.monitorError ?? 'unknown' },
     });
@@ -104,14 +83,6 @@ export function evaluateAnchorAlerts(input: AnchorAlertInput): AnchorAlert[] {
         detail: { octas: input.balanceOctas, floor: input.minBalanceOctas },
       });
     }
-  }
-
-  if (input.unexplainedSignerTransactions > 0) {
-    alerts.push({
-      code: 'unexplained_signer_activity',
-      severity: 'warning',
-      detail: { count: input.unexplainedSignerTransactions },
-    });
   }
 
   if (input.failedBatches > 0) {

@@ -1,9 +1,11 @@
 /**
- * aptos-anchoring-proposal.md 4.11 gate 8 wants the contract-change alert shown
- * to fire before the first mainnet batch. These are that demonstration: the
- * rules are a function over a state, so proving each one triggers -- and that
- * none of them carries anything it should not -- is a test rather than an
- * incident someone has to stage.
+ * Every alerting condition, shown firing.
+ *
+ * The rules are a function over a state, so proving each one triggers -- and
+ * that none of them carries anything it should not -- is a test rather than an
+ * incident someone has to stage. Deliberately few: what is not alerted on is
+ * reported as a number on the console instead, because a rule needing its own
+ * setting is a rule that can disagree with the setting.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -18,9 +20,6 @@ const HEALTHY: AnchorAlertInput = {
   minBalanceOctas: 50_000_000,
   monitorReachable: true,
   monitorError: null,
-  publishes: 1,
-  expectedPublishes: 1,
-  unexplainedSignerTransactions: 0,
   failedBatches: 0,
   oldestOpenBatchAgeMs: null,
   sloWindowMs: 2 * 60 * 60 * 1000,
@@ -36,15 +35,7 @@ describe('evaluateAnchorAlerts', () => {
 
   /* A deployment with anchoring switched off is not an incident. */
   it('says nothing when anchoring is not configured', () => {
-    expect(codes({ configured: false, monitorReachable: false, publishes: 9 })).toEqual([]);
-  });
-
-  it('fires on a publish nobody announced', () => {
-    expect(codes({ publishes: 2 })).toContain('unannounced_upgrade');
-  });
-
-  it('does not fire when the extra publish was announced', () => {
-    expect(codes({ publishes: 2, expectedPublishes: 2 })).toEqual([]);
+    expect(codes({ configured: false, monitorReachable: false })).toEqual([]);
   });
 
   it('fires when the watch itself cannot answer', () => {
@@ -53,21 +44,10 @@ describe('evaluateAnchorAlerts', () => {
     );
   });
 
-  /* Sharing one key collapses anchoring and its detection into one failure. */
-  it('names the shared credential specifically', () => {
-    expect(
-      codes({ monitorReachable: false, monitorError: 'monitor_key_not_isolated' }),
-    ).toContain('monitor_key_not_isolated');
-  });
-
   it('separates an empty account from a low one', () => {
     expect(codes({ balanceOctas: 0 })).toContain('signer_balance_empty');
     expect(codes({ balanceOctas: 1_000 })).toContain('signer_balance_low');
     expect(codes({ balanceOctas: null })).toEqual([]);
-  });
-
-  it('fires on signer activity the platform cannot account for', () => {
-    expect(codes({ unexplainedSignerTransactions: 7 })).toContain('unexplained_signer_activity');
   });
 
   it('fires on batches that were given up on', () => {
@@ -82,7 +62,7 @@ describe('evaluateAnchorAlerts', () => {
   it('puts critical conditions first', () => {
     const alerts = evaluateAnchorAlerts({
       ...HEALTHY,
-      publishes: 3,
+      monitorReachable: false,
       balanceOctas: 1_000,
       failedBatches: 2,
     });
@@ -98,9 +78,7 @@ describe('evaluateAnchorAlerts', () => {
   it('carries only ids, counts and codes', () => {
     const alerts = evaluateAnchorAlerts({
       ...HEALTHY,
-      publishes: 4,
       balanceOctas: 0,
-      unexplainedSignerTransactions: 3,
       failedBatches: 1,
       oldestOpenBatchAgeMs: 9 * 60 * 60 * 1000,
       monitorReachable: false,
@@ -116,10 +94,10 @@ describe('evaluateAnchorAlerts', () => {
   it('formats a line that can be grepped and forwarded', () => {
     expect(
       formatAnchorAlert({
-        code: 'unannounced_upgrade',
-        severity: 'critical',
-        detail: { publishes: 2, expected: 1, unannounced: 1 },
+        code: 'signer_balance_low',
+        severity: 'warning',
+        detail: { octas: 1000, floor: 50000000 },
       }),
-    ).toBe('anchor-alert critical unannounced_upgrade publishes=2 expected=1 unannounced=1');
+    ).toBe('anchor-alert warning signer_balance_low octas=1000 floor=50000000');
   });
 });

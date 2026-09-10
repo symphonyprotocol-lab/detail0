@@ -45,9 +45,6 @@ export async function anchorAlerts(now = new Date()): Promise<AnchorAlert[]> {
     minBalanceOctas: health.minBalanceOctas,
     monitorReachable: health.monitor.reachable,
     monitorError: health.monitor.error,
-    publishes: health.monitor.publishes,
-    expectedPublishes: health.monitor.expectedPublishes,
-    unexplainedSignerTransactions: health.monitor.unexplainedSignerTransactions,
     failedBatches: failed?.n ?? 0,
     oldestOpenBatchAgeMs: oldestOpen
       ? now.getTime() - oldestOpen.createdAt.getTime()

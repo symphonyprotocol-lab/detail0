@@ -1,28 +1,12 @@
 /**
- * Whether anchoring is presented as a live capability, as a pure rule.
+ * Anchoring is a side system, and this is the rule that keeps it detachable.
  *
- * The chain half of anchoring exists (move/re0_anchor, published to testnet)
- * but nothing writes to it yet: no leaf construction, no batch workflow, no
- * signer. Meanwhile the marketing pages, the pricing table and the legal terms
- * all describe it in the present tense, and requirement.md 6.4 now forbids
- * exactly that -- a capability may not be claimed before it runs. This flag is
- * how the copy waits for the capability instead of being rewritten twice.
- *
- * `hidden` is the default on purpose. A missing or misspelled variable must not
- * be what puts the claims back on the site; flipping it to `live` has to be a
- * deliberate act, taken when batches are actually confirming on mainnet.
+ * It has no switch of its own. Whether the product mentions anchoring follows
+ * from whether anchoring is configured at all, so removing the APTOS_* entries
+ * from an environment removes every trace of it -- the home page section, the
+ * pricing row, the terms article, the dashboard panel. One less thing to
+ * remember, and no way for the copy and the capability to disagree.
  */
-export const ANCHORING_MODES = ['hidden', 'live'] as const;
-
-export type AnchoringMode = (typeof ANCHORING_MODES)[number];
-
-export function isAnchoringMode(value: unknown): value is AnchoringMode {
-  return typeof value === 'string' && (ANCHORING_MODES as readonly string[]).includes(value);
-}
-
-export function anchoringMode(value: string | undefined): AnchoringMode {
-  return isAnchoringMode(value) ? value : 'hidden';
-}
 
 /**
  * Does this line of copy talk about anchoring?
