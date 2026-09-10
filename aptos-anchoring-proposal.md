@@ -311,7 +311,7 @@ ANCHOR_LEAF_SALT_SECRET
 
 `APTOS_ANCHOR_SIGNER_KEY` 是本表里**唯一一项真正的私钥材料**，1.0 版明令它不得存在，本版按第 0 节决策恢复。它与其余各项不是同一量级：其他 Secret 泄露的处置是换一把 key，它泄露的处置是换账户加合约升级加重锚，见第 0.1 节。Upgrade Authority 私钥不在此列，也永远不得加入。
 
-锚定 Workflow 与 [architecture.md](./architecture.md) 第 8.1 节的 Ingestion Workflow 使用同一套持久化执行机制，由 Cron 触发，不新增执行引擎。
+锚定 Workflow 与 [architecture.md](./architecture.md) 第 8.1 节的 Ingestion Workflow 使用同一套持久化执行机制，不新增执行引擎，但有**自己的 Cron 入口** `/api/cron/anchor`（每 15 分钟），不搭在队列 drain 上——按第 4.1 节的旁路定位，删掉那个路由与 `vercel.json` 里的一行就移除整套调度。15 分钟不是锚定频率：一小时一个 Version 批次、一天一个 Audit 批次由 Workflow 自己决定，这个频率是为了**确认**上一轮提交的交易，好让第 4.8 节的两小时 SLO 宽裕而不是紧绷。
 
 沿用 [architecture.md](./architecture.md) 第 19.1 节的约束：Secret 不进入前端 Bundle，三套环境各持一份、不共用任何一项。
 
