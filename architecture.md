@@ -524,6 +524,7 @@ Step 输出只保存可序列化摘要；大对象保存在对象存储。外部
 - 链或节点不可用时批次停留在 `pending` 并重试告警，发布、刷新、检索、计量、审核和出账全部不受影响；
 - Context 与 Search 响应默认不返回 Anchor 字段，避免影响 `maxTokens` 裁剪与响应体积；存证信息走独立的 Anchor 查询接口；
 - 管理后台的锚定视图只读批次与 leaf 哈希，**不读原像**，见 §14；
+- 链上监控走 `APTOS_INDEXER_*` 一套凭据，与写入路径的 `APTOS_API_KEY` **强制不同**——两者相同时监控直接拒绝检查。共用一把 key 会让供应商故障同时打掉锚定与唯一的入侵检测，故障窗口与攻击窗口重叠（提案 §4.9）；监控自身上报心跳，不可达是一种要处置的状态，不是空数据；
 - 公开 Verifier 作为独立包发布，**不允许 import 任何服务端 `lib/` 代码**，以保证「校验不依赖 re0」这一验收标准成立；
 - 存证不产生 Usage Event，不进入 §11 的额度链路。
 
@@ -1036,6 +1037,8 @@ APTOS_INDEXER_API_KEY          # 必须与 APTOS_API_KEY 不同，见提案 §4.
 APTOS_ANCHOR_OBJECT_ADDRESS
 APTOS_ANCHOR_ACCOUNT_ADDRESS
 APTOS_ANCHOR_SIGNER_KEY        # Anchor Signer 的 Ed25519 私钥，十六进制；见下
+APTOS_ANCHOR_MIN_BALANCE_OCTAS # 可选，余额下限告警阈值，缺省 50000000（0.5 APT）
+APTOS_ANCHOR_EXPECTED_PUBLISHES# 可选，Code Object 的预期发布次数，缺省 1；超出即未公告升级
 ANCHOR_LEAF_SALT_SECRET
 ANCHORING_MODE                 # hidden | live；公开页面是否把存证描述为已在运行，缺省 hidden
 ```

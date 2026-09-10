@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { unstable_cache } from 'next/cache';
 import { FilterSelect } from '@/components/admin/list-controls';
 import {
   ConsoleButton,
@@ -23,7 +24,7 @@ import {
   type AnchorStatusFilter,
   type AnchorSubjectFilter,
 } from '@/lib/application/administration';
-import { anchoringSettings } from '@/lib/application/anchors';
+import { anchorHealth, anchoringSettings } from '@/lib/application/anchors';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
@@ -44,6 +45,23 @@ const STATUSES: AnchorStatusFilter[] = [
 ];
 
 const NONE = '—';
+
+/**
+ * The chain answers are cached briefly. They cost two network round trips, and
+ * an operations screen that is refreshed while an incident is being worked
+ * would otherwise make a request to the node and the indexer per render -- from
+ * the very credentials whose rate limits matter most at that moment.
+ */
+const HEALTH_SECONDS = 60;
+
+const cachedHealth = unstable_cache(() => anchorHealth(), ['admin-anchor-health'], {
+  revalidate: HEALTH_SECONDS,
+});
+
+/** Octas to APT, at the precision an operator reads a balance in. */
+function apt(octas: number): string {
+  return (octas / 100_000_000).toFixed(4);
+}
 
 const STATUS_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'neutral'> = {
   confirmed: 'ok',
@@ -91,6 +109,7 @@ export default async function AdminAnchorsPage({
   const page = pageNumber(params.page);
 
   const settings = anchoringSettings();
+  const health = await cachedHealth();
   const { rows, total, stats } = await listAnchorBatches({
     subject,
     status,
@@ -105,6 +124,7 @@ export default async function AdminAnchorsPage({
    * has no label for still has to render -- printing the raw code beats
    * dropping the row from an operations screen.
    */
+  const monitorErrors: Record<string, string> = a.health.errors;
   const subjectLabels: Record<string, string> = a.subjects;
   const statusLabels: Record<string, string> = a.statuses;
 
@@ -161,6 +181,84 @@ export default async function AdminAnchorsPage({
           note={a.stats.lastConfirmedCaption}
         />
       </section>
+
+      <Panel>
+        <PanelHead title={a.health.title} description={a.health.description} />
+        {/*
+          * A watch that cannot answer is a state to act on, not an empty
+          * panel: with the key in the environment there is nothing else that
+          * would notice it being used (proposal 4.9, and 1.1's 0.1).
+          */}
+        {!health.monitor.reachable ? (
+          <div className="mx-[15px] mt-3.5 rounded-[8px] border-2 border-err/40 bg-err/5 px-4 py-3">
+            <p className="text-[12.5px] font-semibold text-err">{a.health.monitorDown}</p>
+            <p className="mt-1 text-[11.5px] leading-[1.6] text-muted">
+              {monitorErrors[health.monitor.error ?? ''] ?? a.health.monitorDownBody}
+            </p>
+          </div>
+        ) : null}
+        <dl className="grid gap-x-8 px-[15px] sm:grid-cols-2">
+          <Fact
+            label={a.health.balance}
+            value={
+              <span className="flex flex-wrap items-center gap-2">
+                {health.balanceOctas === null
+                  ? a.health.balanceUnknown
+                  : `${apt(health.balanceOctas)} APT`}
+                {health.balanceLow ? <Pill tone="danger">{a.health.balanceLow}</Pill> : null}
+                <span className="text-faint">
+                  {fill(a.health.balanceFloor, { min: apt(health.minBalanceOctas) })}
+                </span>
+              </span>
+            }
+          />
+          <Fact
+            label={a.health.publishes}
+            value={
+              <span className="flex flex-wrap items-center gap-2">
+                {number(health.monitor.publishes)}
+                <span className="text-faint">
+                  {fill(a.health.publishesExpected, {
+                    expected: number(health.monitor.expectedPublishes),
+                  })}
+                </span>
+                {health.monitor.unannouncedPublishes > 0 ? (
+                  <Pill tone="danger">
+                    {fill(a.health.publishesUnannounced, {
+                      count: number(health.monitor.unannouncedPublishes),
+                    })}
+                  </Pill>
+                ) : null}
+              </span>
+            }
+          />
+          <Fact
+            label={a.health.signerActivity}
+            value={
+              <span className="flex flex-wrap items-center gap-2">
+                {number(health.monitor.recentSignerTransactions)}
+                <span className="text-faint">
+                  {fill(a.health.signerKnown, {
+                    known: number(health.monitor.knownBatchTransactions),
+                  })}
+                </span>
+                {health.monitor.unexplainedSignerTransactions > 0 ? (
+                  <Pill tone="warn">
+                    {fill(a.health.signerUnexplained, {
+                      count: number(health.monitor.unexplainedSignerTransactions),
+                    })}
+                  </Pill>
+                ) : null}
+              </span>
+            }
+          />
+          {/* The heartbeat proposal 4.9 asks for: silence has to be datable. */}
+          <Fact
+            label={a.health.heartbeat}
+            value={utcStamp(new Date(health.monitor.checkedAt))}
+          />
+        </dl>
+      </Panel>
 
       <Panel>
         <PanelHead title={a.config.title} description={a.config.description} />

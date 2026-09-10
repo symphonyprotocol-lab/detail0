@@ -56,6 +56,8 @@ export function anchoringSettings(): AnchoringSettings {
   };
 }
 
+export { anchorHealth, type AnchorHealth } from './health';
+
 export {
   anchorAuditHead,
   anchorPublishedVersions,

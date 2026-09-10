@@ -3079,6 +3079,31 @@ export const zh = {
         lastConfirmed: '最近确认',
         lastConfirmedCaption: 'UTC，最后一个确认的批次',
       },
+      health: {
+        title: '签名账户与链上监控',
+        description:
+          '余额、合约变更与签名账户活动。监控走与写入不同的凭据，两者共用一把 key 时本页拒绝检查。',
+        balance: '账户余额',
+        balanceFloor: '下限 {min} APT',
+        balanceLow: '余额低于下限',
+        balanceUnknown: '节点未应答',
+        publishes: 'Code Object 发布次数',
+        publishesExpected: '预期 {expected} 次',
+        publishesUnannounced: '{count} 次未公告的发布',
+        signerActivity: '签名账户近期交易',
+        signerKnown: '平台已知 {known} 笔',
+        signerUnexplained: '{count} 笔无法归因',
+        heartbeat: '最近检查',
+        monitorDown: '监控不可用',
+        monitorDownBody:
+          '「没有告警」现在无法与「监控已死」区分。按提案第 4.9 节这是必须处理的状态，不是空数据。',
+        errors: {
+          not_configured: '未配置签名账户或 Code Object 地址。',
+          indexer_url_missing: '未配置 APTOS_INDEXER_URL。',
+          monitor_key_not_isolated:
+            '监控凭据与写入凭据相同。共用一把 key 会让供应商故障同时打掉锚定与唯一的入侵检测。',
+        },
+      },
       config: {
         title: '签名与合约配置',
         description: '取自本环境的配置。签名私钥只显示是否已配置，任何情况下都不回显。',

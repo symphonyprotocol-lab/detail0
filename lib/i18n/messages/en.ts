@@ -3200,6 +3200,31 @@ export const en: Dictionary = {
         lastConfirmed: 'Last confirmed',
         lastConfirmedCaption: 'UTC, the most recent confirmed batch',
       },
+      health: {
+        title: 'Signer and chain watch',
+        description:
+          'Balance, contract changes and signer activity. The watch uses a different credential from the write path; sharing one key makes this refuse to check.',
+        balance: 'Account balance',
+        balanceFloor: 'floor {min} APT',
+        balanceLow: 'Below the floor',
+        balanceUnknown: 'Node did not answer',
+        publishes: 'Publishes to the code object',
+        publishesExpected: '{expected} expected',
+        publishesUnannounced: '{count} unannounced',
+        signerActivity: 'Recent signer transactions',
+        signerKnown: '{known} known to the platform',
+        signerUnexplained: '{count} unaccounted for',
+        heartbeat: 'Last checked',
+        monitorDown: 'The watch is not answering',
+        monitorDownBody:
+          '"No alarm" can no longer be told apart from "the watch died". Proposal 4.9 treats this as a condition to act on, not as empty data.',
+        errors: {
+          not_configured: 'No signing account or code object address configured.',
+          indexer_url_missing: 'APTOS_INDEXER_URL is not set.',
+          monitor_key_not_isolated:
+            'The monitoring credential equals the write credential. Sharing one key lets a provider outage remove anchoring and its only intrusion detection at the same moment.',
+        },
+      },
       config: {
         title: 'Signer and contract',
         description:
