@@ -17,6 +17,13 @@
  * `earning_event` reference them by id, and a version that was billed against
  * remains a fact about the past. Their chunks and documents are gone, which is
  * what `library.index_status = 'deleting'` on the tombstone says.
+ *
+ * What also goes: any anchoring proof for those versions
+ * (aptos-anchoring-proposal.md 6 -- "the preimage and proof are deleted with
+ * the library"). The root stays on chain, as it must, but without the leaf and
+ * its path nobody can show which version that root committed to. That is the
+ * whole of what deletion can mean against an append-only ledger, and it is why
+ * anchoring a private library was acceptable in the first place.
  */
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { IngestionFailure } from '@/lib/domain/ingestion';
@@ -134,6 +141,29 @@ export async function purgeLibrary(input: {
     await tx.delete(schema.libraryProfile).where(eq(schema.libraryProfile.libraryId, library.id));
     /* Derived from content that no longer exists; recomputed if it ever returns. */
     await tx.delete(schema.libraryScore).where(eq(schema.libraryScore.libraryId, library.id));
+
+    /*
+     * The proofs, but not the batches that hold them. `anchor_batch.leaf_count`
+     * still counts a leaf whose row is gone, and that is correct rather than an
+     * inconsistency to tidy: the root on chain commits to that leaf whatever
+     * this database does, and editing the count would make the batch disagree
+     * with the ledger it describes.
+     */
+    const versions = await tx
+      .select({ id: schema.libraryVersion.id })
+      .from(schema.libraryVersion)
+      .where(eq(schema.libraryVersion.libraryId, library.id));
+    if (versions.length > 0) {
+      await tx.delete(schema.anchorLeaf).where(
+        and(
+          eq(schema.anchorLeaf.subjectType, 'version'),
+          inArray(
+            schema.anchorLeaf.subjectId,
+            versions.map((version) => version.id),
+          ),
+        ),
+      );
+    }
     await tx
       .update(schema.library)
       .set({ storageBytes: 0 })
