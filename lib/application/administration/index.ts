@@ -29,6 +29,11 @@ export {
   type ConsoleAuditRow,
 } from './list-audit';
 export {
+  releaseFailedBatch,
+  setAnchorPause,
+  type ReleasedBatch,
+} from './manage-anchors';
+export {
   listAnchorBatches,
   ANCHOR_BATCH_STATUSES,
   ANCHOR_SLO_HOURS,

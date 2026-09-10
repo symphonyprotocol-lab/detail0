@@ -25,6 +25,8 @@ process.env.APTOS_NETWORK ??= 'testnet';
 
 const { anchorAuditHead, anchorPublishedVersions, runAnchorTick, workspaceVersionAnchor } =
   await import('@/lib/application/anchors');
+const { releaseFailedBatch, setAnchorPause } = await import('@/lib/application/administration');
+const { AdminChangeRefused } = await import('@/lib/domain/admin');
 const { verifyAnchorProof, versionLeaf } = await import('@/lib/domain/anchor-leaf');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
 const { uuidv7 } = await import('@/lib/domain/id');
@@ -33,6 +35,8 @@ import type { AnchorSigner, AnchorSubmission } from '@/lib/infrastructure/chain/
 
 const stamp = Date.now();
 const workspaceId = crypto.randomUUID();
+const administratorId = crypto.randomUUID();
+const actor = { administratorId, clientAddress: null };
 const libraryIds: string[] = [];
 const versionIds: string[] = [];
 
@@ -121,11 +125,19 @@ const batches = () =>
 describeWithDb('anchor batches', () => {
   beforeAll(async () => {
     await db().insert(schema.workspace).values({ id: workspaceId, name: 'anchor-batches-test' });
+    /* The audit rows these actions write reference a real administrator. */
+    await db().insert(schema.administrator).values({
+      id: administratorId,
+      username: `anchor-batches-${stamp}`,
+      email: `anchor-batches-${stamp}@local.test`,
+      status: 'active',
+    });
   });
 
   beforeEach(async () => {
     await db().delete(schema.anchorLeaf);
     await db().delete(schema.anchorBatch);
+    await db().delete(schema.anchorControl);
   });
 
   afterAll(async () => {
@@ -142,6 +154,11 @@ describeWithDb('anchor batches', () => {
       await db().delete(schema.library).where(inArray(schema.library.id, libraryIds));
     }
     await db().delete(schema.workspace).where(eq(schema.workspace.id, workspaceId));
+    await db().delete(schema.anchorControl);
+    await db()
+      .delete(schema.auditLog)
+      .where(eq(schema.auditLog.administratorId, administratorId));
+    await db().delete(schema.administrator).where(eq(schema.administrator.id, administratorId));
   });
 
   it('plans one batch over the versions that were never anchored', async () => {
@@ -378,6 +395,122 @@ describeWithDb('anchor batches', () => {
       expect(
         await workspaceVersionAnchor({ workspaceId: crypto.randomUUID(), versionId }),
       ).toBeNull();
+    });
+  });
+
+  /*
+   * The operator's two moves over anchoring (architecture.md 14). Both are
+   * audited elsewhere; what matters here is what they do to the machine.
+   */
+  describe('pausing', () => {
+    it('stops planning and submitting', async () => {
+      await publishedVersion({ slug: 'pause-a' });
+      await setAnchorPause({ paused: true, reason: 'rotating the signer', actor });
+      const signer = fakeSigner();
+
+      const result = await anchorPublishedVersions({ signer });
+
+      expect(result.skipped).toBe('paused');
+      expect(signer.submissions).toHaveLength(0);
+      expect(await batches()).toHaveLength(0);
+    });
+
+    /*
+     * The nuance worth a test: a batch already on its way is finished. Without
+     * it, pausing strands a transaction the chain has accepted and the batch
+     * reads `submitted` for as long as the switch is off.
+     */
+    it('still confirms a batch that is already in flight', async () => {
+      await publishedVersion({ slug: 'pause-inflight' });
+      const signer = fakeSigner();
+      signer.outcome = 'pending';
+      await anchorPublishedVersions({ signer });
+
+      await setAnchorPause({ paused: true, reason: 'chain looks unhealthy', actor });
+      signer.outcome = 'confirmed';
+      const result = await anchorPublishedVersions({ signer });
+
+      expect(result.confirmed).toBe(1);
+      const [batch] = await batches();
+      expect(batch?.status).toBe('confirmed');
+    });
+
+    it('plans again once resumed', async () => {
+      await publishedVersion({ slug: 'pause-resume' });
+      await setAnchorPause({ paused: true, reason: 'holding', actor });
+      await setAnchorPause({ paused: false, reason: 'all clear', actor });
+
+      const result = await anchorPublishedVersions({ signer: fakeSigner() });
+      expect(result.skipped).toBeNull();
+      expect(result.submitted).toBe(1);
+    });
+
+    it('refuses a blank reason and a pause that changes nothing', async () => {
+      await expect(setAnchorPause({ paused: true, reason: '   ', actor })).rejects.toBeInstanceOf(
+        AdminChangeRefused,
+      );
+      await expect(
+        setAnchorPause({ paused: false, reason: 'already running', actor }),
+      ).rejects.toBeInstanceOf(AdminChangeRefused);
+    });
+  });
+
+  describe('releasing a failed batch', () => {
+    async function failedBatch(slug: string): Promise<string> {
+      await publishedVersion({ slug });
+      const signer = fakeSigner();
+      signer.failSubmit = true;
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await anchorPublishedVersions({ signer });
+      }
+      const [batch] = await batches();
+      expect(batch?.status).toBe('failed');
+      return batch?.id as string;
+    }
+
+    it('puts its subjects back in the queue', async () => {
+      const batchId = await failedBatch('release-me');
+
+      const released = await releaseFailedBatch({ batchId, reason: 'node was down', actor });
+      expect(released.released).toBeGreaterThanOrEqual(1);
+
+      const rows = await batches();
+      expect(rows.find((row) => row.id === batchId)?.status).toBe('superseded');
+      /* The row stays; the leaves are what had to go, because their uniqueness
+         is what kept the workflow from picking the subjects up again. */
+      expect(await db().select().from(schema.anchorLeaf)).toHaveLength(0);
+
+      /* Past the cadence window, so the interval guard is not what answers. */
+      const later = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      const again = await anchorPublishedVersions({ signer: fakeSigner(), now: later });
+      expect(again.planned).toBeGreaterThanOrEqual(1);
+      expect(again.submitted).toBe(1);
+    });
+
+    /* A confirmed batch's leaves are what a third party checks. */
+    it('refuses a batch that landed', async () => {
+      await publishedVersion({ slug: 'release-confirmed' });
+      const signer = fakeSigner();
+      signer.outcome = 'pending';
+      await anchorPublishedVersions({ signer });
+      signer.outcome = 'confirmed';
+      await anchorPublishedVersions({ signer });
+
+      const [batch] = await batches();
+      expect(batch?.status).toBe('confirmed');
+      await expect(
+        releaseFailedBatch({ batchId: batch?.id as string, reason: 'nope', actor }),
+      ).rejects.toBeInstanceOf(AdminChangeRefused);
+    });
+
+    it('refuses a blank reason and an unknown batch', async () => {
+      const batchId = await failedBatch('release-guards');
+      await expect(
+        releaseFailedBatch({ batchId, reason: '  ', actor }),
+      ).rejects.toBeInstanceOf(AdminChangeRefused);
+      await expect(
+        releaseFailedBatch({ batchId: crypto.randomUUID(), reason: 'x', actor }),
+      ).rejects.toBeInstanceOf(AdminChangeRefused);
     });
   });
 });

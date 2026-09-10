@@ -3082,9 +3082,9 @@ export const zh = {
     anchors: {
       title: '链上存证',
       description: '锚定批次的状态、积压与 SLO。这里只到批次与 Leaf 哈希，不展示任何原像。',
-      notLiveTitle: '锚定尚未启用',
+      notLiveTitle: '还没有锚定过任何批次',
       notLiveBody:
-        '链上合约已部署，但生成 Leaf、构建批次和提交交易的链下部分尚未实现，因此批次表是空的——不是这个页面出了问题。',
+        '合约、签名器与 Workflow 都已就位。下一次 Cron 触发时，如果有已发布但未锚定的版本或未锚定的审计链头，就会规划出第一个批次。',
       searchPlaceholder: '筛选锚定批次',
       leafSchema: 'Leaf Schema v{version}',
       showing: '显示 {from}–{to}，共 {total} 个批次',
@@ -3097,6 +3097,29 @@ export const zh = {
         sloCaption: '{within}/{confirmed} 个批次在 {hours} 小时内确认',
         lastConfirmed: '最近确认',
         lastConfirmedCaption: 'UTC，最后一个确认的批次',
+      },
+      controls: {
+        pause: '暂停锚定',
+        resume: '恢复锚定',
+        pauseTitle: '暂停锚定',
+        pauseBody:
+          '暂停后不再规划新批次、不再提交交易；已在途的交易仍会继续确认，否则链已接受的那一笔会被搁死。',
+        resumeTitle: '恢复锚定',
+        resumeBody: '下一次 Cron 触发时恢复规划与提交。',
+        release: '释放批次',
+        releaseTitle: '释放这个失败批次',
+        releaseBody:
+          '该批次的 Leaf 会被删除，其中的 Subject 回到待锚定队列，批次本身保留并标记为已替代。只有从未上链的失败批次可以释放。',
+        reason: '原因',
+        reasonPlaceholder: '这条会写入审计日志',
+        cancel: '取消',
+        pausedSince: '已于 {at} 暂停：{reason}',
+        errors: {
+          not_found: '找不到该批次。',
+          invalid_input: '当前状态不允许这个操作。',
+          reason_required: '请填写原因。',
+          unavailable: '操作失败，请稍后重试。',
+        },
       },
       alerts: {
         title: '当前告警',
@@ -3160,9 +3183,10 @@ export const zh = {
           '交易',
           '重试',
           '确认时间',
+          '操作',
         ],
         empty: '还没有锚定批次。',
-        emptyNote: '链下的锚定 Workflow 尚未实现，批次表因此为空。',
+        emptyNote: '当前筛选条件下没有批次。',
       },
       filters: { subject: '类型', status: '状态' },
       subjects: {

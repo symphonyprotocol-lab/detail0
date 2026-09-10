@@ -3205,9 +3205,9 @@ export const en: Dictionary = {
       title: 'Anchoring',
       description:
         'Batch state, backlog and SLO. Batches and leaf hashes only — no preimages are shown here.',
-      notLiveTitle: 'Anchoring is not live yet',
+      notLiveTitle: 'Nothing has been anchored yet',
       notLiveBody:
-        'The contract is deployed, but the off-chain half — leaf construction, the batch workflow, the signer — does not exist yet, so the batch table is empty. Nothing is broken.',
+        'The contract, the signer and the workflow are all in place. The next scheduled tick plans a batch as soon as there is a published version or an audit head waiting for one.',
       searchPlaceholder: 'Filter anchoring batches',
       leafSchema: 'Leaf schema v{version}',
       showing: 'Showing {from}–{to} of {total} batches',
@@ -3220,6 +3220,29 @@ export const en: Dictionary = {
         sloCaption: '{within}/{confirmed} batches confirmed within {hours} hours',
         lastConfirmed: 'Last confirmed',
         lastConfirmedCaption: 'UTC, the most recent confirmed batch',
+      },
+      controls: {
+        pause: 'Pause anchoring',
+        resume: 'Resume anchoring',
+        pauseTitle: 'Pause anchoring',
+        pauseBody:
+          'No new batches are planned and nothing is submitted. A transaction already in flight is still confirmed — otherwise pausing strands one the chain has accepted.',
+        resumeTitle: 'Resume anchoring',
+        resumeBody: 'Planning and submitting start again at the next scheduled tick.',
+        release: 'Release batch',
+        releaseTitle: 'Release this failed batch',
+        releaseBody:
+          "Its leaves are deleted and its subjects go back in the queue; the batch row stays, marked superseded. Only a failed batch — one that never reached the chain — can be released.",
+        reason: 'Reason',
+        reasonPlaceholder: 'This goes in the audit log',
+        cancel: 'Cancel',
+        pausedSince: 'Paused {at}: {reason}',
+        errors: {
+          not_found: 'No such batch.',
+          invalid_input: 'That is not allowed in the current state.',
+          reason_required: 'A reason is required.',
+          unavailable: 'That did not go through. Try again shortly.',
+        },
       },
       alerts: {
         title: 'Open alerts',
@@ -3285,10 +3308,10 @@ export const en: Dictionary = {
           'Transaction',
           'Attempts',
           'Confirmed',
+          'Actions',
         ],
         empty: 'No anchoring batches yet.',
-        emptyNote:
-          'The off-chain anchoring workflow does not exist yet, so nothing has been batched.',
+        emptyNote: 'No batches match the current filter.',
       },
       filters: { subject: 'Subject', status: 'State' },
       subjects: {
