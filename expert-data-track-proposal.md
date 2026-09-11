@@ -53,7 +53,7 @@ Re0 在现有版本化知识库之外增加一条独立的 **Expert Data & Evals
 
 ### 1.2 对现有基线的影响
 
-[requirement.md](./requirement.md) §2.3 当前明确排除了“模型训练、原始文件交易、Enterprise 套餐与复杂合同计费”。因此本方案不能被解释为现有 MVP 的一部分。实施前应把它作为 **MVP 后扩展轨** 写入下一版产品需求，保留以下边界：
+[requirement.md](./requirement.md) §2.3 当前明确排除了“模型训练、原始文件交易、Enterprise 套餐与复杂合同计费”。因此本方案不能被解释为现有 MVP 的一部分。requirement.md 3.1 版已在 §2.4 把它登记为 **MVP 后扩展轨**，边界如下：
 
 - Free、Pro、Additional Calls 的价格、额度和能力不变；
 - `/v1/context`、`/v1/libraries/search`、MCP、SDK 与 CLI 的现有契约不变；
@@ -1151,7 +1151,7 @@ workflows/
 
 按依赖顺序实施：
 
-1. 将本方案的产品边界写入下一版 `requirement.md`，明确不改变自助套餐；
+1. ~~将本方案的产品边界写入下一版 `requirement.md`~~（已完成，见 requirement.md §2.4）；
 2. 新建 `contracts/expert-data.ts`，先冻结 Project、Item、Rights、License 和 Eval Schema；
 3. 实现 Migration 1 和 Domain Invariants；
 4. 实现 Admin Project/Assignment 与 Expert Profile/Assignment 页面；
