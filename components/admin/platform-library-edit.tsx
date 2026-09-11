@@ -414,7 +414,7 @@ function SourceDialog({
           )}
         </div>
 
-        {sourceType === 'llms_txt' ? (
+        {sourceType === 'website' || sourceType === 'llms_txt' ? (
           <Field label={d.sourceDialog.fieldIndexDepth} hint={d.sourceDialog.hintIndexDepth}>
             <select name="indexDepth" defaultValue={String(source?.indexDepth ?? 0)} className={FIELD}>
               {INDEX_DEPTHS.map((depth) => (

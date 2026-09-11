@@ -107,6 +107,7 @@ export async function createPlatformLibraryAction(
       sourceType: text(form, 'sourceType'),
       location: text(form, 'location'),
       refreshPolicy: text(form, 'refreshPolicy'),
+      indexDepth: text(form, 'indexDepth'),
       uploads,
       description: text(form, 'description'),
       domainTag: text(form, 'domainTag'),

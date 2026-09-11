@@ -283,7 +283,7 @@ export interface PlatformSourceView {
   type: string;
   location: string;
   refreshPolicy: RefreshPolicy | 'unknown';
-  /** `llms_txt` only: nested indexes followed; 0 for every other type. */
+  /** Website/llms.txt only: nested levels followed; 0 for every other type. */
   indexDepth: IndexDepth;
 }
 
@@ -758,7 +758,10 @@ export async function createPlatformLibrary(
         libraryId,
         type: draft.sourceType,
         location: draft.location,
-        config: draft.sourceType === 'pdf' ? { files: draft.files } : {},
+        config:
+          draft.sourceType === 'pdf'
+            ? { files: draft.files }
+            : { indexDepth: draft.indexDepth },
         refreshPolicy: { cadence: draft.refreshPolicy },
       });
       if (operationId) {
@@ -791,6 +794,7 @@ export async function createPlatformLibrary(
       sourceType: draft.sourceType,
       location: draft.location,
       refreshPolicy: draft.refreshPolicy,
+      indexDepth: draft.indexDepth,
       lifecycleStatus: 'draft',
     },
     clientAddress: input.actor.clientAddress ?? null,
@@ -1242,6 +1246,7 @@ export async function addPlatformLibrarySource(input: {
       type: draft.type,
       location: draft.location,
       refreshPolicy: draft.refreshPolicy,
+      indexDepth: draft.indexDepth,
       files: draft.files.map((file) => file.name),
       operationId,
     },
@@ -1308,11 +1313,13 @@ export async function updatePlatformLibrarySource(input: {
       sourceId: before.id,
       location: before.location,
       refreshPolicy: before.refreshPolicy,
+      indexDepth: indexDepthOf(before.config),
     },
     afterValue: {
       sourceId: before.id,
       location: draft.location,
       refreshPolicy: draft.refreshPolicy,
+      indexDepth: draft.indexDepth,
     },
     clientAddress: input.actor.clientAddress ?? null,
     result: 'success',

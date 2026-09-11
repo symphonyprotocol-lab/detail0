@@ -94,9 +94,13 @@ async function failureOf(promise: Promise<unknown>): Promise<string> {
   }
 }
 
-async function crawlPaths(pages: Record<string, Page>) {
+async function crawlPaths(pages: Record<string, Page>, indexDepth = 2) {
   const requests = serve(pages);
-  const snapshot = await fetchWebSnapshot({ type: 'website', location: `${HOST}/docs/` });
+  const snapshot = await fetchWebSnapshot({
+    type: 'website',
+    location: `${HOST}/docs/`,
+    indexDepth,
+  });
   return { requests, paths: snapshot.files.map((f) => f.path).sort() };
 }
 
@@ -137,6 +141,51 @@ describe('what a fetched page is called', () => {
 });
 
 describe('discovery', () => {
+  it('follows exactly the selected number of child-page levels, up to three', async () => {
+    const pages = {
+      '/docs/': { body: html(['/docs/a']) },
+      '/docs/a': { body: html(['/docs/a/b']) },
+      '/docs/a/b': { body: html(['/docs/a/b/c']) },
+      '/docs/a/b/c': { body: html(['/docs/a/b/c/d']) },
+      '/docs/a/b/c/d': { body: html([]) },
+    };
+
+    expect((await crawlPaths(pages, 0)).paths).toEqual(['docs.html']);
+    expect((await crawlPaths(pages, 2)).paths).toEqual([
+      'docs.html',
+      'docs/a.html',
+      'docs/a/b.html',
+    ]);
+    expect((await crawlPaths(pages, 3)).paths).toEqual([
+      'docs.html',
+      'docs/a.html',
+      'docs/a/b.html',
+      'docs/a/b/c.html',
+    ]);
+    /* The connector keeps the hard ceiling even if an internal caller skips
+       the form parser. */
+    expect((await crawlPaths(pages, 99)).paths).toEqual([
+      'docs.html',
+      'docs/a.html',
+      'docs/a/b.html',
+      'docs/a/b/c.html',
+    ]);
+  });
+
+  it('does not let a sitemap bypass a zero-depth website crawl', async () => {
+    const { paths, requests } = await crawlPaths(
+      {
+        '/docs/': { body: html([]) },
+        '/sitemap.xml': { body: urlset(['/docs/unlinked']), type: 'application/xml' },
+        '/docs/unlinked': { body: html([]) },
+      },
+      0,
+    );
+    expect(paths).toEqual(['docs.html']);
+    expect(requests.some((request) => request.url.endsWith('/sitemap.xml'))).toBe(false);
+    expect(requests.some((request) => request.url.endsWith('/docs/unlinked'))).toBe(false);
+  });
+
   it('follows links inside a page served as markdown', async () => {
     const { paths } = await crawlPaths({
       '/docs/': { body: '# Docs\n\nSee [routing](/docs/routing).', type: 'text/markdown' },
@@ -166,7 +215,11 @@ describe('discovery', () => {
       '/docs/unlinked': { body: html([]) },
       '/pricing': { body: html([]) },
     });
-    const snapshot = await fetchWebSnapshot({ type: 'website', location: `${HOST}/docs` });
+    const snapshot = await fetchWebSnapshot({
+      type: 'website',
+      location: `${HOST}/docs`,
+      indexDepth: 2,
+    });
     expect(snapshot.files.map((f) => f.path).sort()).toEqual([
       'docs.html',
       'docs/routing.html',
@@ -187,6 +240,7 @@ describe('discovery', () => {
     const snapshot = await fetchWebSnapshot({
       type: 'website',
       location: `${HOST}/docs/index.html`,
+      indexDepth: 2,
     });
     expect(snapshot.files.map((f) => f.path).sort()).toEqual([
       'docs/index.html',
@@ -250,7 +304,11 @@ describe('pages that need a browser', () => {
       { '/docs/': { body: SHELL }, '/docs/routing': { body: '# Routing', type: 'text/markdown' } },
       { [`${HOST}/docs/`]: '# Docs\n\nRendered. See [routing](/docs/routing).' },
     );
-    const snapshot = await fetchWebSnapshot({ type: 'website', location: `${HOST}/docs/` });
+    const snapshot = await fetchWebSnapshot({
+      type: 'website',
+      location: `${HOST}/docs/`,
+      indexDepth: 1,
+    });
     expect(snapshot.files.map((f) => f.path).sort()).toEqual(['docs.md', 'docs/routing.md']);
     expect(snapshot.files.find((f) => f.path === 'docs.md')?.content).toContain('Rendered.');
 

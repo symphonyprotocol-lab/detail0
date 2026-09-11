@@ -739,7 +739,7 @@ export function ImportWizard({
                     />
                   </Field>
                 )}
-                {source === 'llms_txt' ? (
+                {source === 'website' || source === 'llms_txt' ? (
                   <Field label={w.indexDepthLabel} hint={w.indexDepthHint}>
                     <select
                       value={indexDepth}

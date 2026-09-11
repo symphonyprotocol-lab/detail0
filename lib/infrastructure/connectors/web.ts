@@ -26,16 +26,17 @@ const MAX_SITEMAPS = 10;
 export async function fetchWebSnapshot(input: {
   type: WebSourceType;
   location: string;
-  /** `llms_txt` only: how many levels of nested indexes to follow. */
+  /** Website/llms_txt: how many child-page or nested-index levels to follow. */
   indexDepth?: number;
 }): Promise<SourceSnapshot> {
   const entry = new URL(input.location);
+  const indexDepth = boundedDepth(input.indexDepth);
   const files =
     input.type === 'openapi'
       ? [await fetchOne(entry.toString(), entry)]
       : input.type === 'llms_txt'
-        ? await fetchIndex(entry, input.indexDepth ?? 0)
-        : await crawl(entry);
+        ? await fetchIndex(entry, indexDepth)
+        : await crawl(entry, indexDepth);
 
   if (files.length === 0) {
     throw new IngestionFailure('source_empty', 'discover-parse', 'nothing was fetched');
@@ -54,6 +55,12 @@ export async function fetchWebSnapshot(input: {
     hasLicense: false,
     stale: false,
   };
+}
+
+/** Defense in depth for internal callers that did not use the form parser. */
+function boundedDepth(value: number | undefined): number {
+  if (!Number.isInteger(value)) return 0;
+  return Math.min(Math.max(value ?? 0, 0), INGESTION_LIMITS.maxCrawlDepth);
 }
 
 async function fetchOne(target: string, entry: URL): Promise<FetchedFile> {
@@ -224,26 +231,31 @@ const BARE_INDEX_URL = /https?:\/\/[^\s<>"'()]+\/llms(?:-full)?\.txt/gi;
  * crawl reaches from the entry point are the ones the site itself considers
  * important.
  */
-async function crawl(entry: URL): Promise<FetchedFile[]> {
+async function crawl(entry: URL, maxDepth: number): Promise<FetchedFile[]> {
   const seen = new Set<string>([normalizeUrl(entry)]);
-  let frontier: URL[] = [entry];
-  for (const seed of await sitemapPages(entry)) {
-    const key = normalizeUrl(seed);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    frontier.push(seed);
+  let frontier: { url: URL; depth: number }[] = [{ url: entry, depth: 0 }];
+  /* A sitemap page is a child discovered from the entry point, not another
+     root. This keeps depth zero honest: only the URL the owner supplied is
+     fetched, even when the host publishes a site-wide sitemap. */
+  if (maxDepth > 0) {
+    for (const seed of await sitemapPages(entry)) {
+      const key = normalizeUrl(seed);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      frontier.push({ url: seed, depth: 1 });
+    }
   }
 
   const files: FetchedFile[] = [];
 
-  for (let depth = 0; depth <= INGESTION_LIMITS.maxCrawlDepth; depth += 1) {
-    const next: URL[] = [];
-    for (const target of frontier) {
+  while (frontier.length > 0) {
+    const next: { url: URL; depth: number }[] = [];
+    for (const current of frontier) {
       if (files.length >= INGESTION_LIMITS.maxCrawlPages) break;
 
       let resource;
       try {
-        resource = await fetchPage(target.toString());
+        resource = await fetchPage(current.url.toString());
       } catch (error) {
         // The entry point failing is fatal; a page discovered from it is not.
         if (files.length === 0) throw error;
@@ -252,14 +264,14 @@ async function crawl(entry: URL): Promise<FetchedFile[]> {
 
       files.push(toFile(resource, entry));
 
-      if (depth === INGESTION_LIMITS.maxCrawlDepth) continue;
+      if (current.depth >= maxDepth) continue;
 
       for (const link of linksIn(resource)) {
         const key = normalizeUrl(link);
         if (seen.has(key)) continue;
         if (!inScope(link, entry)) continue;
         seen.add(key);
-        next.push(link);
+        next.push({ url: link, depth: current.depth + 1 });
       }
     }
     if (next.length === 0) break;

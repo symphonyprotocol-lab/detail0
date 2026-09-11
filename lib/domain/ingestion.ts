@@ -206,8 +206,8 @@ export const INGESTION_LIMITS = {
   maxDocuments: 3_000,
   /** Per build. */
   maxChunks: 60_000,
-  /** How deep a crawl of one site may go from its entry point. */
-  maxCrawlDepth: 2,
+  /** Hard ceiling for the selectable crawl depth of one site. */
+  maxCrawlDepth: 3,
   /** How many pages a crawl may pull. */
   maxCrawlPages: 200,
   /**

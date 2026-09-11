@@ -73,7 +73,7 @@ export interface CreateWorkspaceLibraryInput {
    * no build is queued until they do.
    */
   uploads?: unknown;
-  /** For llms_txt only: how many levels of nested indexes to follow. */
+  /** For website/llms_txt: how many child-page or nested-index levels to follow. */
   indexDepth?: unknown;
   /**
    * For website, llms_txt and openapi: the verified domain challenge for the
@@ -203,7 +203,7 @@ export async function createWorkspaceLibrary(
     sourceConfig = { pageId: check.pageId, [NOTION_SOURCE_USER_KEY]: input.userId };
   } else if (isUpload) {
     sourceConfig = { files: uploaded };
-  } else if (input.sourceType === 'llms_txt') {
+  } else if (input.sourceType === 'website' || input.sourceType === 'llms_txt') {
     sourceConfig = { indexDepth: parseIndexDepth(input.indexDepth) };
   }
 

@@ -4,6 +4,7 @@ import { Inter, JetBrains_Mono } from 'next/font/google';
 import { messagesFor } from '@/lib/i18n/dictionary';
 import { HTML_LANG } from '@/lib/i18n/locale';
 import { currentLocale } from '@/lib/i18n/server';
+import { WebMcpProvider } from '@/components/site/webmcp-provider';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
@@ -42,7 +43,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       suppressHydrationWarning
       className={`${inter.variable} ${jetbrains.variable}`}
     >
-      <body className="font-sans antialiased">{children}</body>
+      <body className="font-sans antialiased">
+        {children}
+        <script src="/vendor/webmcp/webmcp.js" async data-re0-webmcp="true" />
+        <WebMcpProvider locale={locale} />
+      </body>
     </html>
   );
 }

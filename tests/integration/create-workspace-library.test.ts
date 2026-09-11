@@ -202,6 +202,7 @@ describeWithDb('workspace library creation', () => {
       visibility: 'private',
       sourceType: 'website',
       location: 'https://docs.example.test/handbook',
+      indexDepth: 3,
       domainVerificationId: await verifiedDomain(workspaceId, 'https://docs.example.test/handbook'),
       slug: `handbook-${stamp}`,
       description: 'Internal onboarding notes',
@@ -217,6 +218,12 @@ describeWithDb('workspace library creation', () => {
     expect(row?.ownerWorkspaceId).toBe(workspaceId);
     expect(row?.visibility).toBe('private');
     expect(row?.lifecycleStatus).toBe('draft');
+
+    const [source] = await db()
+      .select({ config: schema.source.config })
+      .from(schema.source)
+      .where(eq(schema.source.libraryId, created.libraryId));
+    expect(source?.config).toMatchObject({ indexDepth: 3 });
 
     /* The queued operation is the whole hand-off: the drain builds it. */
     const outcome = await runOperation({

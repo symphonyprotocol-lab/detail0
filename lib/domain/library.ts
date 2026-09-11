@@ -796,6 +796,8 @@ export interface PlatformLibraryDraft {
   sourceType: PlatformLibraryType;
   location: string;
   refreshPolicy: RefreshPolicy;
+  /** Website/llms.txt only: child pages or nested indexes to follow. */
+  indexDepth: IndexDepth;
   /** `pdf` only: the uploads the manifest listed, keyed under the platform prefix. */
   files: UploadedFile[];
 }
@@ -808,6 +810,8 @@ export interface PlatformLibraryInput {
   location: string;
   /** Ignored for `pdf`: there is nothing to re-fetch, so it is always manual. */
   refreshPolicy: string;
+  /** Website/llms.txt only: child pages or nested indexes to follow. */
+  indexDepth?: unknown;
   /**
    * `pdf` only: the manifest the console posted after uploading, as parsed
    * JSON; absent or null creates the library empty, to be filled in from
@@ -890,6 +894,10 @@ export function draftPlatformLibrary(input: PlatformLibraryInput): PlatformLibra
     sourceType,
     location,
     refreshPolicy,
+    indexDepth:
+      sourceType === 'website' || sourceType === 'llms_txt'
+        ? parseIndexDepth(input.indexDepth)
+        : DEFAULT_INDEX_DEPTH,
     files,
   };
 }
@@ -987,10 +995,11 @@ export function editPlatformLibrary(input: PlatformLibraryEditInput): PlatformLi
 /* ----------------------------------------------------------------- sources */
 
 /**
- * How many levels of nested `llms.txt` indexes an index source follows.
- * Zero -- the default -- fetches only what the index itself lists; each
- * further level follows the same-host indexes the previous level named.
- * Stored on `source.config.indexDepth`; meaningless for other source types.
+ * How many nested levels a web source follows. For `llms.txt`, each level
+ * follows same-host indexes named by the previous one. For a website, each
+ * level follows child-page links (and sitemap pages count as level one).
+ * Zero is the default. Stored on `source.config.indexDepth`; meaningless for
+ * other source types.
  */
 export const INDEX_DEPTHS = [0, 1, 2, 3] as const;
 
@@ -1032,7 +1041,7 @@ export function draftPlatformSource(input: {
   type: string;
   location: string;
   refreshPolicy: string;
-  /** Only read for `llms_txt`; every other type stores the default. */
+  /** Only read for website and `llms_txt`; every other type stores the default. */
   indexDepth?: unknown;
   /** `pdf` only: the manifest the console posted after uploading; absent adds an empty source. */
   uploads?: unknown;
@@ -1070,7 +1079,10 @@ export function draftPlatformSource(input: {
     type: input.type,
     location,
     refreshPolicy: input.refreshPolicy,
-    indexDepth: input.type === 'llms_txt' ? parseIndexDepth(input.indexDepth) : DEFAULT_INDEX_DEPTH,
+    indexDepth:
+      input.type === 'website' || input.type === 'llms_txt'
+        ? parseIndexDepth(input.indexDepth)
+        : DEFAULT_INDEX_DEPTH,
     files: [],
   };
 }
@@ -1272,9 +1284,9 @@ export function editWorkspaceLibrary(input: {
  * The owner's parse scope: which paths of the source a build indexes.
  * Stored on `source.config` under the same names `re0.json` uses
  * (requirement.md 7.2 -- `folders`, `excludeFolders`, `excludeFiles`), so a
- * reader of either sees one vocabulary, plus `indexDepth` for an `llms.txt`
- * index. Applied by the connector registry after the fetch, with the same
- * rule as the repository's own file (`pathIncluded`): exclusions win.
+ * reader of either sees one vocabulary, plus `indexDepth` for a website or
+ * `llms.txt` source. Applied by the connector registry after the fetch, with
+ * the same rule as the repository's own file (`pathIncluded`): exclusions win.
  */
 export interface ParseScope {
   folders: string[];
@@ -1342,7 +1354,9 @@ export function draftParseScope(input: {
     excludeFolders: scopeLines(input.excludeFolders),
     excludeFiles: scopeLines(input.excludeFiles),
     indexDepth:
-      input.sourceType === 'llms_txt' ? parseIndexDepth(input.indexDepth) : DEFAULT_INDEX_DEPTH,
+      input.sourceType === 'website' || input.sourceType === 'llms_txt'
+        ? parseIndexDepth(input.indexDepth)
+        : DEFAULT_INDEX_DEPTH,
   };
 }
 
@@ -1459,7 +1473,9 @@ export function withOwnerParseScope(
     /* Clearing every field hands the source back to its own `re0.json`. */
     [OWNER_SCOPED_KEY]: !parseScopeIsEmpty(scope),
   };
-  if (sourceType === 'llms_txt') next.indexDepth = scope.indexDepth;
+  if (sourceType === 'website' || sourceType === 'llms_txt') {
+    next.indexDepth = scope.indexDepth;
+  }
   return next;
 }
 

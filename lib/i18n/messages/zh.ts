@@ -1086,7 +1086,7 @@ export const zh = {
         titleLabel: '知识库名称',
         locationLabel: '来源位置',
         indexDepthLabel: '嵌套索引',
-        indexDepthHint: '索引正文里提到的同域 llms.txt 是否继续跟进；默认只抓索引本身列出的文档。',
+        indexDepthHint: '网站按同域、同路径范围继续抓取子页面；llms.txt 按同域继续跟进嵌套索引。最多 3 层，默认不跟进。',
         indexDepths: { 0: '不跟进（默认）', 1: '跟进 1 层', 2: '跟进 2 层', 3: '跟进 3 层' },
         locations: {
           github: 'owner/repo 或仓库 URL',
@@ -2593,7 +2593,7 @@ export const zh = {
         fieldLocation: '位置',
         hintLocation: '网页与文档来源必须是 https 地址，GitHub 填 owner/repository。',
         fieldIndexDepth: '嵌套索引',
-        hintIndexDepth: '仅 llms.txt 来源。索引正文里提到的同域 llms.txt 是否继续跟进；默认只抓索引本身列出的文档。',
+        hintIndexDepth: '网站按同域、同路径范围继续抓取子页面；llms.txt 按同域继续跟进嵌套索引。最多 3 层，默认不跟进。',
         indexDepths: { 0: '不跟进（默认）', 1: '跟进 1 层', 2: '跟进 2 层', 3: '跟进 3 层' },
         typeLocked: '类型不可修改：已构建的版本记录了它，改动会让那些版本声称来自另一种来源。',
       },

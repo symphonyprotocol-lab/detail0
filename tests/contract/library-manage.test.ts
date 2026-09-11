@@ -176,9 +176,10 @@ describe('draftParseScope', () => {
     expect(scope.indexDepth).toBe(0);
   });
 
-  it('keeps the index depth only where an index is followed', () => {
+  it('keeps the nested depth where web children are followed', () => {
     expect(draftParseScope({ sourceType: 'llms_txt', indexDepth: '2' }).indexDepth).toBe(2);
-    expect(draftParseScope({ sourceType: 'website', indexDepth: '2' }).indexDepth).toBe(0);
+    expect(draftParseScope({ sourceType: 'website', indexDepth: '2' }).indexDepth).toBe(2);
+    expect(draftParseScope({ sourceType: 'github', indexDepth: '2' }).indexDepth).toBe(0);
   });
 
   it('refuses an escaping, absolute or over-long path instead of dropping it', () => {
@@ -375,9 +376,10 @@ describe('parse scope precedence', () => {
     });
   });
 
-  it('keeps the index depth only for an llms.txt source', () => {
+  it('keeps nested depth only for website and llms.txt sources', () => {
     const depth = draftParseScope({ sourceType: 'llms_txt', indexDepth: '2' });
     expect(withOwnerParseScope({}, depth, 'llms_txt').indexDepth).toBe(2);
+    expect(withOwnerParseScope({}, depth, 'website').indexDepth).toBe(2);
     expect(withOwnerParseScope({}, depth, 'github').indexDepth).toBeUndefined();
   });
 });

@@ -1126,7 +1126,7 @@ export const en: Dictionary = {
         titleLabel: 'Library title',
         locationLabel: 'Source location',
         indexDepthLabel: 'Nested indexes',
-        indexDepthHint: 'Whether same-host llms.txt files the index mentions are followed; by default only what the index lists is fetched.',
+        indexDepthHint: 'Websites follow in-scope child pages; llms.txt follows same-host nested indexes. Up to 3 levels; none by default.',
         indexDepths: { 0: 'Do not follow (default)', 1: 'Follow 1 level', 2: 'Follow 2 levels', 3: 'Follow 3 levels' },
         locations: {
           github: 'owner/repo, or the repository URL',
@@ -2695,7 +2695,7 @@ export const en: Dictionary = {
         fieldLocation: 'Location',
         hintLocation: 'Web and document sources must be https; GitHub takes owner/repository.',
         fieldIndexDepth: 'Nested indexes',
-        hintIndexDepth: 'llms.txt sources only. Whether same-host llms.txt files the index mentions are followed; by default only what the index itself lists is fetched.',
+        hintIndexDepth: 'Websites follow in-scope child pages; llms.txt follows same-host nested indexes. Up to 3 levels; none by default.',
         indexDepths: { 0: 'Do not follow (default)', 1: 'Follow 1 level', 2: 'Follow 2 levels', 3: 'Follow 3 levels' },
         typeLocked: 'The type is fixed: versions already built name it, and changing it would make them claim a source they did not come from.',
       },

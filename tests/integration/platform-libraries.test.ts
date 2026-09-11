@@ -139,6 +139,7 @@ describeWithDb('platform libraries', () => {
       sourceType: 'website',
       location: 'https://example.test/docs',
       refreshPolicy: 'daily',
+      indexDepth: 3,
       description: 'A fixture, not a real library.',
       domainTag: 'Testing',
       language: 'English',
@@ -158,6 +159,7 @@ describeWithDb('platform libraries', () => {
     expect(record?.sources).toHaveLength(1);
     expect(record?.sources[0]?.location).toBe('https://example.test/docs');
     expect(record?.sources[0]?.refreshPolicy).toBe('daily');
+    expect(record?.sources[0]?.indexDepth).toBe(3);
 
     const [row] = await db()
       .select({

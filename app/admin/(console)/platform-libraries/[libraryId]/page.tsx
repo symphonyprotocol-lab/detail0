@@ -319,7 +319,8 @@ export default async function AdminPlatformLibraryPage({
                   <td className={`${TD} break-all`}>{source.location}</td>
                   <td className={TD}>
                     {p.refreshPolicies[source.refreshPolicy]}
-                    {source.type === 'llms_txt' && source.indexDepth > 0
+                    {(source.type === 'website' || source.type === 'llms_txt') &&
+                    source.indexDepth > 0
                       ? ` · ${d.sourceDialog.indexDepths[source.indexDepth]}`
                       : ''}
                   </td>

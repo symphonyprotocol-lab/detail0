@@ -345,7 +345,7 @@ export interface UpdateParseScopeResult {
 /**
  * Stores the owner's parse scope on the source under the names `re0.json`
  * uses (`folders`, `excludeFolders`, `excludeFiles`; requirement.md 7.2) plus
- * `indexDepth` for an `llms.txt` index, and the refresh cadence where the
+ * `indexDepth` for a website or `llms.txt` source, and the refresh cadence where the
  * source has something to re-fetch. The next build applies it
  * (`fetchSnapshot` filters the snapshot); this call queues none, because
  * the owner may still be editing and the rebuild button is beside the form.

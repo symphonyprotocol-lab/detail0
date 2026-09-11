@@ -134,10 +134,11 @@ describe('source locations', () => {
 
 describe('the create form', () => {
   it('accepts a complete website library', () => {
-    const draft = draftPlatformLibrary(WEBSITE);
+    const draft = draftPlatformLibrary({ ...WEBSITE, indexDepth: '3' });
     expect(draft.publicId).toBe('/websites/nextjs');
     expect(draft.sourceType).toBe('website');
     expect(draft.refreshPolicy).toBe('daily');
+    expect(draft.indexDepth).toBe(3);
     expect(draft.description).toBeNull();
   });
 
@@ -332,7 +333,7 @@ describe('sources', () => {
     expect(draft).toEqual({ type: 'github', location: 'vercel/next.js', refreshPolicy: 'weekly', indexDepth: 0, files: [] });
   });
 
-  it('keeps the nested-index depth only for an llms.txt source, defaulting to none', () => {
+  it('keeps nested depth for website and llms.txt sources, defaulting to none', () => {
     const index = draftPlatformSource({
       type: 'llms_txt',
       location: 'https://docs.example.test/llms.txt',
@@ -342,7 +343,8 @@ describe('sources', () => {
     expect(index.indexDepth).toBe(2);
     expect(draftPlatformSource({ type: 'llms_txt', location: 'https://docs.example.test/llms.txt', refreshPolicy: 'daily' }).indexDepth).toBe(0);
     expect(draftPlatformSource({ type: 'llms_txt', location: 'https://docs.example.test/llms.txt', refreshPolicy: 'daily', indexDepth: '9' }).indexDepth).toBe(0);
-    expect(draftPlatformSource({ type: 'website', location: 'https://docs.example.test/', refreshPolicy: 'daily', indexDepth: '2' }).indexDepth).toBe(0);
+    expect(draftPlatformSource({ type: 'website', location: 'https://docs.example.test/', refreshPolicy: 'daily', indexDepth: '2' }).indexDepth).toBe(2);
+    expect(draftPlatformSource({ type: 'openapi', location: 'https://docs.example.test/openapi.json', refreshPolicy: 'daily', indexDepth: '2' }).indexDepth).toBe(0);
   });
 
   it('refuses an unusable location, an unknown type and an unknown cadence', () => {

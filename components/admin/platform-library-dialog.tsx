@@ -17,6 +17,7 @@ import {
   type PrepareUploads,
 } from '@/components/dashboard/pdf-uploader';
 import {
+  INDEX_DEPTHS,
   PLATFORM_LIBRARY_TYPES,
   REFRESH_POLICIES,
   UPLOAD_LIMITS,
@@ -265,6 +266,21 @@ function CreateDialog({
               className={`${FIELD} h-auto py-2 leading-[1.55]`}
             />
           </Field>
+
+          {sourceType === 'website' || sourceType === 'llms_txt' ? (
+            <Field
+              label={t.admin.platformLibraryDetail.sourceDialog.fieldIndexDepth}
+              hint={t.admin.platformLibraryDetail.sourceDialog.hintIndexDepth}
+            >
+              <select name="indexDepth" defaultValue="0" className={FIELD}>
+                {INDEX_DEPTHS.map((depth) => (
+                  <option key={depth} value={depth}>
+                    {t.admin.platformLibraryDetail.sourceDialog.indexDepths[depth]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : null}
 
           {isPdf ? (
             <>
