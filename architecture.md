@@ -1,8 +1,8 @@
 # re0 开发与部署架构
 
-- 版本：3.0
-- 更新日期：2026-08-31
-- 状态：MVP 架构基线
+- 版本：3.1
+- 更新日期：2026-09-11
+- 状态：MVP 架构基线；§4.1 登记专家模块的技术边界
 - 产品需求：[requirement.md](./requirement.md)
 - 设计依据：[knowleg-market.pen](./knowleg-market.pen)
 - Context7 基线：[`f3a818d`](https://github.com/upstash/context7/tree/f3a818d69db694e24d58e3bf803454fb20fc66ea)
@@ -276,6 +276,61 @@ tests/
 - `move/` 是链上产物，不参与应用构建：Next.js、typecheck 和 vitest 都不读它，它的工具链是 Aptos CLI，见 [move/README.md](./move/README.md)；
 - **文档站是内容，不是应用**：`app/docs` 与 `content/docs` 只读取仓库内 MDX，不访问 Postgres、对象存储或任何 Use Case；它的构建失败不得阻断 API 与 MCP 的部署。
 
+### 4.1 专家模块的技术边界
+
+专家数据与评测赛道（requirement.md §2.4，方案见 [expert-data-track-proposal.md](./expert-data-track-proposal.md)）是同一代码库内的**旁路模块**：它复用基座，不进入知识库的任何主链路。本节只定边界，模块内部设计以方案为准。
+
+**放在哪里。**
+
+```text
+app/expert/                       专家区，独立 Layout 与导航，不在 /dashboard 下
+app/dashboard/data-assets/        买方控制台（阶段 2）
+app/dashboard/evaluations/
+app/admin/(console)/expert*/      运营、合规、财务页面
+app/api/v1/data-assets/           买方 API（阶段 2）；专家 API 不在首期
+app/api/v1/data-exports/
+app/api/v1/evaluation-runs/
+contracts/expert-data.ts          由 contracts/api/index.ts 导出
+lib/domain/expert-data/
+lib/application/expert-data/      accounts、profiles、knowledge、orders、projects、
+                                  submissions、reviews、assets、licensing、exports、
+                                  evaluations、compensation、administration
+lib/infrastructure/evaluation/    评测 Runner 与买方模型端点 Adapter
+workflows/process-expert-submission.ts
+workflows/build-data-asset.ts
+workflows/build-data-export.ts
+workflows/run-expert-evaluation.ts
+workflows/settle-expert-compensation.ts
+```
+
+**复用什么，怎么复用。**
+
+| 基座能力 | 复用方式 | 硬边界 |
+| --- | --- | --- |
+| `user` / OAuth（§5.1） | 只复用登录身份 | 专家身份是独立的 `expert_account`，不是 `workspace_member`；进入 `/expert` 以 `expert_account` 存在为准，普通 Dashboard 的会话解析不读专家表 |
+| `workspace` | 只作买方与资产所有权边界 | 专家模块的所有对象以 `expert_account` 为所有者，不引用 `workspace` |
+| `administrator` / Permission / Audit Decorator（§5.3、§14） | 直接复用 | 新增 `expert_*`、`data_asset.*`、`data_license.*` 权限；不新增宽泛的 `expert.manage` |
+| `api_key` | 新增买方 Scope `assets:read`、`assets:export`、`evals:run` | 现有 Key 默认不获得这些 Scope；专家 Scope 推迟到阶段 4 |
+| `ObjectStore`（§7） | 复用 Adapter 与私有 Store | 独立前缀（§7 末尾）；Adapter 之上加按前缀校验调用方的 Guard，Blob 没有前缀级 IAM，隔离全部在应用层 |
+| `workflow_operation` / `runOperation`（§8） | 复用持久化 Step、幂等键与 Recovery | 独立 Operation Type 族 `expert.*`，不进入 Library Refresh 队列状态机，不出现在 `/admin/refresh-queue` |
+| `audit_log` | 记录高风险管理动作 | 任务正文、Gold、证件、合同正文不进日志 |
+| Payment Adapter（§11.3） | 复用外部收付款原则与 Webhook 幂等 | 不复用 `billing_document`、`revenue_period`、`settlement`、`payout`；专家侧有自己的 `expert_settlement` / `expert_payout` |
+| `llm_config`（§9.5） | 不复用 | 买方模型凭证用独立的 `evaluation_model_config`，Secret 按 Workspace 隔离加密入库 |
+| Anchor（§8.5） | 后续增加 Subject 类型 | 不阻塞发布、授权、导出、评测或付款 |
+
+**不进入什么。** 以下是不变量，任何一条被违反视为缺陷：
+
+- 专家知识与训练样本不写入 `library`、`library_version`、`document`、`chunk`、`library_profile`，不建 `search_vector` 与 `embedding`，不进入 §9 的任何检索路径与缓存；
+- `/v1/context`、`/v1/libraries/search`、MCP 两项工具、在线试用不读专家模块的表和前缀；
+- 专家数据订单不产生 `usage_reservation`、`usage_event`、`earning_event`，不进入 `revenue_period` 与发布者分成；
+- Hidden Eval 的 Payload、Gold 与 Rubric 私有部分不进入普通导出、日志、Trace、Analytics 与前端缓存，只有 Eval Runner 的 Use Case 可读；
+- 专家区与知识库 Dashboard 不共享 Layout、导航、i18n 命名空间（专家区用 `expert.*`）和列表查询；
+- 删除 `app/expert`、`app/admin/(console)/expert*`、`lib/{domain,application}/expert-data`、`lib/infrastructure/evaluation` 与上述五个 Workflow 后，§18 现有全部测试保持通过，不需要修改或回填任何既有表。
+
+**数据与迁移。** 专家模块的表全部以 `expert_`、`data_`、`media_`、`license_`、`evaluation_`、`acceptance_` 为前缀，只做 Expand 迁移，不修改既有列；金额、ID 与时间遵循 §6.4。Hidden Eval 与普通 Data Item 在同一 Postgres 内以行级状态区分，物理隔离只在对象存储前缀与访问 Guard 上实现。
+
+**分阶段进入代码库。** 阶段 0 只上线专家预注册、资格测试与后台验证队列（Migration 1 中的身份部分）；其余按方案 §17 的门禁推进。阶段 0 门禁未过时，代码库里不出现买方 API、导出与评测 Runner。
+
 ## 5. 身份、工作空间与授权
 
 ### 5.1 普通用户身份
@@ -435,6 +490,20 @@ uploads/platform/{batchId}/{fileId}.pdf
 - Quarantine 对普通应用不可读，只允许安全 Workflow/Reviewer；
 - 上传完成前使用临时 Key，校验成功后再移动到 Source Snapshot；
 - 使用存储侧原生生命周期规则清理失败任务临时对象和过期导出，不自建清理任务。
+
+专家模块（§4.1）使用独立前缀，与上述布局互不重叠，隔离由应用层 Guard 按前缀执行：
+
+```text
+expert-verification/{expertHash}/{verificationId}/evidence.*
+expert-projects/{projectId}/...
+data-assets/{assetId}/{versionId}/...
+media/{ownerType}/{ownerId}/{mediaAssetId}/...
+data-exports/{buyerHash}/{exportId}/package.*
+eval-runs/{buyerHash}/{runId}/...
+quarantine/expert-data/{operationId}/{objectId}
+```
+
+`data-exports/` 的过期对象由 drain 收尾时的清理任务删除（与 `purge-uploads` 同一模式），因为 Blob 没有生命周期规则；`media/` 中扫描未通过的对象在拒收时即删除。
 
 ## 8. Ingestion 与发布
 
@@ -1110,6 +1179,8 @@ Upstash Redis 不在此列：它替代的是上一版运行平台自带的限流
 分成的实际出账（Payout）排在第 10 步之后，前置条件是账期分配数据可用 Usage Event 独立复算，见 [publisher-revenue-share.md](./publisher-revenue-share.md) 第 9 节。
 
 链上存证已进入基线，设计见 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md)。它是 §8.5 的旁路能力：第 11–12 步整体延后或失败都不影响第 1–10 步的交付与运行。Anchor Signer 私钥由环境变量持有，不引入 KMS——提案 1.1 版撤销了 1.0 版的 KMS 决定，风险条目见其第 0.1 节；因此 Earning Anchor（第 12 步）只等分成侧跑出可复算的真实数据。代价是密钥轮换要发布一个新的 Code Object，该演练是 Earning Anchor 的上线门禁，见提案 §4.11.1。
+
+专家数据与评测赛道（§4.1）不在上述 14 步之内。它以 requirement.md §2.4 登记的阶段 0 门禁为前提，门禁未过时只允许专家预注册、资格测试与后台验证队列进入代码库；其后各阶段的顺序见 [expert-data-track-proposal.md](./expert-data-track-proposal.md) §17 与 §20。
 
 ## 22. 参考资料
 
