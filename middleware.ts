@@ -75,8 +75,17 @@ export function middleware(request: NextRequest): NextResponse {
     const markdown = request.nextUrl.clone();
     markdown.pathname = '/api/page-markdown';
     markdown.search = '';
-    markdown.searchParams.set('source', `${sourcePath}${request.nextUrl.search}`);
-    const rewritten = NextResponse.rewrite(markdown);
+    const source = `${sourcePath}${request.nextUrl.search}`;
+    markdown.searchParams.set('source', source);
+
+    /* A rewritten Route Handler can retain the original URL's searchParams
+       even though `x-middleware-rewrite` contains the destination query.
+       Carry the source explicitly in the rewritten request as well. */
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set('x-re0-markdown-page', source);
+    const rewritten = NextResponse.rewrite(markdown, {
+      request: { headers: requestHeaders },
+    });
 
     /* The canonical page fetch slides the database session. Slide the
        browser's cookie on the outer response as well, because Set-Cookie from

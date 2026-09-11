@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { NextRequest } from 'next/server';
+import { describe, expect, it, vi } from 'vitest';
+import { GET as renderMarkdownPage } from '@/app/api/page-markdown/route';
 import { markdownSourcePath, pageHtmlToMarkdown } from '@/lib/http/page-markdown';
+import { middleware } from '@/middleware';
 
 describe('Markdown page representations', () => {
   it('accepts local page paths and keeps their query string', () => {
@@ -45,5 +48,44 @@ describe('Markdown page representations', () => {
     expect(markdown).not.toContain('ignoreMe');
     expect(markdown).not.toContain('Footer');
     expect(markdown.endsWith('\n')).toBe(true);
+  });
+
+  it('carries the source in the rewritten request instead of relying on rewritten searchParams', () => {
+    const response = middleware(
+      new NextRequest('https://re0.test/status.md?probe=1', {
+        headers: { 'accept-language': 'en' },
+      }),
+    );
+
+    expect(response.headers.get('x-middleware-rewrite')).toBe(
+      'https://re0.test/api/page-markdown?source=%2Fstatus%3Fprobe%3D1',
+    );
+    expect(response.headers.get('x-middleware-request-x-re0-markdown-page')).toBe(
+      '/status?probe=1',
+    );
+  });
+
+  it('renders the source supplied by a middleware rewrite header', async () => {
+    const fetchPage = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('<html><body><main><h1>Service status</h1></main></body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      }),
+    );
+    try {
+      /* Next can leave this URL as the original URL after a middleware
+         rewrite, so there is intentionally no `source` search parameter. */
+      const response = await renderMarkdownPage(
+        new NextRequest('https://re0.test/status.md', {
+          headers: { 'x-re0-markdown-page': '/status' },
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('# Service status\n');
+      expect(fetchPage.mock.calls[0]?.[0]).toEqual(new URL('https://re0.test/status'));
+    } finally {
+      fetchPage.mockRestore();
+    }
   });
 });

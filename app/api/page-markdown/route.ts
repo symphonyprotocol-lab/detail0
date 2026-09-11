@@ -19,7 +19,9 @@ function responseHeaders(sourceUrl: URL): HeadersInit {
 }
 
 async function render(request: NextRequest, head: boolean): Promise<Response> {
-  const source = markdownSourcePath(request.nextUrl.searchParams.get('source'));
+  const source = markdownSourcePath(
+    request.headers.get('x-re0-markdown-page') ?? request.nextUrl.searchParams.get('source'),
+  );
   if (!source) {
     return NextResponse.json(
       { error: { code: 'invalid_request', message: 'source must be a local content-page path' } },
@@ -71,4 +73,3 @@ export async function GET(request: NextRequest): Promise<Response> {
 export async function HEAD(request: NextRequest): Promise<Response> {
   return render(request, true);
 }
-
