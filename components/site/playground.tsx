@@ -2,12 +2,20 @@
 
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react';
 
 import { Re0Mark } from '@/components/ui/icons';
 import { useI18n } from '@/lib/i18n/client';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import type {
+  PlaygroundAllowance,
   PlaygroundGather,
   PlaygroundModel,
   PlaygroundOutcome,
@@ -45,26 +53,29 @@ import { fill } from '@/lib/i18n/format';
  * `useChat` would post the whole transcript by default. Rule 4 confines the
  * model to the chunks this request retrieved, so replaying earlier turns would
  * hand it exactly the outside knowledge that rule excludes -- and the server
- * does not read them anyway.
+ * does not read them anyway. `pinned` is read at send time, so unpinning
+ * mid-session takes effect on the next question without a new transport.
  */
-const transport = new DefaultChatTransport<PlaygroundUIMessage>({
-  api: '/api/playground',
-  prepareSendMessagesRequest: ({ messages }) => {
-    const last = messages[messages.length - 1];
-    const question = (last?.parts ?? [])
-      .filter((part) => part.type === 'text')
-      .map((part) => part.text)
-      .join(' ')
-      .trim();
-    return { body: { question } };
-  },
-});
+function playgroundTransport(pinned: { current: string | null }) {
+  return new DefaultChatTransport<PlaygroundUIMessage>({
+    api: '/api/playground',
+    prepareSendMessagesRequest: ({ messages }) => {
+      const last = messages[messages.length - 1];
+      const question = (last?.parts ?? [])
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join(' ')
+        .trim();
+      return { body: { question, libraryId: pinned.current } };
+    },
+  });
+}
 
 function AssistantMark() {
   return (
     <span
       aria-hidden
-      className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-line bg-subtle text-brand"
+      className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-line bg-subtle text-brandink"
     >
       <Re0Mark size={18} />
     </span>
@@ -74,7 +85,7 @@ function AssistantMark() {
 function UserBubble({ text }: { text: string }) {
   return (
     <div className="flex justify-end">
-      <p className="max-w-[80%] rounded-[16px] rounded-br-[4px] bg-bubble px-4 py-3 text-[13px] leading-[1.6] text-white">
+      <p className="max-w-[80%] rounded-lg rounded-br-[4px] bg-bubble px-4 py-3 text-[13px] leading-[1.6] text-white">
         {text}
       </p>
     </div>
@@ -108,9 +119,9 @@ function ToolCall({
   open?: boolean;
 }) {
   return (
-    <details open={open} className="group rounded-[9px] border border-line/70 bg-tray p-2.5">
+    <details open={open} className="group rounded-md border border-line/70 bg-tray p-2.5">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-        <code className="font-mono text-[11.5px] font-semibold text-ink">{name}</code>
+        <code className="font-mono text-[11.5px] font-medium text-ink">{name}</code>
         <span
           aria-hidden
           className="text-[10px] text-faint transition-transform group-open:rotate-180"
@@ -132,8 +143,8 @@ function ToolCall({
 
 function WarnCard({ title, body }: { title: string; body: string }) {
   return (
-    <article className="rounded-[12px] rounded-bl-[4px] border border-warnsoft bg-warnsoft/50 p-3.5">
-      <p className="text-[12.5px] font-semibold text-warn">{title}</p>
+    <article className="rounded-md rounded-bl-[4px] border border-warnsoft bg-warnsoft/50 p-3.5">
+      <p className="text-[12.5px] font-medium text-warn">{title}</p>
       <p className="mt-1.5 text-[12px] leading-[1.75] text-muted">{body}</p>
     </article>
   );
@@ -141,6 +152,7 @@ function WarnCard({ title, body }: { title: string; body: string }) {
 
 /** What one assistant turn accumulated, gathered out of its stream parts. */
 interface Turn {
+  allowance: PlaygroundAllowance | null;
   routing: PlaygroundRouting | null;
   gather: PlaygroundGather | null;
   model: PlaygroundModel | null;
@@ -151,6 +163,7 @@ interface Turn {
 
 function readTurn(message: PlaygroundUIMessage): Turn {
   const turn: Turn = {
+    allowance: null,
     routing: null,
     gather: null,
     model: null,
@@ -159,7 +172,8 @@ function readTurn(message: PlaygroundUIMessage): Turn {
     outcome: null,
   };
   for (const part of message.parts) {
-    if (part.type === 'data-routing') turn.routing = part.data;
+    if (part.type === 'data-allowance') turn.allowance = part.data;
+    else if (part.type === 'data-routing') turn.routing = part.data;
     else if (part.type === 'data-gather') turn.gather = part.data;
     else if (part.type === 'data-model') turn.model = part.data;
     else if (part.type === 'data-sources') turn.sources = part.data.sources;
@@ -215,7 +229,7 @@ function SourceList({
 
   return (
     <div className="mt-3.5 flex flex-col gap-1.5 border-t border-line/60 pt-3">
-      <p className="text-[10.5px] font-semibold tracking-[0.02em] text-faint uppercase">
+      <p className="text-[10.5px] font-medium tracking-[0.02em] text-faint uppercase">
         {t.sourcesLabel}
       </p>
       {shown.map((source) => (
@@ -224,6 +238,7 @@ function SourceList({
           source={source}
           number={numbers.get(source.chunkId)}
           showLibrary={multiLibrary}
+          codeLabel={t.allowance.codeLabel}
         />
       ))}
       {folded.length > 0 ? (
@@ -241,6 +256,7 @@ function SourceList({
                 source={source}
                 number={numbers.get(source.chunkId)}
                 showLibrary={multiLibrary}
+                codeLabel={t.allowance.codeLabel}
               />
             ))}
           </div>
@@ -250,36 +266,68 @@ function SourceList({
   );
 }
 
+/**
+ * One source, and the fenced code its passage carried (requirement.md 5.1:
+ * the playground shows 代码示例). The code is the chunk's own text, lifted
+ * out by the server as data -- shown verbatim, never interpreted, and folded
+ * so a long snippet does not crowd the citation it belongs to.
+ */
 function SourceLine({
   source,
   number,
   showLibrary,
+  codeLabel,
 }: {
   source: PlaygroundSource;
   number: number | undefined;
   showLibrary: boolean;
+  codeLabel: string;
 }) {
   return (
-    <p className="flex flex-wrap items-baseline gap-1.5 text-[10.5px] text-muted">
-      <span className="rounded bg-cite/12 px-1 font-semibold text-cite">{number}</span>
-      {showLibrary ? (
-        <span
-          className="rounded bg-tray px-1 font-mono text-[10px] text-faint"
-          title={source.libraryId}
+    <div className="flex flex-col gap-1">
+      <p className="flex flex-wrap items-baseline gap-1.5 text-[10.5px] text-muted">
+        <span className="rounded bg-cite/12 px-1 font-medium text-cite">{number}</span>
+        {showLibrary ? (
+          <span
+            className="rounded bg-tray px-1 font-mono text-[10px] text-faint"
+            title={source.libraryId}
+          >
+            {source.libraryTitle}
+          </span>
+        ) : null}
+        <a
+          href={source.sourceUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="font-medium text-ink underline-offset-2 hover:underline"
         >
-          {source.libraryTitle}
-        </span>
+          {source.documentTitle}
+        </a>
+        {source.section ? <span>· {source.section}</span> : null}
+      </p>
+      {source.codeBlocks.length > 0 ? (
+        <details className="group ml-6">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10.5px] text-faint hover:text-muted">
+            <span aria-hidden className="transition-transform group-open:rotate-90">
+              ▸
+            </span>
+            {codeLabel}
+            {source.codeBlocks.length > 1 ? ` (${source.codeBlocks.length})` : ''}
+          </summary>
+          <div className="mt-1.5 flex flex-col gap-1.5">
+            {source.codeBlocks.map((block, index) => (
+              <pre
+                key={index}
+                data-lang={block.lang ?? undefined}
+                className="overflow-x-auto rounded-md border border-line/70 bg-tray p-2.5 font-mono text-[11px] leading-[1.6] text-ink"
+              >
+                <code>{block.code}</code>
+              </pre>
+            ))}
+          </div>
+        </details>
       ) : null}
-      <a
-        href={source.sourceUrl}
-        target="_blank"
-        rel="noreferrer noopener"
-        className="font-semibold text-ink underline-offset-2 hover:underline"
-      >
-        {source.documentTitle}
-      </a>
-      {source.section ? <span>· {source.section}</span> : null}
-    </p>
+    </div>
   );
 }
 
@@ -300,7 +348,7 @@ function ClaimText({ text }: { text: string }) {
         const body = heading ? heading[1]! : line.replace(/^[-*]\s+/, '• ');
         const runs = body.split(INLINE).map((run, index) =>
           run.startsWith('**') && run.endsWith('**') ? (
-            <strong key={index} className="font-semibold text-ink">
+            <strong key={index} className="font-medium text-ink">
               {run.slice(2, -2)}
             </strong>
           ) : run.startsWith('`') && run.endsWith('`') ? (
@@ -314,7 +362,7 @@ function ClaimText({ text }: { text: string }) {
         return (
           <span key={at}>
             {at > 0 ? '\n' : null}
-            {heading ? <strong className="font-semibold text-ink">{runs}</strong> : runs}
+            {heading ? <strong className="font-medium text-ink">{runs}</strong> : runs}
           </span>
         );
       })}
@@ -381,7 +429,11 @@ function AssistantTurn({
 
   return (
     <AssistantRow>
-      <ToolCall name="resolve-library-id" params={routingParams} />
+      {/* A pinned exchange never ran resolve-library-id, so it is not shown
+          as if it had: the transcript is the real call sequence. */}
+      {turn.routing.pinned ? null : (
+        <ToolCall name="resolve-library-id" params={routingParams} />
+      )}
       {candidates.map((candidate) => (
         <ToolCall
           key={candidate.libraryId}
@@ -433,15 +485,15 @@ function AssistantTurn({
       ) : null}
 
       {turn.outcome === 'degraded' ? (
-        <article className="rounded-[12px] rounded-bl-[4px] bg-reply p-3.5">
-          <p className="text-[12.5px] font-semibold text-ink">{t.degradedTitle}</p>
+        <article className="rounded-md rounded-bl-[4px] bg-reply p-3.5">
+          <p className="text-[12.5px] font-medium text-ink">{t.degradedTitle}</p>
           <p className="mt-1.5 text-[12px] leading-[1.75] text-muted">{t.degradedBody}</p>
           <SourceList sources={turn.sources} numbers={numbers} citedCount={0} t={t} />
         </article>
       ) : null}
 
       {turn.claims.length > 0 ? (
-        <article className="rounded-[12px] rounded-bl-[4px] bg-reply p-3.5">
+        <article className="rounded-md rounded-bl-[4px] bg-reply p-3.5">
           <p className="text-[12.5px] leading-[1.75] whitespace-pre-line text-muted">
             {turn.claims.map((entry, index) => (
               <span key={`${entry.claim}-${index}`}>
@@ -449,7 +501,7 @@ function AssistantTurn({
                 {entry.chunkIds.map((chunkId) => (
                   <sup
                     key={chunkId}
-                    className="ml-0.5 rounded bg-cite/12 px-1 text-[9px] font-semibold text-cite"
+                    className="ml-0.5 rounded bg-cite/12 px-1 text-[9px] font-medium text-cite"
                   >
                     {numbers.get(chunkId)}
                   </sup>
@@ -494,10 +546,25 @@ function errorMessage(error: Error | undefined, t: Dictionary['playground']): st
   return t.askError;
 }
 
-export function Playground() {
+export function Playground({
+  /**
+   * A public Library ID to query instead of auto-routing -- the detail page's
+   * "Try in Playground" (`/playground?library=`). Cleared by the visitor
+   * from the chip above the composer.
+   */
+  initialLibrary = null,
+}: {
+  initialLibrary?: string | null;
+}) {
   const { t: messages } = useI18n();
   const t = messages.playground;
   const [question, setQuestion] = useState('');
+  const [pinnedLibrary, setPinnedLibrary] = useState<string | null>(initialLibrary);
+  const pinned = useRef<string | null>(initialLibrary);
+  useEffect(() => {
+    pinned.current = pinnedLibrary;
+  }, [pinnedLibrary]);
+  const transport = useMemo(() => playgroundTransport(pinned), []);
   const scroller = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
 
@@ -512,6 +579,16 @@ export function Playground() {
   });
 
   const busy = status === 'submitted' || status === 'streaming';
+
+  /*
+   * Rule 8: where the visitor stands, from the newest exchange the server
+   * answered. Nothing is shown before the first one -- the count is the
+   * limiter's, and the page does not guess at it.
+   */
+  const allowance = [...turns]
+    .reverse()
+    .map((message) => (message.role === 'assistant' ? readTurn(message).allowance : null))
+    .find((entry) => entry !== null) ?? null;
 
   /*
    * Follow the stream, but only for a reader who is already at the bottom --
@@ -548,7 +625,7 @@ export function Playground() {
 
   return (
     <div className="mx-auto w-full">
-      <div className="flex h-[640px] max-h-[78vh] flex-col overflow-hidden rounded-[14px] border-2 border-line bg-card">
+      <div className="flex h-[640px] max-h-[78vh] flex-col overflow-hidden rounded-lg border border-line bg-card">
         <div ref={scroller} className="flex-1 overflow-y-auto">
           <div className="flex min-h-full flex-col gap-5 p-4">
             {/* The empty transcript is where the suggestions belong: centred
@@ -556,7 +633,7 @@ export function Playground() {
                 composer for the one moment before the first question. */}
             {turns.length === 0 && !failure ? (
               <div className="m-auto flex w-full max-w-[380px] flex-col items-center gap-3 py-8">
-                <p className="text-[15px] font-semibold tracking-[-0.02em] text-muted">
+                <p className="text-[15px] font-medium text-muted">
                   {t.suggestionsTitle}
                 </p>
                 {t.suggestions.map((suggestion) => (
@@ -564,7 +641,7 @@ export function Playground() {
                     key={suggestion}
                     type="button"
                     onClick={() => submit(suggestion)}
-                    className="w-full rounded-[10px] border border-line bg-subtle px-4 py-2.5 text-[12.5px] tracking-[-0.02em] text-muted transition-colors hover:border-brand/50 hover:bg-tray hover:text-ink"
+                    className="w-full rounded-md border border-line bg-subtle px-4 py-2.5 text-[12.5px] text-muted transition-colors hover:border-brand/50 hover:bg-tray hover:text-ink"
                   >
                     {suggestion}
                   </button>
@@ -605,7 +682,21 @@ export function Playground() {
         </div>
 
         <form onSubmit={onSubmit} className="p-3.5">
-          <div className="relative rounded-[12px] border-2 border-line bg-field transition-colors focus-within:border-brand">
+          {pinnedLibrary ? (
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-muted">
+              <span className="rounded-full bg-brandsoft px-2.5 py-0.5 font-mono text-[10.5px] font-medium text-brandink">
+                {fill(t.allowance.pinnedTo, { library: pinnedLibrary })}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPinnedLibrary(null)}
+                className="text-[11px] text-faint underline-offset-2 hover:text-ink hover:underline"
+              >
+                {t.allowance.unpin}
+              </button>
+            </div>
+          ) : null}
+          <div className="relative rounded-md border border-line bg-field transition-colors focus-within:border-brand">
             <textarea
               ref={composer}
               rows={1}
@@ -651,6 +742,36 @@ export function Playground() {
           </div>
         </form>
       </div>
+
+      {allowance ? (
+        <p
+          aria-live="polite"
+          className="mt-3 text-center text-[11.5px] leading-[1.7] text-muted"
+        >
+          {allowance.anonymous ? (
+            <>
+              <span className="font-medium text-ink">
+                {allowance.remaining !== null && allowance.remaining > 0
+                  ? fill(t.allowance.anonymous, {
+                      remaining: allowance.remaining,
+                      limit: allowance.limit ?? 0,
+                      /* The limiter owns the window length; the copy only
+                         reports it, so changing the rule cannot leave the
+                         line claiming an hour it no longer means. */
+                      hours: Math.round((allowance.windowSeconds ?? 3_600) / 3_600),
+                    })
+                  : t.allowance.anonymousExhausted}
+              </span>{' '}
+              {t.allowance.signedInDifference}{' '}
+              <a href="/login" className="font-medium text-brandink underline-offset-2 hover:underline">
+                {t.allowance.signIn}
+              </a>
+            </>
+          ) : (
+            t.allowance.signedIn
+          )}
+        </p>
+      ) : null}
 
       <p className="mt-3.5 text-center text-[11.5px] leading-[1.7] text-faint">
         {t.footnoteLine1}

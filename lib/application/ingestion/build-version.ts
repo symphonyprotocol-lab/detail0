@@ -1,6 +1,16 @@
 /**
  * One build: a set of sources in, one indexed but unpublished Version out.
  *
+ * Sources are compared one by one against the current version
+ * (`library_version.source_digests`). A source whose fresh snapshot digests
+ * the same as last time is *carried forward*: its documents and chunks --
+ * vectors included -- are copied into the new version under new ids, and
+ * nothing of it is parsed or embedded again. Only sources that changed go
+ * through the pipeline. A refresh that names one source (`workflow_operation
+ * .source_id`) does not even fetch the others. The version stays what it
+ * always was, one immutable snapshot of the whole library; what changes is
+ * how much of it was recomputed.
+ *
  * This is architecture.md 8.2 steps 2 through 9 -- fetch, scan, discover,
  * normalize, cite, chunk, embed-index, profile, evaluate. Step 10 (review) does
  * not apply to a platform library (architecture.md 8.1 routes it straight to
@@ -13,7 +23,7 @@
  * `current_version` before a version is completely ready, and the cheapest way
  * to keep that promise is for "ready" to be the last thing written.
  */
-import { and, count, eq, like, or } from 'drizzle-orm';
+import { and, count, eq, inArray, like, or } from 'drizzle-orm';
 import {
   CHUNKER_VERSION,
   chunkDocument,
@@ -46,21 +56,44 @@ import {
   PROFILE_VERSION,
   profileSearchText,
 } from '@/lib/domain/profile';
-import { isConnectedSourceType } from '@/lib/domain/library';
+import {
+  isConnectedSourceType,
+  withDeclaredParseScope,
+  type ConnectedSourceType,
+} from '@/lib/domain/library';
+import { notionSourceUserId } from '@/lib/domain/notion';
+import { notionTokenFor } from '@/lib/application/auth/notion-connection';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { objectKeys } from '@/lib/infrastructure/objects/store';
+import { platformTermWeight } from './term-weights';
 import type { FetchedFile, SourceSnapshot } from '@/lib/infrastructure/connectors';
 import { defaultDependencies, type IngestionDependencies } from './dependencies';
+import type { BuildFacts } from '@/lib/domain/build-billing';
 
 export interface BuildInput {
   libraryId: string;
   operationId: string;
   dependencies?: IngestionDependencies;
+  /**
+   * Runs once chunking has measured the build and before anything is
+   * embedded -- the last point at which stopping costs the platform nothing.
+   * library-build-billing.md 4.3: the worker prices the build here and
+   * throws `quota_exceeded` when the workspace cannot cover it.
+   */
+  beforeIndex?: (facts: BuildFacts) => Promise<void>;
 }
 
 export type BuildOutcome =
   | { changed: false; digest: string }
-  | { changed: true; digest: string; versionId: string; documents: number; chunks: number };
+  | {
+      changed: true;
+      digest: string;
+      versionId: string;
+      documents: number;
+      chunks: number;
+      /** What the build added, as the billing formula reads it. */
+      facts: BuildFacts;
+    };
 
 /** Rows are inserted in batches so one build is not one enormous statement. */
 const INSERT_BATCH = 250;
@@ -143,10 +176,6 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   if (sources.length === 0) {
     throw new IngestionFailure('source_unsupported', 'validate-source', 'the library has no source');
   }
-
-  /* ------------------------------------------------------- fetch-snapshot */
-
-  const snapshots: { source: (typeof sources)[number]; snapshot: SourceSnapshot }[] = [];
   for (const source of sources) {
     if (!isConnectedSourceType(source.type)) {
       throw new IngestionFailure(
@@ -155,42 +184,19 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
         `${source.type} has no connector`,
       );
     }
-    const snapshot = await dependencies.fetchSnapshot({
-      type: source.type,
-      location: source.location,
-      config: source.config,
-    });
-    snapshots.push({ source, snapshot });
   }
 
-  /*
-   * Paths are namespaced by source only when there is more than one. A single
-   * source is the overwhelmingly common case, and prefixing its paths would
-   * put a synthetic directory into every citation for no reason.
-   */
-  const files: FetchedFile[] = snapshots.flatMap(({ source, snapshot }, index) =>
-    snapshot.files.map((file) => ({
-      ...file,
-      path: snapshots.length > 1 ? `${index}-${short(source.id)}/${file.path}` : file.path,
-    })),
-  );
-
-  if (files.length === 0) {
-    throw new IngestionFailure('source_empty', 'fetch-snapshot', 'the source served no documents');
-  }
-
-  /*
-   * Recorded as soon as the fetch is known, before the digest decides whether
-   * anything else happens: an unchanged source still tells the operator how
-   * it was read, and a build that fails later still says which pages needed a
-   * renderer.
-   */
-  await database
-    .update(schema.workflowOperation)
-    .set({ fetchSummary: summarizeFetch(files) })
-    .where(eq(schema.workflowOperation.id, input.operationId));
-
-  const digest = await snapshotDigest(files);
+  /* A refresh that names one source; a name that is not this library's is
+     ignored rather than refused, and the whole library is refreshed. */
+  const [operation] = await database
+    .select({ sourceId: schema.workflowOperation.sourceId })
+    .from(schema.workflowOperation)
+    .where(eq(schema.workflowOperation.id, input.operationId))
+    .limit(1);
+  const targetSourceId =
+    operation?.sourceId && sources.some((source) => source.id === operation.sourceId)
+      ? operation.sourceId
+      : null;
 
   /*
    * Which stemmer the keyword index uses, decided once and stamped on every
@@ -203,7 +209,9 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   const current = library.currentVersionId
     ? await database
         .select({
+          id: schema.libraryVersion.id,
           digest: schema.libraryVersion.sourceDigest,
+          sourceDigests: schema.libraryVersion.sourceDigests,
           parserVersion: schema.libraryVersion.parserVersion,
           chunkerVersion: schema.libraryVersion.chunkerVersion,
           embeddingModel: schema.libraryVersion.embeddingModel,
@@ -219,19 +227,135 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
    *
    * requirement.md 8.1 freezes the parser, chunker, embedding model and search
    * configuration on a Version, which is a statement that those four decide
-   * what the version *is*. So an unchanged digest is a reason to stop only when
-   * today's build would produce the same thing: correcting a library's language
-   * or shipping a new chunker must rebuild, and without this check both would
-   * be reported as "unchanged" and quietly do nothing.
+   * what the version *is*. So an unchanged source is a reason to carry it
+   * forward only when today's build would produce the same thing: correcting
+   * a library's language or shipping a new chunker must rebuild everything,
+   * and without this check both would be reported as "unchanged" and quietly
+   * do nothing.
    */
   const built = current[0];
-  const sameBuild =
+  const sameConfiguration =
     built !== undefined &&
-    built.digest === digest &&
     built.parserVersion === PARSER_VERSION &&
     built.chunkerVersion === CHUNKER_VERSION &&
     built.embeddingModel === adapter.model &&
     built.searchConfig === searchConfig;
+  const cached = (sameConfiguration && built?.sourceDigests) || {};
+  /*
+   * A rebuild forced by our own parser, chunker or model moving is the
+   * platform's decision, not the owner's (library-build-billing.md 1.1): the
+   * price formula reads this flag and charges nothing. A changed search
+   * configuration is the owner's own edit and is not covered.
+   */
+  const platformRebuild =
+    built !== undefined &&
+    (built.parserVersion !== PARSER_VERSION ||
+      built.chunkerVersion !== CHUNKER_VERSION ||
+      built.embeddingModel !== adapter.model ||
+      /* A version from before per-source digests carries nothing forward
+         (`cached` is empty), so its first refresh re-embeds the whole
+         library. That is our migration, not the owner's change. */
+      built.sourceDigests === null);
+
+  /* ------------------------------------------------------- fetch-snapshot */
+
+  /*
+   * Paths are namespaced by source only when there is more than one. A single
+   * source is the overwhelmingly common case, and prefixing its paths would
+   * put a synthetic directory into every citation for no reason.
+   */
+  const prefix = (index: number, sourceId: string) =>
+    sources.length > 1 ? `${index}-${short(sourceId)}/` : '';
+
+  type SourcePlan = {
+    source: (typeof sources)[number];
+    record: SourceRecord;
+    /** Fetched this build; absent when the source is carried forward unfetched. */
+    snapshot?: SourceSnapshot;
+    files: SourceFile[];
+    /** True when the source's documents come from the current version. */
+    carried: boolean;
+  };
+  const plans: SourcePlan[] = [];
+  for (const [index, source] of sources.entries()) {
+    const previous = cached[source.id];
+    if (targetSourceId && source.id !== targetSourceId && previous) {
+      plans.push({ source, record: previous, files: [], carried: true });
+      continue;
+    }
+    const snapshot = await dependencies.fetchSnapshot({
+      /* Every type was checked against the connectors above. */
+      type: source.type as ConnectedSourceType,
+      location: source.location,
+      config: source.config,
+      credential: await sourceCredential(source.type, source.config),
+    });
+    /*
+     * What `re0.json` scoped this fetch to is stamped onto the source row, in
+     * the file's own field names, so the library page can show the scope the
+     * index obeyed (requirement.md 5.1) without re-reading the repository.
+     *
+     * `withDeclaredParseScope` decides whether that stamp may land: the
+     * owner's dashboard scope writes the same keys and outranks the file, and
+     * a source with no `re0.json` declares nothing, so stamping it
+     * unconditionally erased a saved scope on the next build. Null means
+     * leave the row alone.
+     */
+    const declared = withDeclaredParseScope(source.config, {
+      folders: snapshot.config.folders,
+      excludeFolders: snapshot.config.excludeFolders,
+    });
+    if (declared) {
+      await database
+        .update(schema.source)
+        .set({ config: declared })
+        .where(eq(schema.source.id, source.id));
+    }
+    const files: SourceFile[] = snapshot.files.map((file) => ({
+      ...file,
+      path: `${prefix(index, source.id)}${file.path}`,
+      sourceId: source.id,
+    }));
+    const record: SourceRecord = {
+      digest: await snapshotDigest(files),
+      bytes: files.reduce((total, file) => total + encoder.encode(file.content).length, 0),
+      lastModifiedAt: snapshot.lastModifiedAt?.toISOString() ?? null,
+      hasLicense: snapshot.hasLicense,
+    };
+    const carried = previous !== undefined && previous.digest === record.digest;
+    plans.push({ source, record, snapshot, files: carried ? [] : files, carried });
+  }
+
+  const fetched = plans.filter((plan) => plan.snapshot !== undefined);
+  const fetchedFiles = fetched.flatMap((plan) => plan.snapshot!.files);
+  /* Pages a connector pulled from a host. A repository, a Notion space or an
+     upload reports no fetch method, so those sources count no pages. */
+  const pagesFetched = fetchedFiles.filter((file) => file.fetchedVia !== undefined).length;
+  if (fetched.length > 0 && fetchedFiles.length === 0) {
+    throw new IngestionFailure('source_empty', 'fetch-snapshot', 'the source served no documents');
+  }
+
+  /*
+   * Recorded as soon as the fetch is known, before the digest decides whether
+   * anything else happens: an unchanged source still tells the operator how
+   * it was read, and a build that fails later still says which pages needed a
+   * renderer.
+   */
+  await database
+    .update(schema.workflowOperation)
+    .set({ fetchSummary: summarizeFetch(fetchedFiles) })
+    .where(eq(schema.workflowOperation.id, input.operationId));
+
+  /*
+   * One source: its own digest, as it always was. Several: a digest over
+   * their digests, so a version's identity is the identity of its parts and
+   * a carried-forward source needs no re-hashing of content this build never
+   * saw.
+   */
+  const digest =
+    plans.length === 1
+      ? plans[0]!.record.digest
+      : await sha256Hex(plans.map((plan) => `${plan.source.id}=${plan.record.digest}`).join('\n'));
 
   /*
    * architecture.md 8.4: an unchanged digest updates `last_checked_at` and
@@ -239,7 +363,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
    * checked hourly and changes yearly would otherwise accumulate thousands of
    * identical versions, each one anchored and each one a superseded row.
    */
-  if (sameBuild) {
+  if (sameConfiguration && plans.every((plan) => plan.carried)) {
     await database
       .update(schema.library)
       .set({ lastCheckedAt: new Date() })
@@ -247,17 +371,24 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     return { changed: false, digest };
   }
 
+  const files: SourceFile[] = plans.flatMap((plan) => plan.files);
+  const carriedPlans = plans.filter((plan) => plan.carried);
+
   const store = dependencies.store();
   await store.put(
     objectKeys.snapshot(library.id, input.operationId, 'json'),
-    encode({ digest, files: files.map((file) => ({ path: file.path, url: file.url })) }),
+    encode({
+      digest,
+      files: files.map((file) => ({ path: file.path, url: file.url })),
+      carried: carriedPlans.map((plan) => ({ sourceId: plan.source.id, digest: plan.record.digest })),
+    }),
     'application/json',
   );
 
   /* ---------------------------------------------------------------- scan */
 
-  const safe: FetchedFile[] = [];
-  const quarantined: FetchedFile[] = [];
+  const safe: SourceFile[] = [];
+  const quarantined: SourceFile[] = [];
   let flaggedFiles = 0;
   const flaggedPaths = new Set<string>();
   for (const file of files) {
@@ -293,13 +424,13 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     );
   }
 
-  if (safe.length === 0) {
+  if (files.length > 0 && safe.length === 0) {
     throw new IngestionFailure('unsafe_content', 'scan', 'every document was quarantined');
   }
 
   /* ---------------------------------- discover-parse, normalize-cite, chunk */
 
-  const parsed: { file: FetchedFile; document: ParsedDocument }[] = [];
+  const parsed: { file: SourceFile; document: ParsedDocument }[] = [];
   for (const file of safe.slice(0, INGESTION_LIMITS.maxDocuments)) {
     const format =
       file.format ??
@@ -319,24 +450,122 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     parsed.push({ file, document });
   }
 
-  if (parsed.length === 0) {
+  if (files.length > 0 && parsed.length === 0) {
     throw new IngestionFailure('parse_failed', 'discover-parse', 'nothing parsed to text');
   }
 
   const versionId = uuidv7();
   const rows: {
-    document: { id: string; title: string; sourceUrl: string; objectKey: string };
-    chunks: { id: string; ordinal: number; body: string; tokens: number; citation: Citation }[];
+    document: { id: string; title: string; sourceUrl: string; objectKey: string; sourceId: string };
+    chunks: {
+      id: string;
+      ordinal: number;
+      body: string;
+      tokens: number;
+      citation: Citation;
+      /** Set when the chunk is carried forward: where its vector already is. */
+      copiedFrom?: string;
+      bodySegmented?: string | null;
+    }[];
     /** True when the safety scan flagged the file this document came from. */
     flagged: boolean;
   }[] = [];
 
   let totalChunks = 0;
   let totalTokens = 0;
+  let carriedTokens = 0;
   let citedChunks = 0;
   let flaggedChunks = 0;
   const seenBodies = new Set<string>();
   let duplicates = 0;
+
+  /*
+   * Carried-forward sources first, in source order: their documents and
+   * chunks are read from the current version and re-keyed for this one. The
+   * normalized object in storage is shared -- it is immutable, and the purge
+   * that removes a library removes every key its documents name. The bodies
+   * are read because the profile, the Merkle root and the scoring counts need
+   * them; the vectors are not, they are copied row by row below.
+   */
+  for (const plan of carriedPlans) {
+    const documents = await database
+      .select({
+        id: schema.document.id,
+        title: schema.document.title,
+        sourceUrl: schema.document.sourceUrl,
+        objectKey: schema.document.objectKey,
+      })
+      .from(schema.document)
+      .where(and(eq(schema.document.versionId, built!.id), eq(schema.document.sourceId, plan.source.id)))
+      .orderBy(schema.document.id);
+
+    for (let at = 0; at < documents.length; at += CARRY_BATCH) {
+      const batch = documents.slice(at, at + CARRY_BATCH);
+      const chunks = await database
+        .select({
+          id: schema.chunk.id,
+          documentId: schema.chunk.documentId,
+          ordinal: schema.chunk.ordinal,
+          body: schema.chunk.body,
+          tokens: schema.chunk.tokens,
+          citation: schema.chunk.citation,
+          safetyStatus: schema.chunk.safetyStatus,
+          bodySegmented: schema.chunk.bodySegmented,
+        })
+        .from(schema.chunk)
+        .where(
+          inArray(
+            schema.chunk.documentId,
+            batch.map((document) => document.id),
+          ),
+        )
+        .orderBy(schema.chunk.documentId, schema.chunk.ordinal);
+      const byDocument = new Map<string, typeof chunks>();
+      for (const chunk of chunks) {
+        const list = byDocument.get(chunk.documentId) ?? [];
+        list.push(chunk);
+        byDocument.set(chunk.documentId, list);
+      }
+      for (const document of batch) {
+        const own = byDocument.get(document.id) ?? [];
+        if (own.length === 0 || totalChunks >= INGESTION_LIMITS.maxChunks) continue;
+        const documentId = uuidv7();
+        let flagged = false;
+        const copied = own.map((chunk) => {
+          const citation = chunk.citation as Citation;
+          if (citation.section) citedChunks += 1;
+          totalTokens += chunk.tokens;
+          carriedTokens += chunk.tokens;
+          const key = `${chunk.body.length}:${chunk.body.slice(0, 200)}`;
+          if (seenBodies.has(key)) duplicates += 1;
+          else seenBodies.add(key);
+          if (chunk.safetyStatus === 'flagged') flagged = true;
+          return {
+            id: uuidv7(),
+            ordinal: chunk.ordinal,
+            body: chunk.body,
+            tokens: chunk.tokens,
+            citation,
+            copiedFrom: chunk.id,
+            bodySegmented: chunk.bodySegmented,
+          };
+        });
+        totalChunks += copied.length;
+        if (flagged) flaggedChunks += copied.length;
+        rows.push({
+          document: {
+            id: documentId,
+            title: document.title,
+            sourceUrl: document.sourceUrl,
+            objectKey: document.objectKey ?? objectKeys.normalized(library.id, versionId, documentId),
+            sourceId: plan.source.id,
+          },
+          chunks: copied,
+          flagged,
+        });
+      }
+    }
+  }
 
   for (const { file, document } of parsed) {
     if (totalChunks >= INGESTION_LIMITS.maxChunks) break;
@@ -370,6 +599,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
         title: document.title,
         sourceUrl: file.url,
         objectKey: objectKeys.normalized(library.id, versionId, documentId),
+        sourceId: file.sourceId,
       },
       chunks,
       flagged,
@@ -379,6 +609,19 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   if (totalChunks === 0) {
     throw new IngestionFailure('parse_failed', 'chunk', 'nothing chunked');
   }
+
+  /*
+   * Measured, and priced by the caller, before a byte reaches the store or
+   * the embedding provider. Nothing of this version exists yet, so a refusal
+   * here leaves nothing to discard.
+   */
+  const facts: BuildFacts = {
+    freshTokens: totalTokens - carriedTokens,
+    carriedTokens,
+    pagesFetched,
+    platformRebuild,
+  };
+  if (input.beforeIndex) await input.beforeIndex(facts);
 
   /* ---------------------------------------------------------- embed-index */
 
@@ -401,8 +644,11 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       safetyStatus: row.flagged ? 'flagged' : 'clean',
       searchConfig,
       /* Pre-segmented CJK for the keyword index Postgres cannot build itself.
-         lib/domain/cjk.ts; null for chunks with no Han text. */
-      bodySegmented: segmentCjkForIndex(chunk.body),
+         lib/domain/cjk.ts; null for chunks with no Han text. A carried chunk
+         keeps what it had. */
+      bodySegmented:
+        chunk.copiedFrom !== undefined ? (chunk.bodySegmented ?? null) : segmentCjkForIndex(chunk.body),
+      copiedFrom: chunk.copiedFrom,
     })),
   );
 
@@ -420,9 +666,10 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
    * rules; a row pointing at an object that was never written is a broken
    * library.
    */
-  for (let at = 0; at < rows.length; at += PUT_CONCURRENCY) {
+  const fresh = rows.filter((row) => row.chunks[0]?.copiedFrom === undefined);
+  for (let at = 0; at < fresh.length; at += PUT_CONCURRENCY) {
     await Promise.all(
-      rows.slice(at, at + PUT_CONCURRENCY).map((row) =>
+      fresh.slice(at, at + PUT_CONCURRENCY).map((row) =>
         store.put(
           row.document.objectKey,
           encode({
@@ -463,8 +710,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
    * between a Chinese library reporting its real size and reporting a third of
    * it. The connectors already count this way.
    */
-  const encoder = new TextEncoder();
-  const bytes = safe.reduce((total, file) => total + encoder.encode(file.content).length, 0);
+  const bytes = plans.reduce((total, plan) => total + plan.record.bytes, 0);
 
   /*
    * The same source can now be built more than once -- a configuration change
@@ -496,6 +742,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       libraryId: library.id,
       label: versionLabel(digest, builtAt, (priorBuilds?.n ?? 0) + 1),
       sourceDigest: digest,
+      sourceDigests: Object.fromEntries(plans.map((plan) => [plan.source.id, plan.record])),
       parserVersion: PARSER_VERSION,
       chunkerVersion: CHUNKER_VERSION,
       embeddingModel: adapter.model,
@@ -515,6 +762,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
         title: row.document.title,
         sourceUrl: row.document.sourceUrl,
         objectKey: row.document.objectKey,
+        sourceId: row.document.sourceId,
       })),
     );
   });
@@ -548,19 +796,12 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
   try {
     for (let offset = 0; offset < pending.length; offset += EMBED_WINDOW) {
       const window = pending.slice(offset, offset + EMBED_WINDOW);
-      const vectors = await adapter.embed(window.map((chunk) => chunk.body));
-      if (vectors.length !== window.length) {
-        throw new IngestionFailure(
-          'embedding_unavailable',
-          'embed-index',
-          'the embedding provider returned the wrong number of vectors',
-        );
-      }
+      const vectors = await vectorsFor(window, adapter, database);
       for (const vector of vectors) centroids.add(vector);
 
       for (let at = 0; at < window.length; at += INSERT_BATCH) {
         await database.insert(schema.chunk).values(
-          window.slice(at, at + INSERT_BATCH).map((chunk, index) => ({
+          window.slice(at, at + INSERT_BATCH).map(({ copiedFrom: _copied, ...chunk }, index) => ({
             ...chunk,
             embedding: vectors[at + index] as number[],
           })),
@@ -569,7 +810,11 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     }
 
     const titles = rows.map((row) => row.document.title).slice(0, PROFILE_LIMITS.maxTitles);
-    const terms = extractTerms(pending.map((chunk) => chunk.body));
+    const terms = extractTerms(
+      pending.map((chunk) => chunk.body),
+      PROFILE_LIMITS.maxTerms,
+      await platformTermWeight(library.id),
+    );
 
     await database.transaction(async (tx) => {
       /*
@@ -640,9 +885,9 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
   /* ------------------------------------------------------------- evaluate */
 
-  const newest = snapshots
-    .map(({ snapshot }) => snapshot.lastModifiedAt)
-    .filter((value): value is Date => value instanceof Date)
+  const newest = plans
+    .map((plan) => (plan.record.lastModifiedAt ? new Date(plan.record.lastModifiedAt) : null))
+    .filter((value): value is Date => value !== null && !Number.isNaN(value.getTime()))
     .sort((a, b) => b.getTime() - a.getTime())[0];
 
   const scores = scoreLibrary({
@@ -654,7 +899,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     citedRatio: totalChunks === 0 ? 0 : citedChunks / totalChunks,
     flaggedChunks,
     ageDays: newest ? Math.max(0, (Date.now() - newest.getTime()) / 86_400_000) : 3_650,
-    hasLicense: snapshots.some(({ snapshot }) => snapshot.hasLicense),
+    hasLicense: plans.some((plan) => plan.record.hasLicense),
   });
 
   await database.insert(schema.libraryScore).values({
@@ -672,7 +917,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     },
   });
 
-  return { changed: true, digest, versionId, documents: rows.length, chunks: totalChunks };
+  return { changed: true, digest, versionId, documents: rows.length, chunks: totalChunks, facts };
 }
 
 /**
@@ -703,10 +948,106 @@ async function discardVersion(database: ReturnType<typeof db>, versionId: string
   }
 }
 
+/** What a version remembers about one source; `library_version.source_digests`. */
+type SourceRecord = {
+  digest: string;
+  bytes: number;
+  lastModifiedAt: string | null;
+  hasLicense: boolean;
+};
+
+/** A fetched file that knows which source it came from. */
+type SourceFile = FetchedFile & { sourceId: string };
+
+/** Carried-forward documents are read this many at a time. */
+const CARRY_BATCH = 50;
+
+const encoder = new TextEncoder();
+
+/**
+ * The vectors for one window of chunks: freshly embedded for new chunks,
+ * copied from the current version's rows for carried ones. Mixed windows
+ * are normal at the boundary between a carried source and a changed one.
+ */
+async function vectorsFor(
+  window: { body: string; copiedFrom?: string }[],
+  adapter: { embed(texts: string[]): Promise<number[][]> },
+  database: ReturnType<typeof db>,
+): Promise<number[][]> {
+  const vectors: (number[] | undefined)[] = new Array(window.length);
+
+  const fresh = window.map((chunk, index) => ({ chunk, index })).filter(({ chunk }) => !chunk.copiedFrom);
+  if (fresh.length > 0) {
+    const embedded = await adapter.embed(fresh.map(({ chunk }) => chunk.body));
+    if (embedded.length !== fresh.length) {
+      throw new IngestionFailure(
+        'embedding_unavailable',
+        'embed-index',
+        'the embedding provider returned the wrong number of vectors',
+      );
+    }
+    fresh.forEach(({ index }, at) => {
+      vectors[index] = embedded[at];
+    });
+  }
+
+  const copied = window.map((chunk, index) => ({ chunk, index })).filter(({ chunk }) => chunk.copiedFrom);
+  if (copied.length > 0) {
+    const rows = await database
+      .select({ id: schema.chunk.id, embedding: schema.chunk.embedding })
+      .from(schema.chunk)
+      .where(
+        inArray(
+          schema.chunk.id,
+          copied.map(({ chunk }) => chunk.copiedFrom!),
+        ),
+      );
+    const byId = new Map(rows.map((row) => [row.id, row.embedding]));
+    for (const { chunk, index } of copied) {
+      const vector = byId.get(chunk.copiedFrom!);
+      if (!vector) {
+        throw new IngestionFailure('index_incomplete', 'embed-index', 'a carried chunk has no vector');
+      }
+      vectors[index] = vector;
+    }
+  }
+
+  return vectors as number[][];
+}
+
 function encode(value: unknown): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(value));
 }
 
 function short(id: string): string {
   return id.replace(/-/g, '').slice(0, 8);
+}
+
+/**
+ * The credential one source is fetched with, when it has one.
+ *
+ * A Notion source imported through a person's connection names that person
+ * on its config (lib/domain/notion.ts); their grant is the only thing that
+ * can read the page, so a grant that is gone -- disconnected, revoked and
+ * forgotten -- fails the build as `source_forbidden` rather than falling
+ * back to the platform's own token and reading with someone else's
+ * credential. A platform library names nobody and keeps using the
+ * environment's token.
+ */
+async function sourceCredential(
+  type: string,
+  config: Record<string, unknown> | null | undefined,
+): Promise<string | undefined> {
+  if (type !== 'notion') return undefined;
+  const userId = notionSourceUserId(config);
+  if (!userId) return undefined;
+  const token = await notionTokenFor(userId);
+  if (!token) {
+    throw new IngestionFailure(
+      'source_forbidden',
+      'validate-source',
+      'the Notion connection this library was imported with is gone',
+    );
+  }
+  return token;
 }

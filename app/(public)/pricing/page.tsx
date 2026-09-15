@@ -46,17 +46,17 @@ function CtaBanner({
   className?: string;
 }) {
   return (
-    <div className={`mx-auto w-full max-w-[918px] px-5 ${className}`}>
-      <section className="flex flex-wrap items-center justify-between gap-7 rounded-[11px] bg-panel px-10 py-[34px] shadow-[0_4px_10px_rgba(45,45,83,0.06)] md:h-[150px] md:flex-nowrap md:py-0">
+    <div className={`mx-auto w-full max-w-[1080px] px-5 ${className}`}>
+      <section className="flex flex-wrap items-center justify-between gap-7 rounded-md bg-panel px-10 py-[34px] shadow-md md:h-[150px] md:flex-nowrap md:py-0">
         <div className="flex flex-col gap-[11px] pt-2">
-          <p className="text-[11px] font-bold tracking-[-0.03em] text-brand">{eyebrow}</p>
-          <h2 className="text-[25px] leading-[1.5] font-semibold tracking-[-0.04em] text-ink">
+          <p className="text-[11px] font-medium text-brandink">{eyebrow}</p>
+          <h2 className="text-[25px] leading-[1.5] font-medium text-ink">
             {title}
           </h2>
         </div>
         <Link
           href={href}
-          className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-brand px-[18px] text-sm font-medium tracking-[-0.03em] text-onbrand transition-colors hover:bg-brand/90"
+          className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-brand px-[18px] text-sm font-medium text-onbrand transition-colors hover:bg-brand/90"
         >
           {cta}
           <ArrowRightIcon size={15} />
@@ -80,30 +80,28 @@ export default async function PricingPage() {
         * header.
         */}
       <div className="-mt-[78px] bg-subtle pt-[78px]">
-        <section className="mx-auto w-full max-w-[918px] px-5 pt-[50px] pb-[70px]">
+        <section className="mx-auto w-full max-w-[1080px] px-5 pt-[50px] pb-[70px]">
           <SectionHeading
             eyebrow="PLANS"
             title={p.title}
             as="h1"
-            action={<p className="text-[11px] tracking-[-0.03em] text-muted">{p.headerNote}</p>}
+            action={<p className="text-[11px] text-muted">{p.headerNote}</p>}
           />
 
           <div className="mt-3.5 grid gap-3.5 md:grid-cols-3">
             {plans.map((plan) => (
               <article
                 key={plan.id}
-                className={`flex flex-col rounded-lg border-2 bg-card p-6 ${
-                  plan.featured
-                    ? 'border-brand/70 shadow-[0_4px_10px_rgba(45,45,83,0.12),0_1px_1px_rgba(45,45,83,0.12)]'
-                    : 'border-line shadow-[0_4px_10px_rgba(45,45,83,0.06)]'
+                className={`flex flex-col rounded-lg border bg-card p-6 shadow-md ${
+                  plan.featured ? 'border-brand/70' : 'border-line'
                 }`}
               >
                 <div className="flex items-center justify-between gap-3">
-                  <span className="flex size-[34px] shrink-0 items-center justify-center rounded-lg border-2 border-brandline bg-brandsoft text-brand">
+                  <span className="flex size-[34px] shrink-0 items-center justify-center rounded-lg border border-brandline bg-brandsoft text-brandink">
                     {plan.icon}
                   </span>
                   <span
-                    className={`inline-flex items-center rounded-full px-2 py-1 text-[10px] font-bold tracking-[-0.03em] whitespace-nowrap ${
+                    className={`inline-flex items-center rounded-full px-2 py-1 text-[10px] font-medium whitespace-nowrap ${
                       plan.featured ? 'bg-brand text-onbrand' : 'bg-brandsoft text-brandink'
                     }`}
                   >
@@ -111,29 +109,29 @@ export default async function PricingPage() {
                   </span>
                 </div>
 
-                <h3 className="mt-[23px] text-[18px] leading-[1.5] font-semibold tracking-[-0.03em] text-ink">
+                <h3 className="mt-[23px] text-[18px] leading-[1.5] font-medium text-ink">
                   {plan.name}
                 </h3>
 
                 <p className="mt-[9px] flex items-end gap-[7px]">
-                  <span className="text-[48px] leading-none font-semibold tracking-[-0.055em] text-ink">
+                  <span className="text-[48px] leading-none font-medium text-ink">
                     {plan.price}
                   </span>
-                  <span className="pb-1.5 text-[11px] tracking-[-0.03em] text-muted">{plan.unit}</span>
+                  <span className="pb-1.5 text-[11px] text-muted">{plan.unit}</span>
                 </p>
 
-                <p className="mt-3.5 self-start rounded-md bg-mutedbg px-[9px] py-1.5 text-[16px] leading-[1.5] tracking-[-0.02em] text-steel">
+                <p className="mt-3.5 self-start rounded-md bg-mutedbg px-[9px] py-1.5 text-[16px] leading-[1.5] text-steel">
                   {plan.calls}
                 </p>
 
-                <p className="mt-3.5 min-h-10 text-[12px] leading-[1.65] tracking-[-0.03em] text-muted">
+                <p className="mt-3.5 min-h-10 text-[12px] leading-[1.65] text-muted">
                   {plan.blurb}
                 </p>
 
-                <ul className="mt-[17px] flex flex-col gap-[11px] border-t-2 border-line pt-[19px] text-[11px] leading-[1.5] tracking-[-0.03em] text-steel">
+                <ul className="mt-[17px] flex flex-col gap-[11px] border-t border-line pt-[19px] text-[11px] leading-[1.5] text-steel">
                   {plan.points.map((point) => (
                     <li key={point} className="flex items-center gap-2">
-                      <CheckIcon size={14} className="text-brand" />
+                      <CheckIcon size={14} className="text-brandink" />
                       {point}
                     </li>
                   ))}
@@ -142,10 +140,10 @@ export default async function PricingPage() {
                 <div className="mt-auto pt-[22px]">
                   <Link
                     href="/login"
-                    className={`flex h-10 items-center justify-center gap-2 rounded-full text-sm font-medium tracking-[-0.03em] transition-colors ${
+                    className={`flex h-10 items-center justify-center gap-2 rounded-full text-sm font-medium transition-colors ${
                       plan.featured
                         ? 'bg-brand text-onbrand hover:bg-brand/90'
-                        : 'border-2 border-line bg-surface text-ink hover:bg-subtle'
+                        : 'border border-line bg-surface text-ink hover:bg-subtle'
                     }`}
                   >
                     {plan.cta}
@@ -156,22 +154,22 @@ export default async function PricingPage() {
             ))}
           </div>
 
-          <p className="mt-3.5 flex items-center justify-center gap-2 rounded-lg border-2 border-line bg-brandsoft/60 px-[17px] py-[15px] text-center text-[11px] leading-[1.5] tracking-[-0.03em] text-steel">
-            <span aria-hidden className="font-semibold text-brand">
+          <p className="mt-3.5 flex items-center justify-center gap-2 rounded-lg border border-line bg-brandsoft/60 px-[17px] py-[15px] text-center text-[11px] leading-[1.5] text-steel">
+            <span aria-hidden className="font-medium text-brandink">
               $
             </span>
             {p.callNote}
           </p>
         </section>
 
-        <div className="mx-auto w-full max-w-[918px] px-5 pt-16 pb-18">
+        <div className="mx-auto w-full max-w-[1080px] px-5 pt-16 pb-18">
           <SectionHeading
             eyebrow="COMPARE"
             title={p.compareTitle}
-            action={<p className="text-[11px] tracking-[-0.03em] text-muted">{p.compareNote}</p>}
+            action={<p className="text-[11px] text-muted">{p.compareNote}</p>}
           />
 
-          <div className="mt-[25px] overflow-hidden rounded-[9px] border-2 border-line bg-card p-0.5">
+          <div className="mt-[25px] overflow-hidden rounded-md border border-line bg-card p-0.5">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] table-fixed text-left">
                 <colgroup>
@@ -181,22 +179,22 @@ export default async function PricingPage() {
                   <col className="w-[23.4%]" />
                 </colgroup>
                 <thead>
-                  <tr className="h-[42px] border-b-2 border-line bg-mutedbg text-[10px] tracking-[-0.03em] text-muted">
+                  <tr className="h-[42px] border-b border-line bg-mutedbg text-[10px] text-muted">
                     <th className="px-[17px] font-normal">{p.compareHeadCapability}</th>
-                    <th className="px-[17px] font-bold">FREE</th>
-                    <th className="px-[17px] font-semibold text-brandink">PRO</th>
-                    <th className="px-[17px] font-bold">ADDITIONAL CALLS</th>
+                    <th className="px-[17px] font-medium">FREE</th>
+                    <th className="px-[17px] font-medium text-brandink">PRO</th>
+                    <th className="px-[17px] font-medium">ADDITIONAL CALLS</th>
                   </tr>
                 </thead>
-                <tbody className="text-[11px] tracking-[-0.03em]">
+                <tbody className="text-[11px]">
                   {p.compare.map((row, i) => (
                     <tr
                       key={row[0]}
-                      className={`h-[54px] ${i === p.compare.length - 1 ? '' : 'border-b-2 border-line'}`}
+                      className={`h-[54px] ${i === p.compare.length - 1 ? '' : 'border-b border-line'}`}
                     >
-                      <td className="px-[17px] font-semibold text-ink">{row[0]}</td>
+                      <td className="px-[17px] font-medium text-ink">{row[0]}</td>
                       <td className="px-[17px] text-steel">{row[1]}</td>
-                      <td className="px-[17px] font-semibold text-brandink">{row[2]}</td>
+                      <td className="px-[17px] font-medium text-brandink">{row[2]}</td>
                       <td className="px-[17px] text-steel">{row[3]}</td>
                     </tr>
                   ))}
@@ -215,29 +213,29 @@ export default async function PricingPage() {
         eyebrow={p.shareBanner.eyebrow}
         title={p.shareBanner.title}
         cta={p.shareBanner.cta}
-        href="/docs/claiming"
+        href="/contact"
         className="mt-[68px]"
       />
 
-      <section className="mx-auto flex w-full max-w-[918px] flex-col gap-10 px-5 py-[68px] md:flex-row md:gap-[72px]">
+      <section className="mx-auto flex w-full max-w-[1080px] flex-col gap-10 px-5 py-[68px] md:flex-row md:gap-[72px]">
         <div className="md:w-[300px] md:shrink-0">
-          <CircleHelpIcon size={20} className="text-brand" />
-          <p className="mt-[13px] text-[10px] font-extrabold tracking-[0.1em] text-brand">FAQ</p>
-          <h2 className="mt-[7px] text-[28px] leading-[1.5] font-semibold tracking-[-0.04em] text-ink">
+          <CircleHelpIcon size={20} className="text-brandink" />
+          <p className="mt-[13px] text-[10px] font-medium tracking-[0.1em] text-brandink">FAQ</p>
+          <h2 className="mt-[7px] text-[28px] leading-[1.5] font-medium text-ink">
             {p.faqTitle}
           </h2>
-          <p className="mt-2.5 text-[12px] leading-[1.65] tracking-[-0.03em] text-muted">
+          <p className="mt-2.5 text-[12px] leading-[1.65] text-muted">
             {p.faqNote}
           </p>
         </div>
 
-        <dl className="min-w-0 flex-1 border-t-2 border-line pt-0.5">
+        <dl className="min-w-0 flex-1 border-t border-line pt-0.5">
           {p.faq.map((item) => (
-            <div key={item.q} className="flex flex-col gap-[7px] border-b-2 border-line pt-[18px] pb-5">
-              <dt className="text-[13px] leading-[1.5] font-semibold tracking-[-0.03em] text-ink">
+            <div key={item.q} className="flex flex-col gap-[7px] border-b border-line pt-[18px] pb-5">
+              <dt className="text-[13px] leading-[1.5] font-medium text-ink">
                 {item.q}
               </dt>
-              <dd className="text-[11px] leading-[1.65] tracking-[-0.03em] text-muted">{item.a}</dd>
+              <dd className="text-[11px] leading-[1.65] text-muted">{item.a}</dd>
             </div>
           ))}
         </dl>

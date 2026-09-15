@@ -1,3 +1,4 @@
+import { DEFAULT_BUILD_RATES } from '@/lib/domain/build-billing';
 import type { Metadata } from 'next';
 import {
   PlanVersionControl,
@@ -380,6 +381,9 @@ function targetFor(
       librarySizeMb: live ? String(bytesToMb(live.librarySizeBytesLimit)) : '',
       apiKeyLimit: String(live?.apiKeyLimit ?? ''),
       shareRate: live ? sharePercentFromBps(live.shareRateBps) : '',
+      buildBaseCalls: String(live?.buildBaseCalls ?? DEFAULT_BUILD_RATES.baseCalls),
+      buildTokensPerCall: String(live?.buildTokensPerCall ?? DEFAULT_BUILD_RATES.tokensPerCall),
+      buildPagesPerCall: String(live?.buildPagesPerCall ?? DEFAULT_BUILD_RATES.pagesPerCall),
       publicReviewRequired: live?.capabilities.publicReviewRequired ?? true,
     },
   };
@@ -414,6 +418,16 @@ function quotaRows(
     {
       label: p.quotaLabels.share,
       cells: cell((live) => `${sharePercentFromBps(live.shareRateBps)}%`),
+    },
+    {
+      label: p.quotaLabels.build,
+      cells: cell((live) =>
+        fill(p.buildRateSummary, {
+          base: number(live.buildBaseCalls),
+          tokens: number(live.buildTokensPerCall),
+          pages: number(live.buildPagesPerCall),
+        }),
+      ),
     },
     {
       label: p.quotaLabels.review,

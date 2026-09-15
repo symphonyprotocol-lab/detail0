@@ -70,15 +70,20 @@ export const libraryIdSchema = z
   });
 
 /**
- * A policy list entry: a library id, or a prefix -- `/websites/ethereum/*`
- * covers that library and everything nested under it.
+ * A policy list entry (lib/domain/policy.ts `parsePolicyEntry`): a library
+ * id, optionally `/…/*` to cover what nests under it; an organisation as
+ * `/owner/*`; or a domain such as `docs.example.com`.
  */
 export const libraryIdPatternSchema = z
   .string()
   .max(258)
-  .regex(/^\/[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*){1,5}(\/\*)?$/i, {
-    message: 'library entry must be a library id, optionally ending in /* to cover nested libraries',
-  });
+  .regex(
+    /^(\/[a-z0-9][a-z0-9._-]*((\/[a-z0-9][a-z0-9._-]*){1,5}(\/\*)?|\/\*)|([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62})$/i,
+    {
+      message:
+        'policy entry must be a library id (optionally ending in /*), an organisation as /owner/*, or a domain',
+    },
+  );
 
 // --- Retrieval. Two-stage: resolve-library-id then query-docs. ---
 
@@ -162,6 +167,8 @@ export const queryDocsOutputSchema = z.object({
 export const usageBucketSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   calls: z.number().int().nonnegative(),
+  /** library-build-billing.md 8: build calls, apart from retrieval. */
+  buildCalls: z.number().int().nonnegative(),
 });
 
 export const usageOverviewSchema = z.object({
@@ -169,6 +176,8 @@ export const usageOverviewSchema = z.object({
   periodStart: z.string().datetime(),
   periodEnd: z.string().datetime(),
   callsThisPeriod: z.number().int().nonnegative(),
+  retrievalCallsThisPeriod: z.number().int().nonnegative(),
+  buildCallsThisPeriod: z.number().int().nonnegative(),
   returnedTokensThisPeriod: z.number().int().nonnegative(),
   planAllowance: z.number().int().nonnegative(),
   addonBalanceRemaining: z.number().int().nonnegative(),
@@ -226,6 +235,11 @@ export const policyReasonSchema = z.enum([
   'unverified_library',
   'below_trust_threshold',
   'stale_library',
+  'below_star_threshold',
+  'unlicensed_library',
+  'below_backlink_threshold',
+  'below_referring_domain_threshold',
+  'below_traffic_threshold',
 ]);
 
 export const workspacePolicySchema = z.object({
@@ -235,6 +249,11 @@ export const workspacePolicySchema = z.object({
     requireVerified: z.boolean(),
     minTrustScore: z.number().int().min(0).max(100).nullable(),
     maxAgeDays: z.number().int().positive().nullable(),
+    minStars: z.number().int().nonnegative().nullable(),
+    requireLicense: z.boolean(),
+    minBacklinks: z.number().int().nonnegative().nullable(),
+    minReferringDomains: z.number().int().nonnegative().nullable(),
+    minOrganicTraffic: z.number().int().nonnegative().nullable(),
   }),
   blockedLibraries: z.array(libraryIdPatternSchema),
   exceptedLibraries: z.array(libraryIdPatternSchema),
@@ -265,6 +284,11 @@ export const policyPatchSchema = z.object({
       requireVerified: z.boolean().optional(),
       minTrustScore: z.number().int().min(0).max(100).nullable().optional(),
       maxAgeDays: z.number().int().positive().nullable().optional(),
+      minStars: z.number().int().nonnegative().nullable().optional(),
+      requireLicense: z.boolean().optional(),
+      minBacklinks: z.number().int().nonnegative().nullable().optional(),
+      minReferringDomains: z.number().int().nonnegative().nullable().optional(),
+      minOrganicTraffic: z.number().int().nonnegative().nullable().optional(),
     })
     .optional(),
   blocked: libraryIdListPatchSchema.optional(),
@@ -313,6 +337,32 @@ export const verifyClaimOutputSchema = z.object({
 
 // --- Anchors. requirement.md 6.4. Never inlined into context responses. ---
 
+/**
+ * Everything a stranger needs to rebuild a public version's leaf.
+ *
+ * aptos-anchoring-proposal.md 5 requires a public library to return its
+ * preimage; without it a proof is unusable, because there is nothing to hash.
+ * The fields are listed in the order 4.2.1 frames them, and `publishedAt` is
+ * the exact string that was hashed rather than a re-rendering of the timestamp.
+ *
+ * Public libraries only. A private version's preimage is salted and belongs to
+ * whoever owns it (6.4); nothing serves one, so nothing needs a shape for it.
+ */
+export const anchorPreimageSchema = z.object({
+  domainSeparator: z.string(),
+  leafSchemaVersion: z.number().int(),
+  libraryId: z.string(),
+  versionId: z.string(),
+  sourceDigest: z.string(),
+  contentMerkleRoot: z.string(),
+  publishedAt: z.string(),
+  /**
+   * Always empty, and a literal so it stays that way: a preimage with a salt to
+   * hide is not served from an endpoint that asks for nothing (proposal 3.2).
+   */
+  salt: z.literal(''),
+});
+
 export const anchorSchema = z.object({
   subjectType: z.enum(['version', 'audit_head', 'earning_statement']),
   subjectId: z.string(),
@@ -337,3 +387,4 @@ export type Usage = z.infer<typeof usageSchema>;
 export type ClaimChallenge = z.infer<typeof claimChallengeSchema>;
 export type VerifyClaimOutput = z.infer<typeof verifyClaimOutputSchema>;
 export type Anchor = z.infer<typeof anchorSchema>;
+export type AnchorPreimage = z.infer<typeof anchorPreimageSchema>;

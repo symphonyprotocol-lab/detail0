@@ -1,6 +1,6 @@
 /**
  * Use cases behind the administrators screen: list, invite, enrol, change role,
- * change status, revoke sessions.
+ * change status, revoke sessions, reset the second factor.
  *
  * requirement.md 5.3 asks for least-privilege roles, invitation, deactivation
  * and enforced MFA, and requires every sensitive action to record the operator,
@@ -38,6 +38,13 @@ function signingSecret(): string {
   }
   return secret;
 }
+
+/**
+ * Advisory lock key for claiming the empty installation. Arbitrary but fixed,
+ * and distinct from the audit chain's: every candidate for the first
+ * administrator has to pick the same number for the lock to serialize them.
+ */
+const BOOTSTRAP_LOCK = 0x7265_63_31;
 
 /** Same "never store the secret itself" rule the session tokens follow. */
 function inviteTokenHash(token: string): Promise<string> {
@@ -480,6 +487,109 @@ export async function revokeAdministratorSessions(input: {
   return revoked.length;
 }
 
+export interface MfaResetResult {
+  /** Shown once; only its digest is stored. Same shape as an invitation. */
+  enrolmentPath: string;
+  expiresAt: Date;
+  revokedSessions: number;
+}
+
+/**
+ * Clear an administrator's second factor and send them back through
+ * enrolment.
+ *
+ * A lost authenticator has no self-service recovery on purpose: MFA is
+ * mandatory (requirement.md 3.2), so the only way back in is another super
+ * administrator vouching for the person, which is what this is. It clears
+ * the sealed secret, ends every console session, returns the account to
+ * `invited` and mints a fresh single-use enrolment link -- the same path a new
+ * administrator takes, so the account cannot become `active` again without
+ * proving a working second factor (`completeEnrolment`).
+ *
+ * Refused on oneself: an administrator who resets their own factor and loses
+ * the link is locked out with nobody entitled to let them back in -- the same
+ * reasoning as `refuseSelfChange`. Ask a colleague.
+ */
+export async function resetAdministratorMfa(input: {
+  actor: Actor;
+  administratorId: string;
+  reason: string;
+}): Promise<MfaResetResult> {
+  const reason = normalizeReason(input.reason);
+  refuseSelfChange(input.actor.administratorId, input.administratorId);
+
+  const target = await loadTarget(input.administratorId);
+  if (target.status !== 'active') {
+    throw new AdminChangeRefused(
+      'not_enrolled',
+      'only an active, enrolled administrator has a second factor to reset',
+    );
+  }
+
+  const now = new Date();
+  const token = randomToken();
+  const expiresAt = inviteExpiryFrom(now);
+  let revokedSessions = 0;
+
+  await db().transaction(async (tx) => {
+    /*
+     * Conditional on the row still being `active`, so two operators resetting
+     * the same account cannot both mint a link: the second updates nothing
+     * and is told the account is no longer enrolled.
+     */
+    const reset = await tx
+      .update(schema.administrator)
+      .set({
+        mfaSecret: null,
+        mfaEnrolledAt: null,
+        mfaLastCounter: null,
+        status: 'invited',
+        inviteTokenHash: await inviteTokenHash(token),
+        inviteExpiresAt: expiresAt,
+        invitedBy: input.actor.administratorId,
+        failedAttempts: 0,
+        lockedUntil: null,
+      })
+      .where(and(eq(schema.administrator.id, target.id), eq(schema.administrator.status, 'active')))
+      .returning({ id: schema.administrator.id });
+    if (reset.length === 0) {
+      throw new AdminChangeRefused('not_enrolled', 'that administrator is no longer enrolled');
+    }
+
+    /* requirement.md 3.2: a cleared factor takes effect now, not at expiry. */
+    const revoked = await tx
+      .update(schema.adminSession)
+      .set({ revokedAt: now })
+      .where(
+        and(
+          eq(schema.adminSession.administratorId, target.id),
+          isNull(schema.adminSession.revokedAt),
+        ),
+      )
+      .returning({ id: schema.adminSession.id });
+    revokedSessions = revoked.length;
+  });
+
+  await recordAudit({
+    administratorId: input.actor.administratorId,
+    action: 'admin.reset_mfa',
+    targetType: 'administrator',
+    targetId: target.email,
+    reason,
+    beforeValue: { status: target.status, mfaEnrolled: true },
+    afterValue: {
+      status: 'invited',
+      mfaEnrolled: false,
+      revokedSessions,
+      inviteExpiresAt: expiresAt.toISOString(),
+    },
+    clientAddress: input.actor.clientAddress ?? null,
+    result: 'success',
+  });
+
+  return { enrolmentPath: `/admin/enroll?token=${token}`, expiresAt, revokedSessions };
+}
+
 export interface EnrolmentOffer {
   administratorId: string;
   email: string;
@@ -604,4 +714,134 @@ export async function completeEnrolment(input: {
     clientAddress: input.clientAddress ?? null,
     result: 'success',
   });
+}
+
+/**
+ * The first administrator, on an installation that has none.
+ *
+ * Everywhere else an administrator is granted, not requested (requirement.md
+ * 3.2, 5.3) -- but the first one has nobody to grant it, and until they exist
+ * the console cannot be opened at all. So the sign-in page becomes a
+ * registration page for exactly as long as `administrator` is empty, and
+ * closes the moment it is not.
+ *
+ * "Empty" is decided by the database, not by the page: `bootstrapFirstAdministrator`
+ * re-reads it inside the transaction that writes, so a request that skips the
+ * page and posts straight at the action is answered the same way.
+ */
+async function secretForBootstrap(): Promise<string> {
+  /*
+   * Derived like an invitation's secret (`secretForInvite`), and for the same
+   * reason: the browser must not get to choose what gets stored. With no
+   * invitation there is no per-account input, so the signing key is the whole
+   * of it -- which also makes the QR stable across reloads. It is exposed to
+   * anyone who can reach the page, but so is the ability to claim the account
+   * outright, so it buys an attacker nothing they did not already have.
+   */
+  const bytes = await hmacSha256Bytes(signingSecret(), 'admin-totp:bootstrap');
+  return base32Encode(bytes.slice(0, 20));
+}
+
+/** Whether the console has an owner yet. Cheap enough to call on every render. */
+export async function hasAnyAdministrator(): Promise<boolean> {
+  const [row] = await db()
+    .select({ id: schema.administrator.id })
+    .from(schema.administrator)
+    .limit(1);
+  return row !== undefined;
+}
+
+export interface BootstrapOffer {
+  secret: string;
+  provisioningUri: string;
+}
+
+/** The second factor to bind, or null once the installation has an administrator. */
+export async function offerBootstrap(): Promise<BootstrapOffer | null> {
+  if (await hasAnyAdministrator()) return null;
+  const secret = await secretForBootstrap();
+  return {
+    secret,
+    provisioningUri: totpProvisioningUri({ secret, account: 'administrator', issuer: 're0' }),
+  };
+}
+
+export async function bootstrapFirstAdministrator(input: {
+  email: string;
+  username: string;
+  password: string;
+  mfaCode: string;
+  clientAddress?: string | null;
+}): Promise<{ administratorId: string }> {
+  const email = input.email.trim().toLowerCase();
+  const username = input.username.trim();
+  if (!email.includes('@') || email.length > 254 || username.length === 0 || username.length > 80) {
+    throw new AdminChangeRefused('invalid_input', 'email and username are required');
+  }
+  if (!isAcceptableAdminPassword(input.password)) {
+    throw new AdminChangeRefused(
+      'weak_password',
+      `password must be at least ${ADMIN_PASSWORD_MIN_LENGTH} characters`,
+    );
+  }
+
+  const now = new Date();
+  const secret = await secretForBootstrap();
+  const counter = await verifyTotpCounter(secret, input.mfaCode, now);
+  if (counter === null) {
+    throw new AdminChangeRefused('invalid_input', 'that code does not match the secret');
+  }
+
+  const administratorId = crypto.randomUUID();
+  const passwordHash = await hashAdminPassword(input.password);
+  const mfaSecret = await seal(secret);
+
+  await db().transaction(async (tx) => {
+    /*
+     * Two requests arriving together would both read an empty table under READ
+     * COMMITTED and both insert, leaving an installation with two owners
+     * nobody granted. The lock serializes them; the loser then sees the row the
+     * winner wrote and is refused. Transaction scoped, so it ends with the
+     * commit either way.
+     */
+    await tx.execute(sql`select pg_advisory_xact_lock(${BOOTSTRAP_LOCK})`);
+
+    /*
+     * The emptiness check is the insert's own WHERE, not a separate read: there
+     * is no window between deciding and writing for anything to slip into.
+     */
+    const inserted = await tx.execute(sql`
+      insert into administrator
+        (id, username, email, password_hash, mfa_secret, mfa_enrolled_at, mfa_last_counter, status)
+      select ${administratorId}, ${username}, ${email}, ${passwordHash}, ${mfaSecret}, ${now},
+             ${counter}, 'active'
+      where not exists (select 1 from administrator)
+      returning id
+    `);
+    if (inserted.rows.length === 0) {
+      throw new AdminChangeRefused(
+        'bootstrap_closed',
+        'this installation already has an administrator',
+      );
+    }
+
+    await tx.insert(schema.administratorRole).values({ administratorId, roleId: 'super' });
+  });
+
+  /*
+   * Audited as itself rather than as an invitation: the operator and the target
+   * are the same account, and the entry is the only record of how the console
+   * acquired its first owner (requirement.md 5.3).
+   */
+  await recordAudit({
+    administratorId,
+    action: 'admin.bootstrap',
+    targetType: 'administrator',
+    targetId: email,
+    afterValue: { username, role: 'super', status: 'active', mfaEnrolled: true },
+    clientAddress: input.clientAddress ?? null,
+    result: 'success',
+  });
+
+  return { administratorId };
 }

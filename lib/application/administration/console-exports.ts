@@ -23,10 +23,13 @@ import { listClaims, listUserLibraries, type ClaimFilter, type LibraryReviewFilt
 import { isPlatformStatusFilter, listPlatformLibraries } from './manage-platform-libraries';
 import { listConsoleUsers, type UserStatusFilter } from './list-users';
 import { listAdministrators } from './manage-administrators';
+import { isSettlementStatusFilter, listSettlements, periodParam } from './settlements';
 
 export interface ExportRequest {
   query?: string;
   status?: string;
+  /** A settlement period, `YYYY-MM`; only the settlements export reads it. */
+  period?: string;
   limit?: number;
 }
 
@@ -93,7 +96,7 @@ export const CONSOLE_EXPORTS: Record<string, ConsoleExport> = {
     },
   },
   claims: {
-    capability: 'libraries',
+    capability: 'claims',
     filename: 'ownership-claims',
     async build(input) {
       const { rows } = await listClaims({
@@ -148,6 +151,27 @@ export const CONSOLE_EXPORTS: Record<string, ConsoleExport> = {
       return toCsv(
         ['time', 'administrator', 'administrator_email', 'action', 'target', 'reason', 'origin_digest', 'result'],
         rows.map((r) => [r.createdAt, r.administratorName, r.administratorEmail, r.action, r.targetId, r.reason, r.originDigest, r.result]),
+      );
+    },
+  },
+  settlements: {
+    capability: 'billing',
+    filename: 'settlements',
+    async build(input) {
+      const { rows } = await listSettlements({
+        query: input.query,
+        /* Narrowed, not cast: `settlement.status` is a Postgres enum (see `billing`). */
+        status: isSettlementStatusFilter(input.status) ? input.status : 'all',
+        period: periodParam(input.period),
+        limit: EXPORT_LIMIT,
+      });
+      /*
+       * Minor units beside the currency, like the billing export, and the
+       * statement digest so a publisher's copy can be checked against ours.
+       */
+      return toCsv(
+        ['statement_id', 'period', 'publisher', 'publisher_workspace_id', 'library_id', 'library', 'attributable_calls', 'amount_minor', 'currency', 'status', 'statement_digest', 'created', 'hold_ends'],
+        rows.map((r) => [r.id, r.periodId, r.publisherName, r.publisherWorkspaceId, r.libraryPublicId, r.libraryTitle, r.attributableCalls, r.amountMinor, r.currency, r.status, r.statementDigest, r.createdAt, r.holdEndsAt]),
       );
     },
   },

@@ -36,16 +36,16 @@ export function MiniTrend({
     <section className={`${PANEL} flex flex-col gap-[15px] px-[23px] py-[21px]`}>
       <div className="flex flex-wrap items-start justify-between gap-3.5">
         <div className="flex flex-col gap-1">
-          <h2 className="text-[14px] leading-[1.5] tracking-[-0.025em] text-ink">{title}</h2>
-          <p className="text-[11px] tracking-[-0.023em] text-muted">{subtitle}</p>
+          <h2 className="text-[14px] leading-[1.5] text-ink">{title}</h2>
+          <p className="text-[11px] text-muted">{subtitle}</p>
         </div>
-        <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[-0.023em] text-steel">
+        <span className="flex items-center gap-1.5 text-[11px] font-medium text-steel">
           <span aria-hidden className="size-[7px] shrink-0 rounded-full bg-brand" />
           {legend}
         </span>
       </div>
 
-      <ul className="flex items-end gap-1 border-b-2 border-line px-[5px] pb-0.5 sm:gap-[11px]">
+      <ul className="flex items-end gap-1 border-b border-line px-[5px] pb-0.5 sm:gap-[11px]">
         {bars.map((bar, index) => (
           <li
             key={bar.label ?? index}
@@ -58,7 +58,7 @@ export function MiniTrend({
               style={{ height: (bar.value / max) * PLOT_HEIGHT }}
             />
             <span
-              className="flex h-[17px] items-start pt-[5px] text-[10px] tracking-[-0.023em] text-muted"
+              className="flex h-[17px] items-start pt-[5px] text-[10px] text-muted"
               aria-hidden={bar.label ? undefined : true}
             >
               {bar.label ?? ''}

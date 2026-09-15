@@ -145,25 +145,44 @@ export async function queryDocsDetailed(
    * the write from being dropped -- a serverless function may freeze the
    * moment the response returns, so fire-and-forget writes simply vanish.
    */
-  const logExit = (libraryPublicId: string | null, statusCode: number) =>
+  const logExit = (
+    libraryPublicId: string | null,
+    statusCode: number,
+    returnedTokens: number | null,
+  ) =>
     recordRequestLog({
       workspaceId: caller.workspaceId,
       requestId: caller.requestId,
       operation: 'query-docs',
       libraryPublicId,
-      entrypoint: caller.apiKeyId ? 'rest' : 'web',
+      entrypoint: entrypointOf(caller),
       statusCode,
       latencyMs: Date.now() - startedAt,
+      returnedTokens,
+      apiKeyId: caller.apiKeyId,
     }).catch(() => {});
 
   try {
     const output = await queryDocsInner(caller, input, dependencies, startedAt, database, meter);
-    if (meter) await logExit(output.libraryId, 200);
+    if (meter) {
+      await logExit(
+        output.libraryId,
+        200,
+        output.chunks.reduce((total, chunk) => total + chunk.tokens, 0),
+      );
+    }
     return output;
   } catch (error) {
-    if (meter) await logExit(null, error instanceof AppError ? httpStatusFor(error.code) : 500);
+    if (meter) {
+      await logExit(null, error instanceof AppError ? httpStatusFor(error.code) : 500, null);
+    }
     throw error;
   }
+}
+
+/** The door the caller came through; the pre-MCP reading when unstated. */
+function entrypointOf(caller: CallerContext): 'rest' | 'mcp' | 'web' {
+  return caller.entrypoint ?? (caller.apiKeyId ? 'rest' : 'web');
 }
 
 async function queryDocsInner(
@@ -327,7 +346,7 @@ async function queryDocsInner(
               libraryId: library.id,
               versionId: version.id,
               operation: 'context',
-              entrypoint: caller.apiKeyId ? 'rest' : 'web',
+              entrypoint: entrypointOf(caller),
               statusCode: 200,
               latencyMs: Date.now() - startedAt,
               inputTokens: null,
@@ -511,7 +530,7 @@ async function queryDocsInner(
         libraryId: library.id,
         versionId: version.id,
         operation: 'context',
-        entrypoint: caller.apiKeyId ? 'rest' : 'web',
+        entrypoint: entrypointOf(caller),
         statusCode: 200,
         latencyMs: Date.now() - startedAt,
         inputTokens: null,

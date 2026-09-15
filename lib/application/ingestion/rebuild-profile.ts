@@ -18,6 +18,7 @@ import {
   profileSearchText,
 } from '@/lib/domain/profile';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { platformTermWeight } from './term-weights';
 
 /** Chunk bodies are read in pages so a large version is not one result set. */
 const READ_BATCH = 500;
@@ -49,7 +50,7 @@ export async function rebuildProfile(versionId: string): Promise<{ titles: numbe
     for (const row of rows) bodies.push(row.body);
     if (rows.length < READ_BATCH) break;
   }
-  const terms = extractTerms(bodies);
+  const terms = extractTerms(bodies, PROFILE_LIMITS.maxTerms, await platformTermWeight(version.libraryId));
 
   await database.transaction(async (tx) => {
     await tx.delete(schema.libraryProfile).where(eq(schema.libraryProfile.versionId, versionId));

@@ -1,8 +1,8 @@
 # re0 开发与部署架构
 
-- 版本：3.0
-- 更新日期：2026-08-31
-- 状态：MVP 架构基线
+- 版本：3.1
+- 更新日期：2026-09-11
+- 状态：MVP 架构基线；§4.1 登记专家模块的技术边界
 - 产品需求：[requirement.md](./requirement.md)
 - 设计依据：[knowleg-market.pen](./knowleg-market.pen)
 - Context7 基线：[`f3a818d`](https://github.com/upstash/context7/tree/f3a818d69db694e24d58e3bf803454fb20fc66ea)
@@ -31,7 +31,7 @@ re0 使用一个 TypeScript 代码库交付公共站点、用户 Dashboard、管
 | 契约 | Zod/JSON Schema + OpenAPI，REST 为权威业务入口 |
 | 可观测性 | 结构化日志、Trace、Metrics 和错误聚合 |
 
-部署前必须为 Development、Preview、Production 分别创建 Neon Project/分支、对象存储 Bucket 和 Upstash Database，并写入各环境的环境变量，不得依赖开发者本机状态。
+部署前创建一个共享 Neon Project 和一个共享对象存储 Bucket，并同时连接到 Development、Preview、Production；Upstash Database 与其余有副作用的外部服务仍按环境分别配置。所有环境变量必须由部署平台注入，不得依赖开发者本机状态。
 
 ### 1.1 核心原则
 
@@ -148,15 +148,17 @@ Workflow 执行：
 
 ### 3.2 环境隔离
 
-`development`、`preview`、`production` 分别使用：
+`development`、`preview`、`production` 的资源边界如下：
 
-- 独立 Neon Project 或分支；
-- 独立对象存储 Bucket；
+- 共享一个 Neon Project，按环境分支：production 用主分支；每个预览部署由 Neon 集成在构建前自动建一个 `preview/<git 分支>` 子分支，连接串只注入那一次部署（项目级 Preview 变量不变，所以在 Vercel 的环境变量列表里看不到它）；本地开发连一个常驻的 `dev` 子分支（Auto-delete 设为 Never，否则默认一天后被回收）。预览分支上的新迁移由 `vercel.json` 的 `buildCommand` 在 `VERCEL_ENV=preview` 时执行，生产的迁移不在构建里跑，仍按 §19.2 排序；
+- 每个环境一个私有对象存储 Bucket（`recall0-blob` / `recall0-blob-preview` / `recall0-blob-dev`），跟着库的分支一起分。**必须分**：`purgeAbandonedUploads` 以「本库没有任何 `pdf` 源引用它」为删除依据，库删除也照着行里的 Key 删对象；库分支了而 Bucket 共用时，非生产环境的这两条路都会删到生产对象。Key 布局（§7）三个 Bucket 相同，由 Workspace、批次和文件 ID 生成；
 - 独立 Upstash Database 与 REST Token；
 - 独立 OAuth Client、Payment Environment 和 Provider Key；
 - 独立 Workflow 名称和 Webhook Secret。
 
-禁止把 Production 数据复制到 Preview。必要的测试数据必须脱敏或由 Fixture 生成。
+禁止把 Production 数据复制到 Preview。必要的测试数据必须脱敏或由 Fixture 生成。**这条与当前的预览分支实现有冲突**：Neon 集成建的是主分支的写时复制分支，行数据跟着过去。主分支今天只有 Plan 种子，所以尚未违反；在主分支收下第一份真实用户数据之前，预览分支必须换成 schema-only（Neon API 的 `init_source: "schema-only"`），否则每个预览部署都是一份生产数据的副本。
+
+共享一个库带来一条反向约束：**凡是参与加密或哈希数据库内容的 Secret，三套环境必须取同一个值**——`SESSION_SIGNING_SECRET`（封装 GitHub / Notion 授权令牌、派生管理员邀请哈希与 TOTP 种子）、`API_KEY_HASH_SECRET` 和 `CREDENTIAL_ENCRYPTION_KEY`。各持一份时，一个环境写下的行在另一个环境打不开：preview 里连好的 Notion 授权到了生产就解不开，本地发出的管理员邀请在生产完成不了。只与传输或会话有关、不落库的 Secret 不受此约束。
 
 ## 4. 代码组织
 
@@ -246,6 +248,8 @@ workflows/
   anchor-versions.ts
   anchor-audit.ts
   settle-revenue.ts
+move/
+  re0_anchor/               # 锚定 Move 包，见 §8.5
 packages/
   sdk/
   mcp/
@@ -271,7 +275,63 @@ tests/
 - 管理后台不能直连表，必须经过 Admin Use Case 和 Audit Decorator；
 - `packages` 只放需要独立发布的薄客户端，不放服务端检索实现；
 - `packages/verifier` 不得 import 任何 `lib/` 代码，见 §8.5；
+- `move/` 是链上产物，不参与应用构建：Next.js、typecheck 和 vitest 都不读它，它的工具链是 Aptos CLI，见 [move/README.md](./move/README.md)；
 - **文档站是内容，不是应用**：`app/docs` 与 `content/docs` 只读取仓库内 MDX，不访问 Postgres、对象存储或任何 Use Case；它的构建失败不得阻断 API 与 MCP 的部署。
+
+### 4.1 专家模块的技术边界
+
+专家数据与评测赛道（requirement.md §2.4，方案见 [expert-data-track-proposal.md](./expert-data-track-proposal.md)）是同一代码库内的**旁路模块**：它复用基座，不进入知识库的任何主链路。本节只定边界，模块内部设计以方案为准。
+
+**放在哪里。**
+
+```text
+app/expert/                       专家区，独立 Layout 与导航，不在 /dashboard 下
+app/dashboard/data-assets/        买方控制台（阶段 2）
+app/dashboard/evaluations/
+app/admin/(console)/expert*/      运营、合规、财务页面
+app/api/v1/data-assets/           买方 API（阶段 2）；专家 API 不在首期
+app/api/v1/data-exports/
+app/api/v1/evaluation-runs/
+contracts/expert-data.ts          由 contracts/api/index.ts 导出
+lib/domain/expert-data/
+lib/application/expert-data/      accounts、profiles、knowledge、orders、projects、
+                                  submissions、reviews、assets、licensing、exports、
+                                  evaluations、compensation、administration
+lib/infrastructure/evaluation/    评测 Runner 与买方模型端点 Adapter
+workflows/process-expert-submission.ts
+workflows/build-data-asset.ts
+workflows/build-data-export.ts
+workflows/run-expert-evaluation.ts
+workflows/settle-expert-compensation.ts
+```
+
+**复用什么，怎么复用。**
+
+| 基座能力 | 复用方式 | 硬边界 |
+| --- | --- | --- |
+| `user` / OAuth（§5.1） | 只复用登录身份 | 专家身份是独立的 `expert_account`，不是 `workspace_member`；进入 `/expert` 以 `expert_account` 存在为准，普通 Dashboard 的会话解析不读专家表 |
+| `workspace` | 只作买方与资产所有权边界 | 专家模块的所有对象以 `expert_account` 为所有者，不引用 `workspace` |
+| `administrator` / Permission / Audit Decorator（§5.3、§14） | 直接复用 | 新增 `expert_*`、`data_asset.*`、`data_license.*` 权限；不新增宽泛的 `expert.manage` |
+| `api_key` | 新增买方 Scope `assets:read`、`assets:export`、`evals:run` | 现有 Key 默认不获得这些 Scope；专家 Scope 推迟到阶段 4 |
+| `ObjectStore`（§7） | 复用 Adapter 与私有 Store | 独立前缀（§7 末尾）；Adapter 之上加按前缀校验调用方的 Guard，Blob 没有前缀级 IAM，隔离全部在应用层 |
+| `workflow_operation` / `runOperation`（§8） | 复用持久化 Step、幂等键与 Recovery | 独立 Operation Type 族 `expert.*`，不进入 Library Refresh 队列状态机，不出现在 `/admin/refresh-queue` |
+| `audit_log` | 记录高风险管理动作 | 任务正文、Gold、证件、合同正文不进日志 |
+| Payment Adapter（§11.3） | 复用外部收付款原则与 Webhook 幂等 | 不复用 `billing_document`、`revenue_period`、`settlement`、`payout`；专家侧有自己的 `expert_settlement` / `expert_payout` |
+| `llm_config`（§9.5） | 不复用 | 买方模型凭证用独立的 `evaluation_model_config`，Secret 按 Workspace 隔离加密入库 |
+| Anchor（§8.5） | 后续增加 Subject 类型 | 不阻塞发布、授权、导出、评测或付款 |
+
+**不进入什么。** 以下是不变量，任何一条被违反视为缺陷：
+
+- 专家知识与训练样本不写入 `library`、`library_version`、`document`、`chunk`、`library_profile`，不建 `search_vector` 与 `embedding`，不进入 §9 的任何检索路径与缓存；
+- `/v1/context`、`/v1/libraries/search`、MCP 两项工具、在线试用不读专家模块的表和前缀；
+- 专家数据订单不产生 `usage_reservation`、`usage_event`、`earning_event`，不进入 `revenue_period` 与发布者分成；
+- Hidden Eval 的 Payload、Gold 与 Rubric 私有部分不进入普通导出、日志、Trace、Analytics 与前端缓存，只有 Eval Runner 的 Use Case 可读；
+- 专家区与知识库 Dashboard 不共享 Layout、导航、i18n 命名空间（专家区用 `expert.*`）和列表查询；
+- 删除 `app/expert`、`app/admin/(console)/expert*`、`lib/{domain,application}/expert-data`、`lib/infrastructure/evaluation` 与上述五个 Workflow 后，§18 现有全部测试保持通过，不需要修改或回填任何既有表。
+
+**数据与迁移。** 专家模块的表全部以 `expert_`、`data_`、`media_`、`license_`、`evaluation_`、`acceptance_` 为前缀，只做 Expand 迁移，不修改既有列；金额、ID 与时间遵循 §6.4。Hidden Eval 与普通 Data Item 在同一 Postgres 内以行级状态区分，物理隔离只在对象存储前缀与访问 Guard 上实现。
+
+**分阶段进入代码库。** 阶段 0 只上线专家预注册、资格测试与后台验证队列（Migration 1 中的身份部分）；其余按方案 §17 的门禁推进。阶段 0 门禁未过时，代码库里不出现买方 API、导出与评测 Runner。
 
 ## 5. 身份、工作空间与授权
 
@@ -298,6 +358,8 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 
 完整 Key 只在创建响应中出现一次。
 
+**GitHub 仓库导入授权。** 登录只回答「你是谁」，登录换到的 Provider Token 用完即弃（requirement.md 12）。用户知识库导入 GitHub 仓库时，规则是「只能导入自己控制的、公开且非 Fork 的仓库」——自己名下，或在组织中拥有 admin / maintain 权限（与 §5.4 认领的门槛相同）（`lib/domain/github.ts`），因此向导先要求一次独立的 GitHub 授权（`POST /api/auth/github/connect`，回调 `/api/auth/github/callback/connect`，须与登录回调一起登记在 GitHub App 的 Callback URL 列表里，GitHub App 要求精确匹配），只申请 `read:user read:org`（后者让应用看得见组织成员身份，否则组织仓库列不出来），不申请任何 `repo` 写权限——公开仓库的内容本就无需授权即可读取，这次授权买到的不是内容访问权，而是「列出的是谁的仓库」的证明。换到的 Token 用 Cookie 密封密钥加密后单独存入 `github_connection`（每用户一行，重连即替换），向导用它列出 `affiliation=owner,organization_member&visibility=public` 的仓库并在应用层剔除 Fork 与权限不足的组织仓库（限制第三方应用的组织需先批准本应用，其仓库才会出现）；提交时 `createWorkspaceLibrary` 不信任向导列表，用同一 Token 重读所选仓库，比对 GitHub 返回的 owner id 与授权账号 id、或 `permissions` 中的 admin / maintain，并把仓库 id 写入 `source.config.repositoryId` 供 §5.4 的认领比对。GitHub 回应 401 即视为用户已在 GitHub 侧撤销，连接记录随即删除。
+
 ### 5.2 工作空间授权
 
 所有普通资源绑定 `workspace_id`。授权顺序：
@@ -320,6 +382,14 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 - 高风险动作要求 `reason`，由统一 Audit Decorator 写入日志；
 - Super Admin 权限变更不能由被修改者本人单独完成。
 
+**首位管理员**（requirement.md 3.2）：管理员由邀请产生，但空环境里没有人可以发出第一封邀请，于是 `administrator` 表为空时 `/admin/login` 渲染注册表单而不是登录表单（`offerBootstrap`），提交走 `bootstrapFirstAdministrator`。三点决定它不是一个自助注册后门：
+
+1. **判定在写入里，不在页面里**。插入语句自带 `where not exists (select 1 from administrator)`，决定与写入之间没有空隙；绕过页面直接调用 Server Action 得到的是同一个 `bootstrap_closed`。
+2. **并发由 `pg_advisory_xact_lock` 串行化**。两个同时到达的请求在 READ COMMITTED 下会各自读到空表，锁让它们排队，后到的那个看见前者写下的行。
+3. **MFA 不因为是第一个就可以跳过**。密钥由服务端从签名密钥派生（`admin-totp:bootstrap`），浏览器不参与选择；必须先提交一个能验证通过的 6 位码，账户才会以 `active` 落库。派生意味着它对任何能打开该页面的人可见——但能打开该页面的人本来就能直接把账户注册掉，所以这不额外让渡什么。
+
+首位管理员固定拿 `super` 角色，注册以 `admin.bootstrap` 记入审计链，操作者与目标都是它自己——这是这套日志里唯一一条没有前置操作者的记录。
+
 ### 5.4 来源所有权验证（Claim）
 
 产品规则见 [requirement.md](./requirement.md) 第 7.3 节。这里是授权链路的一部分：`library.owner_workspace_id` 决定谁能改这个库，也决定分成付给谁，因此它的写入路径必须比普通业务写入更严。
@@ -327,6 +397,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 - **唯一写入口**：`owner_workspace_id` 只能由「`verified` 的认领」或「管理员争议裁定」写入，不存在第三条路径；Ingestion、审核和刷新都不得触碰该字段；
 - **登录身份不是证据**：OAuth Subject 只回答「你是谁」。GitHub 权限校验必须用用户自己的 Token 向 GitHub 查询其对目标仓库的权限级别，并核对返回的仓库 ID 与 `source` 记录一致，不能只比对仓库名字符串；
 - **挑战 Token**：高熵随机值，只保存 Hash；与 `(申请人, library_id, 验证方式)` 绑定并带 7 天过期；校验时按 Hash 比对，明文只在生成时返回一次；
+- **创建前的域名验证**：Website、`llms.txt`、OpenAPI 三类来源在库存在之前就要证明域名控制权（`lib/domain/domain-verification.ts`、`lib/application/libraries/domain-verification.ts`）。挑战记录在 `domain_verification`，与 `(workspace, host, 验证方式)` 绑定；明文 Token 只返回给发起方，之后每次校验都由客户端带回并按 Hash 比对，错误 Token 与不存在的挑战返回相同结果。`createWorkspaceLibrary` 在写库的同一事务里锁定并消费该挑战（`consumed_library_id`），要求状态为 `verified`、域名与来源 host 完全一致（子域不继承）、验证时间在 1 小时以内，并同事务写入一条 `verified` 的 `library_claim`；任一条件不满足则整个创建回滚；
 - **DNS 与 well-known 校验走同一条出网安全通道**：复用 §15.1 的解析与抓取约束（禁止私网、Metadata Endpoint、Loopback、重定向绕过），验证请求不因用途特殊而放宽；DNS 查询使用受控解析器，不接受用户指定的 nameserver；
 - **并发**：同一 `library_id` 的 `pending` 认领由部分唯一索引保证只有一个；校验通过时在单事务内完成「认领置 verified + 写 owner + 追加审计事件」，失败则整体回滚，避免出现有 owner 却无认领记录的状态；
 - **限流与冷却**：发起与重试按 `账户` 和 `library_id` 双维度限流，承载在 §11.2 的同一限流设施；连续失败到阈值后锁定入口，需人工解锁；
@@ -342,6 +413,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 | `user` | 普通账户、状态、展示资料 |
 | `oauth_account` | Provider Subject 与 User 映射 |
 | `user_session` | 普通用户会话摘要和撤销状态 |
+| `github_connection` | 用户为仓库导入授予的 GitHub Token（加密）、GitHub 账号 id 与 login，每用户一行 |
 | `workspace` | 资源和计费边界 |
 | `workspace_member` | Role 与状态 |
 | `api_key` | Hash、Scope、环境和使用状态 |
@@ -365,6 +437,7 @@ API Key 格式使用 `mm_live_` / `mm_test_` 前缀。服务端只保存：
 | `library_rule` | 来源维护者规则，按 Version 冻结 |
 | `library_review` | 公开审核、反馈和证据 |
 | `library_claim` | 认领申请：申请人、验证方式、挑战 Token 摘要、状态、失败原因码、过期时间、裁定记录 |
+| `domain_verification` | 创建前的域名挑战：工作空间、host、验证方式、Token 摘要、状态、尝试次数、过期与验证时间、消费它的 Library（§5.4） |
 | `library_score` | Trust/Benchmark 算法版本和分项 |
 | `library_profile` | 库级内容画像：文档标题与目录集、关键实体与同义词表、chunk 向量聚类质心、自动生成的描述与主题标签；随 Version 发布派生，可重建，见 §9.6 |
 
@@ -417,15 +490,30 @@ manifests/{libraryId}/{versionId}/vectors.json
 exports/{workspaceHash}/{exportId}.csv
 quarantine/{operationId}/{objectId}
 uploads/{workspaceId}/{batchId}/{fileId}.pdf
+uploads/platform/{batchId}/{fileId}.pdf
 ```
 
-`uploads/` 是 Dashboard 向导直传的 PDF：建库前就已存在，`source.config.files` 记录其 Key，构建时由 PDF 连接器读回；Key 以工作空间 id 开头，建库请求只能引用自己前缀下的对象。
+`uploads/` 是 Dashboard 直传的 PDF：向导在建库前上传，或建库后在该库的文件页上传，`source.config.files` 记录其 Key，构建时由 PDF 连接器读回；Key 以工作空间 id 开头，建库和改文件的请求都只能引用自己前缀下的对象。文件页的每次保存（`updateLibraryFiles`）改写 `source.config.files` 并排队一次 `refresh`：已有 pending 的构建则复用它（它尚未读取来源），正在 running 的则在其后再排一次。被移除文件的对象不立即删除——已发布版本的引用仍指向它——由上传清扫在无来源引用且超过 24 小时后回收。没有文件的 PDF 库不排队构建，`index_status` 停在 `pending`。平台 PDF 库走同一套机制，只是由管理后台上传：Key 以固定的 `platform` 段代替工作空间 id（工作空间 id 是 UUID，永远不会与它重合），创建对话框直传后把清单交给 `createPlatformLibrary`，之后在详情页的「PDF 文件」面板增删（`updatePlatformLibraryFiles`，写审计 `platform_library.files`）；已有库也可以通过「添加来源」加一个 PDF 来源（每库至多一个，第二个以 `pdf_source_exists` 拒绝），带文件时立即排一条只抓该来源的 refresh。平台 PDF 库的刷新策略固定为手动；引用指向公开的 `/files/{fileId}`，该路由只放行已发布平台库的文件；后台文件面板走 `/admin/files/{fileId}` 预览草稿（管理员 Cookie 只作用于 `/admin` 路径）。
 
 - 下载通过短时签名 URL 或服务端流式代理；
 - Object Metadata 不保存 Token、邮箱、Query 或私有标题；
 - Quarantine 对普通应用不可读，只允许安全 Workflow/Reviewer；
 - 上传完成前使用临时 Key，校验成功后再移动到 Source Snapshot；
 - 使用存储侧原生生命周期规则清理失败任务临时对象和过期导出，不自建清理任务。
+
+专家模块（§4.1）使用独立前缀，与上述布局互不重叠，隔离由应用层 Guard 按前缀执行：
+
+```text
+expert-verification/{expertHash}/{verificationId}/evidence.*
+expert-projects/{projectId}/...
+data-assets/{assetId}/{versionId}/...
+media/{ownerType}/{ownerId}/{mediaAssetId}/...
+data-exports/{buyerHash}/{exportId}/package.*
+eval-runs/{buyerHash}/{runId}/...
+quarantine/expert-data/{operationId}/{objectId}
+```
+
+`data-exports/` 的过期对象由 drain 收尾时的清理任务删除（与 `purge-uploads` 同一模式），因为 Blob 没有生命周期规则；`media/` 中扫描未通过的对象在拒收时即删除。
 
 ## 8. Ingestion 与发布
 
@@ -444,6 +532,8 @@ stateDiagram-v2
     Evaluating --> Publishing: private or platform library
     AwaitingReview --> Publishing: approved
     AwaitingReview --> ChangesRequested
+    ChangesRequested --> AwaitingReview: rebuilt
+    AwaitingReview --> Suspended: rejected
     Publishing --> Ready
     Fetching --> Failed
     Scanning --> Failed
@@ -458,8 +548,10 @@ stateDiagram-v2
 
 每一步由 Vercel Workflows 的持久化 Step 包装，并在 Postgres 写入状态：
 
+Website 与 `llms.txt` 来源都通过 `source.config.indexDepth` 选择嵌套深度（0–3 层，默认 0）。Website 每层跟进同域、仍在入口路径范围内的子页面，sitemap 发现页算第 1 层；`llms.txt` 每层跟进同域嵌套索引。
+
 1. `validate-source`：套餐、容量、URL、授权和配置 Schema；
-2. `fetch-snapshot`：抓取后计算 Source Digest 并写对象存储。网站来源先直接抓取（浏览器样 UA、`Accept: text/markdown` 协商、sitemap 发现），只有被拒（403）或页面是 JS 空壳时才调用远程渲染服务（`RENDER_PROVIDER`，Firecrawl 或 Jina Reader，可替换）取 Markdown；渲染目标同样经过 §15.1 的地址校验，渲染结果同样受单文档大小上限约束。未配置渲染服务时入口页为空壳以 `source_unrendered` 失败，这个独立错误码让后台能统计需要渲染的来源比例；
+2. `fetch-snapshot`：抓取后计算 Source Digest 并写对象存储。网站来源先直接抓取（浏览器样 UA、`Accept: text/markdown` 协商、sitemap 发现），只有被拒（403）或页面是 JS 空壳时才调用远程渲染服务（`RENDER_PROVIDER`，Firecrawl 或 Jina Reader，可替换）取 Markdown；渲染目标同样经过 §15.1 的地址校验，渲染结果同样受单文档大小上限约束。未配置渲染服务时入口页为空壳以 `source_unrendered` 失败，这个独立错误码让后台能统计需要渲染的来源比例。多来源库按来源比对：版本在 `library_version.source_digests` 里记下每个来源的摘要、字节数和评分事实，下次构建时摘要未变的来源不再解析和向量化，其文档与 Chunk（含向量）从当前版本复制到新版本（`document.source_id` 记录归属，归一化对象共享不重写）；只有变化的来源走完整管线。命名一个来源的刷新（`workflow_operation.source_id`）连其他来源都不抓取，直接沿用。解析器、分块器、Embedding 模型或分词配置任一变化时不复用，整库重建。用户库只有一个来源（认领和分成按来源验证，多来源会让验证一个来源就拿到整个库）；多来源只用于平台库，Library ID 的命名空间由第一个来源决定。`llms.txt` 来源只抓索引列出的文档，不从这些页面继续爬；索引正文里提到的同域嵌套索引（如 ethereum.org 的 `/developers/docs/llms.txt`，无论是 Markdown 链接还是裸 URL）是否跟进由来源自己设定（`source.config.indexDepth`，0–3 层，默认 0 即不跟进），最多 `maxNestedIndexes` 个，文档总数上限 `maxIndexPages`。PDF 来源从对象存储读回向导上传的文件（单文件 30 MB 以内），用 pdf.js（unpdf）就地抽取文本层；只有当至多一半页面有文本层时（扫描件）才把整个文件交给 OCR 服务（`OCR_PROVIDER`，目前为 ocr.space，可替换）识别，未配置 OCR 时扫描件解析为空文档，由 `discover-parse` 报 `parse_failed`。文件以 multipart 直接上传给 OCR 厂商，不签发对象存储的临时 URL；页数与大小上限由厂商套餐决定，超出时厂商的拒绝原样以 `parse_failed` 上报；
 3. `scan`：恶意文件、Secrets、PII、Prompt Injection 和链接安全；
 4. `discover-parse`：只解析允许的文件和页面；
 5. `normalize-cite`：产生统一文档格式和 Citation；
@@ -467,7 +559,7 @@ stateDiagram-v2
 7. `embed-index`：全文索引与 pgvector，与 Chunk 同事务写入；
 8. `profile`：从 Version 内容生成库画像——文档标题与目录集、关键实体与同义词表、chunk 向量聚类质心、自动描述与主题标签，写入 `library_profile`（§9.6）。画像是「平台从内容起的真名」，库级发现只信画像，不依赖用户命名与填表自觉；
 9. `evaluate`：Trust、Benchmark 和检索 Golden Set；
-10. `review`：公开用户库等待人工结果；
+10. `review`：公开用户库等待人工结果。版本发布事务只移动版本指针；用户库的 `lifecycle_status` 由 `advanceLifecycleAfterBuild` 按 `lifecycleAfterBuild` 规则推进：私有库直接 `published`，公开库从 `draft` / `changes_requested` 进入 `submitted`，`suspended` 与平台库不动。审核动作（`reviewUserLibrary`：通过、要求修改、拒绝）写 `library_review` 一行并记审计，拒绝落在 `suspended`（枚举里没有 `rejected`），通过要求当前版本 `ready`；私有库只提供暂停与恢复；
 11. `publish`：原子切换发布指针。
 
 Step 输出只保存可序列化摘要；大对象保存在对象存储。外部 Provider 调用保存 Input Digest 和 Provider Request ID，重试时优先查询已有结果。
@@ -490,6 +582,9 @@ Step 输出只保存可序列化摘要；大对象保存在对象存储。外部
 
 - 公开查询只负责尝试创建 Refresh Operation，不等待执行；
 - Source Digest 未变化时更新 `last_checked_at` 并结束；
+- 平台库按 Source 的 `refresh_policy`（`daily` / `weekly` / `manual`）自动刷新：`/api/cron/drain` 每次先调用 `scheduleDueRefreshes`（`lib/application/ingestion/schedule-refreshes.ts`），为每个到期且没有未完成 Operation 覆盖的 Source 排一条 `trigger = scheduled` 的 Refresh Operation，再执行 drain。某个 Source 的「最近检查时间」取该库 `last_checked_at` 与覆盖它的最近一条已结束 Operation 的较晚者；从未检查过的定时 Source 视为立即到期。整库所有 Source 同时到期时只排一条整库 Operation，否则按 Source 分别排队、其余 Source 从当前版本继承；
+- `workflow_operation.trigger` 记录 Operation 由谁发起（`manual`：管理员或工作空间操作；`scheduled`：定时任务），定时排队不写审计日志；
+- 管理后台 `/admin/refresh-queue` 展示跨库的队列：执行中与等待中的 Operation、最近完成的 Operation 及其结果与抓取方式、每个平台 Source 的策略/最近检查/下次刷新；有未完成 Operation 时页面每几秒自动重新渲染；
 - 私有库默认手动刷新，Webhook 必须验签和去重；
 - 删除首先在 Postgres 把 Library 设为不可访问并撤销发布指针：一个事务写入 `deleted_at` 墓碑、`lifecycle_status = archived`、`index_status = deleting`、`current_version_id = null`，删除 Alias 与 Source，把排队中的 Operation 置为 `cancelled`，并排队一条 Delete Operation（`lib/application/libraries/delete.ts`）；
 - `library` 行本身不删：`usage_event`、`earning_event`、`settlement` 引用它，计费事实是只追加的。所有面向用户、后台、目录与路由的读取都过滤 `deleted_at is null`；`library_public_id_uq` 是仅覆盖存活行的部分唯一索引，因此 Library ID 在删除时即释放；
@@ -501,12 +596,16 @@ Step 输出只保存可序列化摘要；大对象保存在对象存储。外部
 
 链上存证挂在发布之后，完整设计见 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md)，此处只写架构约束：
 
-- 存证**不进入 §8.3 的发布事务**，也不进入 §9 的查询链路；把该模块整体移除后系统行为不变；
+- 存证**不进入 §8.3 的发布事务**，也不进入 §9 的查询链路；把该模块整体移除后系统行为不变。它有自己的 Cron 入口 `/api/cron/anchor`，不搭在 §8.4 的队列 drain 上——删掉那个目录与 `vercel.json` 里的一行即可移除整套调度，共享路径一处不改；
 - Anchor Workflow 由 Cron 触发，通过既有 Publication Event、审计链头和已关账 `revenue_period` 反查生成 Leaf，发布事务和结算事务都不做任何改动；
 - 三类 Subject（`version`、`audit_head`、`earning_statement`）共用同一套 Workflow、批次与 Proof 结构，不为结算单新增并行表；
-- Anchor Signer 通过 `lib/providers` 的 Signer Adapter 调用云 KMS，私钥不可导出，业务代码不得直接引用 KMS SDK 或链 SDK；
-- 链、KMS 或节点不可用时批次停留在 `pending` 并重试告警，发布、刷新、检索、计量、审核和出账全部不受影响；
+- 链上模块在 `move/re0_anchor`，一个 entry function 和一条 Event，无资金、无用户资产、无状态；它以 `immutable` 发布，一经上链不可变更，因此校验方要读的字段必须一次到位，缺陷只能靠发布新对象修复，见 [move/README.md](./move/README.md)；
+- Anchor Signer 的私钥由环境变量持有，只允许 `lib/infrastructure/chain` 的 Signer Adapter 读取；业务代码不得直接引用它，也不得引用链 SDK；密钥不进日志、Trace 与告警内容，见 §17.1；
+- 链或节点不可用时批次停留在 `pending` 并重试告警，发布、刷新、检索、计量、审核和出账全部不受影响；
 - Context 与 Search 响应默认不返回 Anchor 字段，避免影响 `maxTokens` 裁剪与响应体积；存证信息走独立的 Anchor 查询接口；
+- 存证在管理后台没有界面；任何读取锚定的查询停在 leaf 哈希，**不读原像**，见 §14；
+- 链上读数走 `APTOS_INDEXER_*` 一套凭据，与写入路径分开，避免供应商故障同时打掉锚定与读回（提案 §4.9）；读取不可达是一种要处置的状态，不是空数据；
+- **存证没有自己的开关**：是否对外表述存证，由 `APTOS_ANCHOR_OBJECT_ADDRESS` 与 `APTOS_ANCHOR_SIGNER_KEY` 是否配置推导。把这几项从某个环境移除，该环境就不再有任何存证痕迹——这是 §8.5「移除后系统行为不变」在配置层的对应物；
 - 公开 Verifier 作为独立包发布，**不允许 import 任何服务端 `lib/` 代码**，以保证「校验不依赖 re0」这一验收标准成立；
 - 存证不产生 Usage Event，不进入 §11 的额度链路。
 
@@ -615,7 +714,7 @@ libraryVersion + policyVersion + queryHash + maxTokens + responseType + retrieva
 
 三层结构，画像负责把几万个库缩到十几个候选，真实命中负责正确性：
 
-**1. 画像层**（§8.2 `profile` 步，随发布派生）。每库三种内容表示：文档标题与目录集（最廉价有效的路由信号）；关键实体与同义词表（覆盖「影翅虫/隐翅虫」这类俗名与变体，纯库名匹配永远做不到）；chunk 向量聚类质心（每库 8–32 条代表向量——百科型大库的不同主题簇各自有代表，避免被单条摘要向量稀释）。
+**1. 画像层**（§8.2 `profile` 步，随发布派生）。每库三种内容表示：文档标题与目录集（最廉价有效的路由信号）；关键实体与同义词表（覆盖「影翅虫/隐翅虫」这类俗名与变体，纯库名匹配永远做不到）——词表按「本库词频 × 平台特异性」排序：先剥掉站点固定短语和地址（URL、邮箱、裸域名及路径，否则 emoji 图片地址会把 `https`/`svg`/`cdnjs` 顶到前排），再以其他库当前画像的词表算平滑 IDF（`platformSpecificity`），人人都有的词被压低但不剔除，平台库少时权重接近 1；chunk 向量聚类质心（每库 8–32 条代表向量——百科型大库的不同主题簇各自有代表，避免被单条摘要向量稀释）。
 
 **2. 路由层**（查询时三路融合，取 top 10–20 候选库）：
 
@@ -860,6 +959,16 @@ authenticate admin
 
 Audit Log 采用只追加表，并保存前一条记录 Hash 形成链式校验。每日把审计链头部签名/摘要写入独立对象存储 Object，降低数据库管理员无痕修改风险。导出使用短期对象并审计下载。
 
+存证**在管理后台没有界面**。它是 §8.5 的旁路系统：观测面是 Cron 每次触发时打到日志的 `anchor-alert <severity> <code> k=v` 行（见 §17.2）；失败批次的恢复是 `npm run anchor:release`，由持有数据库凭据的人执行，与 `admin:create` 同类，不经过控制台，也因此不进审计链。
+
+**释放失败批次**把一个从未上链的批次标为 `superseded` 并删掉它的 Leaf，让其中的 Subject 回到待锚定队列。批次行保留、Leaf 删除这个不对称是有意的：行保住了「存在过这个批次」的记录，而 Leaf 必须走，因为 `anchor_leaf` 的唯一约束正是拦住 Workflow 重新拾取这些 Subject 的东西。**只允许 `failed`**：`confirmed` 的 Leaf 是第三方要校验的证据，`pending` 与 `submitted` 还在动，释放一个随后被链接受的批次会把同一批 Subject 锚两次。
+
+注意这不是提案 §4.5.1 的「重锚」。那一条针对的是 **Leaf 构造本身有缺陷**：受影响的 Subject 以新的 `leaf_schema_version` 重新锚定，旧批次作为历史保留——那是一次发布，不是一个按钮。
+
+存证**也没有暂停开关**。要让它停下来，把该环境的 `APTOS_*` 移除即可——Workflow 随即视自己为未配置，与前后台文案消失是同一个开关（§19.1）。
+
+有一条边界即使没有界面也仍然成立，并且写在查询里而不是留给记忆：**任何读取锚定的代码一律停在 `anchor_leaf.leaf_hash`，不 join `library_version`、`revenue_period` 或任何 Subject 表**。批次行本身不泄露什么——链上公开的就只有 Root 和批次元数据——危险的是顺着 `subject_id` 一 join，私有库的内容与发布者的结算金额就绕过了 requirement.md §6.4 的可见性规则。
+
 ## 15. 安全设计
 
 ### 15.1 来源安全
@@ -935,6 +1044,10 @@ duration_ms
 
 告警中只包含 ID 和稳定错误码，通过受控后台查看必要详情。
 
+平台尚未选定告警投递通道。锚定侧的告警规则是 `lib/domain/anchor-alerts.ts` 里的纯函数，判定结果由 Cron 以 `anchor-alert <severity> <code> k=v` 的固定格式打到日志（严重走 `console.error`）。接一条真正的通道属于配置，不需要改这段判定。
+
+锚定的告警条件**刻意很少，且都不依赖任何配置项**：监控不可达、余额为零或偏低、批次已放弃、积压超过 SLO 窗口。合约发布次数与签名账户交易数不产生告警——存证是可随时移除的旁路系统（§8.5），一条需要自带配置基线的规则会与那份基线脱节，届时告警反映的是配置而不是平台。要核对它们，`0x1::code::PackageRegistry.upgrade_number` 与公共节点即可，不必经过本平台。
+
 ## 18. 测试策略
 
 ### 18.1 Contract Tests
@@ -983,6 +1096,9 @@ GITHUB_OAUTH_CLIENT_ID
 GITHUB_OAUTH_CLIENT_SECRET
 GOOGLE_OAUTH_CLIENT_ID
 GOOGLE_OAUTH_CLIENT_SECRET
+NOTION_OAUTH_CLIENT_ID          # Notion public integration：向导「连接 Notion」导入页面，回调 /api/auth/notion/callback/connect
+NOTION_OAUTH_CLIENT_SECRET
+NOTION_INGESTION_TOKEN         # 可选，internal integration：仅平台 Notion 知识库使用；工作空间知识库用用户自己的授权
 SESSION_SIGNING_SECRET
 API_KEY_HASH_SECRET
 CREDENTIAL_ENCRYPTION_KEY
@@ -992,26 +1108,30 @@ LLM_PROVIDER_API_KEY           # 仅在线试用的答案生成，见 §9.5
 RENDER_PROVIDER                # 可选，firecrawl | jina：网站来源被拒或返回 JS 空壳时的渲染兜底，见 §8.2
 RENDER_PROVIDER_API_KEY
 RENDER_PROVIDER_BASE_URL       # 可选，自托管实例的地址（如 http://firecrawl:3002）；设了它 key 可省略，内网 http 允许但不允许重定向
+OCR_PROVIDER                   # 可选，ocrspace：上传的 PDF 没有文本层（扫描件）时的 OCR 兜底，见 §8.2
+OCR_PROVIDER_API_KEY
+OCR_PROVIDER_BASE_URL          # 可选，付费套餐的区域端点（如 https://apipro1.ocr.space）；不设则用公共 API
+OCR_PROVIDER_LANGUAGE          # 可选，按厂商约定透传（ocr.space 为三字母码，如 chs）；不设由厂商自动检测
 PAYMENT_PROVIDER_SECRET
 PAYMENT_WEBHOOK_SECRET
 APP_BASE_URL
 API_BASE_URL
+CRON_SECRET                    # Vercel Cron 调用 /api/cron/drain 时携带的 Bearer；队列兜底与上传清扫
 
-APTOS_NETWORK                  # 固定 mainnet
+APTOS_NETWORK                  # 生产固定 mainnet；开发与 CI 用 testnet 或 localnet，见提案 §4.7
 APTOS_NODE_URL
 APTOS_API_KEY                  # 写入路径凭据
 APTOS_INDEXER_URL              # 事件监控
 APTOS_INDEXER_API_KEY          # 必须与 APTOS_API_KEY 不同，见提案 §4.9
 APTOS_ANCHOR_OBJECT_ADDRESS
 APTOS_ANCHOR_ACCOUNT_ADDRESS
-APTOS_ANCHOR_SIGNER_KMS_KEY_ID # 云 KMS 密钥标识
-APTOS_ANCHOR_SIGNER_KMS_CREDS  # 仅 Sign 权限的调用凭据
+APTOS_ANCHOR_SIGNER_KEY        # Anchor Signer 的 Ed25519 私钥，十六进制；见下
 ANCHOR_LEAF_SALT_SECRET
 ```
 
-Secret 不得进入前端 Bundle，只允许在 Server Component、Route Handler 和 Workflow 中读取。三套环境各持一份，不共用任何一项。
+Secret 不得进入前端 Bundle，只允许在 Server Component、Route Handler 和 Workflow 中读取。默认三套环境各持一份，两类例外见 §3.2：Neon 与 Blob 的连接项（`DATABASE_URL`、`DATABASE_URL_UNPOOLED`、`BLOB_READ_WRITE_TOKEN` 及 Neon 集成注入的 `POSTGRES_*` / `PG*`）因为资源本身共享而三套环境同值；`SESSION_SIGNING_SECRET`、`API_KEY_HASH_SECRET` 和 `CREDENTIAL_ENCRYPTION_KEY` 则是必须同值——它们加密或哈希的是共享库里的行。
 
-链相关项的两条硬约束：Anchor Signer 私钥按 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md) 第 4.6 节托管在**云 KMS**，任何环境变量都不得出现私钥材料；Upgrade Authority 私钥不在上表也不得加入，只在执行合约升级时离线取出。
+链相关项的三条硬约束：`APTOS_ANCHOR_SIGNER_KEY` 是上表**唯一一项真正的私钥材料**（[aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md) 1.1 版第 4.6 节的已决事项），三套环境各持一份、严禁共用，生产的那一份不得进入 preview 部署、CI 或任何本地文件；它与其余 Secret 不是同一量级——别的泄露了换一把 key 就行，它泄露要换 Aptos 账户、发布一个新的 Code Object 并重锚，因为签名地址在合约里编译期绑定而包不可变更。
 
 ### 19.2 发布顺序
 
@@ -1068,7 +1188,9 @@ Upstash Redis 不在此列：它替代的是上一版运行平台自带的限流
 
 分成的实际出账（Payout）排在第 10 步之后，前置条件是账期分配数据可用 Usage Event 独立复算，见 [publisher-revenue-share.md](./publisher-revenue-share.md) 第 9 节。
 
-链上存证已进入基线，设计见 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md)。它是 §8.5 的旁路能力：第 11–12 步整体延后或失败都不影响第 1–10 步的交付与运行。Anchor Signer 自第一步引入时就托管在云 KMS，不存在「先用环境变量、后迁 KMS」的中间态；因此 Earning Anchor（第 12 步）只等分成侧跑出可复算的真实数据，不再等密钥托管升级。云 KMS 对 Ed25519 的支持范围必须在第 11 步开工前核实，见提案 §4.6。
+链上存证已进入基线，设计见 [aptos-anchoring-proposal.md](./aptos-anchoring-proposal.md)。它是 §8.5 的旁路能力：第 11–12 步整体延后或失败都不影响第 1–10 步的交付与运行。Anchor Signer 私钥由环境变量持有，不引入 KMS——提案 1.1 版撤销了 1.0 版的 KMS 决定，风险条目见其第 0.1 节；因此 Earning Anchor（第 12 步）只等分成侧跑出可复算的真实数据。代价是密钥轮换要发布一个新的 Code Object，该演练是 Earning Anchor 的上线门禁，见提案 §4.11.1。
+
+专家数据与评测赛道（§4.1）不在上述 14 步之内。它以 requirement.md §2.4 登记的阶段 0 门禁为前提，门禁未过时只允许专家预注册、资格测试与后台验证队列进入代码库；其后各阶段的顺序见 [expert-data-track-proposal.md](./expert-data-track-proposal.md) §17 与 §20。
 
 ## 22. 参考资料
 

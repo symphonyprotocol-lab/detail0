@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { ApiKeyCreate } from '@/components/dashboard/api-key-create';
+import { ApiKeyRotate } from '@/components/dashboard/api-key-rotate';
 import {
   ArrowLink,
   Badge,
@@ -18,18 +19,20 @@ import {
   ShieldCheckIcon,
 } from '@/components/ui/icons';
 import { listApiKeys } from '@/lib/application/auth';
+import { canManageApiKeys } from '@/lib/application/libraries';
 import { listRequests } from '@/lib/application/plans';
+import { isApiKeyIdle } from '@/lib/domain/api-key';
 import { workspaceUsage } from '@/lib/http/dashboard';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
 import { getMessages, translations } from '@/lib/i18n/server';
-import { createApiKeyAction, revokeApiKeyAction } from './actions';
+import { createApiKeyAction, revokeApiKeyAction, rotateApiKeyAction } from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).dashboard.apiKeys.metaTitle };
 }
 
-const GRID = 'grid grid-cols-[minmax(0,1fr)_124px_126px_84px_26px] items-center gap-2.5';
+const GRID = 'grid grid-cols-[minmax(0,1fr)_124px_150px_84px_56px] items-center gap-2.5';
 
 function RevokeButton({ label, keyId }: { label: string; keyId: string }) {
   return (
@@ -65,6 +68,13 @@ function RevokeButton({ label, keyId }: { label: string; keyId: string }) {
  * the server keeps (prefix, last four, timestamps); creation shows the
  * plaintext once through the panel above the table; revocation is a
  * timestamp, scoped to the session's workspace.
+ *
+ * Minting, rotating and revoking are the owner's (requirement.md 3.3), which
+ * is what `canManageApiKeys` says and what every one of those use cases
+ * enforces. The page renders the controls to match: an admin or developer
+ * reads the same list -- they may use a key, and the last-used column is how
+ * they see it working -- but is not offered a button whose only outcome is a
+ * refusal, and is told plainly why.
  */
 export default async function DashboardApiKeysPage() {
   const [session, { locale, t }] = await Promise.all([
@@ -73,6 +83,8 @@ export default async function DashboardApiKeysPage() {
   ]);
   const k = t.dashboard.apiKeys;
   const workspaceId = session.workspace.id;
+
+  const manages = canManageApiKeys(session.workspace.role);
 
   const [keys, overview, recent] = await Promise.all([
     listApiKeys(workspaceId),
@@ -89,6 +101,10 @@ export default async function DashboardApiKeysPage() {
     .filter((value): value is string => value !== null)
     .sort()
     .at(-1);
+  /* The security figure is a count, not a slogan: live keys nothing has used
+     in thirty days are the ones worth revoking (requirement.md 5.2). */
+  const now = new Date();
+  const idle = new Set(keys.filter((key) => isApiKeyIdle(key, now)).map((key) => key.id));
 
   const stats = [
     { key: 'active', value: number.format(keys.length), label: k.stats.active, Icon: KeyIcon },
@@ -104,7 +120,12 @@ export default async function DashboardApiKeysPage() {
       label: k.stats.recent,
       Icon: ClockIcon,
     },
-    { key: 'security', value: k.stats.securityValue, label: k.stats.security, Icon: ShieldCheckIcon },
+    {
+      key: 'security',
+      value: number.format(idle.size),
+      label: k.scoped.idleStat,
+      Icon: ShieldCheckIcon,
+    },
   ];
 
   return (
@@ -122,10 +143,18 @@ export default async function DashboardApiKeysPage() {
         icon={<ShieldCheckIcon size={18} />}
         title={k.noticeTitle}
         body={k.noticeBody}
-        action={<ArrowLink href="/docs">{k.noticeLink}</ArrowLink>}
       />
 
-      <ApiKeyCreate action={createApiKeyAction} />
+      {manages ? (
+        <ApiKeyCreate action={createApiKeyAction} />
+      ) : (
+        <Notice
+          tone="plain"
+          icon={<ShieldCheckIcon size={18} />}
+          title={k.scoped.ownerOnlyTitle}
+          body={k.scoped.ownerOnlyBody}
+        />
+      )}
 
       {/* Key table -- design source frame `jLwpR`. */}
       <section className={`${PANEL} overflow-hidden p-0.5`}>
@@ -134,7 +163,7 @@ export default async function DashboardApiKeysPage() {
         <div className="overflow-x-auto">
           <div className="min-w-[600px]">
             <div
-              className={`${GRID} border-t-2 border-line bg-subtle px-5 py-[11px] text-[11px] font-semibold tracking-[-0.023em] text-muted`}
+              className={`${GRID} border-t border-line bg-subtle px-5 py-[11px] text-[11px] font-medium text-muted`}
             >
               {k.columns.map((column) => (
                 <span key={column}>{column}</span>
@@ -143,22 +172,22 @@ export default async function DashboardApiKeysPage() {
             </div>
 
             {keys.map((key) => (
-              <div key={key.id} className={`${GRID} border-t-2 border-line px-5 py-5`}>
+              <div key={key.id} className={`${GRID} border-t border-line px-5 py-5`}>
                 <span className="flex min-w-0 items-center gap-2.5">
                   <IconTile>
                     <KeyIcon size={15} />
                   </IconTile>
                   <span className="flex min-w-0 flex-col gap-1">
-                    <span className="truncate text-[13px] tracking-[-0.023em] text-ink">
+                    <span className="truncate text-[13px] text-ink">
                       {key.name}
                     </span>
-                    <span className="truncate text-[10px] tracking-[-0.023em] text-muted">
+                    <span className="truncate text-[10px] text-muted">
                       {key.environment} · {fill(k.createdAt, { date: date.format(new Date(key.createdAt)) })}
                     </span>
                   </span>
                 </span>
 
-                <code className="inline-flex w-fit items-center rounded-[5px] bg-mutedbg px-[7px] py-[5px] font-mono text-[11px] tracking-[-0.023em] text-steel">
+                <code className="inline-flex w-fit items-center rounded-md bg-mutedbg px-[7px] py-[5px] font-mono text-[11px] text-steel">
                   {key.masked}
                 </code>
 
@@ -170,21 +199,48 @@ export default async function DashboardApiKeysPage() {
                   ))}
                 </span>
 
-                <StatusLabel tone="live">
-                  {key.lastUsedAt ? dateTime.format(new Date(key.lastUsedAt)) : k.neverUsed}
-                </StatusLabel>
+                <span className="flex flex-col gap-1">
+                  <StatusLabel tone={idle.has(key.id) ? 'pending' : 'live'}>
+                    {key.lastUsedAt ? dateTime.format(new Date(key.lastUsedAt)) : k.neverUsed}
+                  </StatusLabel>
+                  {idle.has(key.id) ? (
+                    <span className="text-[10px] text-amber">
+                      {k.scoped.idleBadge}
+                    </span>
+                  ) : null}
+                </span>
 
-                <RevokeButton label={fill(k.revoke, { name: key.name })} keyId={key.id} />
+                <span className="flex items-center gap-1">
+                  {manages ? (
+                    <>
+                      <ApiKeyRotate keyId={key.id} name={key.name} action={rotateApiKeyAction} />
+                      <RevokeButton label={fill(k.revoke, { name: key.name })} keyId={key.id} />
+                    </>
+                  ) : null}
+                </span>
               </div>
             ))}
 
             {keys.length === 0 ? (
-              <p className="border-t-2 border-line px-5 py-10 text-center text-[13px] text-muted">
+              <p className="border-t border-line px-5 py-10 text-center text-[13px] text-muted">
                 {k.empty}
               </p>
             ) : null}
           </div>
         </div>
+
+        {/*
+          * Said where the environment is read, because the word "Test" invites
+          * the opposite assumption. requirement.md 5.2 asks only that a key
+          * name an environment; nothing in the spec or in architecture.md 5.1
+          * makes a `mm_test_` key unmetered, and nothing in the quota or
+          * metering path reads the column -- so the label is what it is, and
+          * the page no longer lets the reader infer a sandbox that would
+          * otherwise be a free hole through the plan's allowance.
+          */}
+        <p className="border-t border-line px-5 py-3 text-[10.5px] leading-[1.6] text-muted">
+          {k.scoped.environmentNote}
+        </p>
       </section>
 
       <section className="grid gap-3 lg:grid-cols-[1fr_217px]">
@@ -198,27 +254,27 @@ export default async function DashboardApiKeysPage() {
             {recent.map((entry) => (
               <li
                 key={entry.requestId}
-                className="flex items-center gap-4 border-t-2 border-line py-2.5"
+                className="flex items-center gap-4 border-t border-line py-2.5"
               >
                 <span
                   aria-hidden
                   className={`size-[7px] shrink-0 rounded-full ${entry.statusCode < 400 ? 'bg-brand' : 'bg-rose'}`}
                 />
                 <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                  <span className="truncate text-[12px] font-bold tracking-[-0.023em] text-ink">
+                  <span className="truncate text-[12px] font-medium text-ink">
                     {entry.libraryPublicId ?? entry.operation}
                   </span>
-                  <span className="truncate text-[10px] tracking-[-0.023em] text-muted">
+                  <span className="truncate text-[10px] text-muted">
                     {entry.operation} · {entry.statusCode}
                   </span>
                 </span>
-                <span className="shrink-0 text-[10px] tracking-[-0.023em] text-muted">
+                <span className="shrink-0 text-[10px] text-muted">
                   {dateTime.format(new Date(entry.createdAt))}
                 </span>
               </li>
             ))}
             {recent.length === 0 ? (
-              <li className="border-t-2 border-line py-6 text-center text-[12px] text-muted">
+              <li className="border-t border-line py-6 text-center text-[12px] text-muted">
                 {k.activityEmpty}
               </li>
             ) : null}
@@ -229,15 +285,12 @@ export default async function DashboardApiKeysPage() {
           <IconTile>
             <ShieldCheckIcon size={17} />
           </IconTile>
-          <p className="mt-3 text-[15px] leading-[1.4] tracking-[-0.025em] text-ink">
+          <p className="mt-3 text-[15px] leading-[1.4] text-ink">
             {k.leastPrivilegeTitle}
           </p>
-          <p className="mt-1.5 text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">
+          <p className="mt-1.5 text-[11px] leading-[1.6] text-muted">
             {k.leastPrivilegeBody}
           </p>
-          <div className="mt-3.5">
-            <ArrowLink href="/docs">{k.leastPrivilegeLink}</ArrowLink>
-          </div>
         </article>
       </section>
     </div>

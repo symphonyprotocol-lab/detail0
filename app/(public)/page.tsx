@@ -1,21 +1,22 @@
 import Link from 'next/link';
-import { Button, SectionHeading } from '@/components/ui/primitives';
+import { Button, SectionHeading, ShowcaseCard } from '@/components/ui/primitives';
 import { ClaudeIcon, CodexIcon, CursorIcon, McpIcon } from '@/components/ui/brand-icons';
+import { DirectorySearch } from '@/components/site/directory-search';
+import { HeroFigure } from '@/components/site/hero-figure';
 import { LibraryTable } from '@/components/site/library-table';
+import { ConnectTabs } from '@/components/site/connect-tabs';
 import {
   ArrowRightIcon,
   ArrowUpRightIcon,
   BracesIcon,
   CircleCheckIcon,
   ClockIcon,
-  CopyIcon,
   KeyIcon,
   PlusIcon,
-  SearchIcon,
-  ShieldCheckIcon,
   SparklesIcon,
 } from '@/components/ui/icons';
-import { listPublicLibraries } from '@/lib/application/libraries';
+import { listPublicLibraries, POPULARITY_WINDOW_DAYS } from '@/lib/application/libraries';
+import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
 
 /** Vendor logomarks where the surface has one; the design source's glyph otherwise. */
@@ -27,8 +28,15 @@ const SURFACES = [
   { label: 'MCP', Icon: McpIcon },
 ];
 
+/** Where the public site lives when the deployment does not say. */
+const PUBLIC_ORIGIN = 'https://re0.com';
+
 export default async function HomePage() {
   const t = await getMessages();
+  /* The MCP endpoint a person pastes into their client: the one thing every
+     surface in the hero row shares. Anonymous use rides the trial limit; an
+     API key from the dashboard lifts it (requirement.md 9.3). */
+  const mcpUrl = `${(process.env.APP_BASE_URL ?? PUBLIC_ORIGIN).replace(/\/$/, '')}/mcp`;
   /* The featured table is the live catalogue's head, not copy. */
   const featured = (await listPublicLibraries({ sort: 'popular', limit: 6 })).map((row) => ({
     libraryId: row.publicId,
@@ -37,162 +45,176 @@ export default async function HomePage() {
     trustScore: row.trustScore,
     chunks: row.totalChunks.toLocaleString('en-US'),
     updated: row.updatedAt ? new Date(row.updatedAt).toISOString().slice(0, 10) : '—',
-    anchored: false,
   }));
   return (
     <>
-      {/* Hero -- geometry, type and icons follow the design source frame `hRx0w`. */}
+      {/*
+        Hero -- a split composition on the paper canvas: the copy and the
+        action cluster on the left, the figure on the right. It centres again
+        below the split's breakpoint, where there is no second column for the
+        text to sit beside.
+      */}
       <section>
-        <div className="mx-auto flex w-full max-w-[918px] flex-col items-start px-5 pt-[72px] pb-[40px]">
-          <p className="flex w-full items-center gap-[7px] text-[12px] leading-[1.5] font-[650] text-brandink">
-            <ShieldCheckIcon size={15} />
-            {t.home.badge}
-          </p>
+        <div className="mx-auto grid w-full max-w-[1200px] grid-cols-1 items-center gap-12 px-5 pt-20 pb-16 lg:grid-cols-[minmax(0,1fr)_400px]">
+          <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
+          <p className="eyebrow">{t.home.badge}</p>
 
-          <h1 className="mt-4 text-[38px] leading-[1.04] font-[650] tracking-[-0.052em] text-ink sm:text-[48px]">
+          <h1 className="mt-5 max-w-[18ch] text-[40px] leading-[1.25] font-semibold tracking-[0.018em] text-ink sm:text-[56px]">
             {t.home.title}
           </h1>
 
-          <p className="mt-[18px] max-w-full text-[17px] leading-[1.7] tracking-[-0.025em] text-muted">
-            {t.home.lede}
-          </p>
+          <p className="mt-5 max-w-[60ch] text-subheading text-muted">{t.home.lede}</p>
 
-          <div className="mt-6 flex w-full flex-wrap items-center gap-2.5">
-            <div className="flex h-12 items-center gap-[92px] rounded-lg border-2 border-termline bg-inkdeep py-0.5 pr-[11px] pl-[18px] shadow-[0_4px_10px_rgba(45,45,83,0.12),0_1px_1px_rgba(45,45,83,0.12)]">
-              <code className="font-mono text-[12px] tracking-[-0.03em] text-[#e4edee]">
-                $ npx re0 setup
-              </code>
-              <span className="flex h-7 items-center gap-1.5 border-l-2 border-[#294043] pr-[9px] pl-[11px] text-[#b8d4d5]">
-                <CopyIcon size={15} />
-                <span className="text-[11px] tracking-[-0.029em]">{t.home.install}</span>
-              </span>
-            </div>
-            <Link
-              href="/login"
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-[20px] border-2 border-line bg-card px-5 text-[14px] font-medium tracking-[-0.029em] text-ink shadow-[0_4px_10px_rgba(45,45,83,0.1),0_1px_1px_rgba(45,45,83,0.1)] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-subtle hover:shadow-[0_10px_22px_-8px_rgba(3,26,30,0.24)]"
-            >
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
+            <Button href="/login" size="md">
               <KeyIcon />
               {t.home.getKey}
-            </Link>
+            </Button>
+            <Button href="/playground" variant="outline" size="md">
+              <SparklesIcon size={16} />
+              {t.home.cli.tryOnline}
+            </Button>
           </div>
 
-          <ul className="mt-5 flex w-full flex-wrap items-center gap-x-5 gap-y-2 text-[11px] tracking-[-0.029em] text-muted">
+          {/* Three ways in, ordered by how little the reader has to know: hand
+              the prompt to the model they are already talking to, paste the
+              endpoint themselves, or run the CLI (packages/cli), which writes
+              the same entry into every client on the machine. */}
+          <div className="mt-10 w-full">
+            <ConnectTabs
+              options={[
+                {
+                  id: 'prompt',
+                  label: t.home.connect.promptTab,
+                  value: fill(t.home.connect.prompt, { url: mcpUrl }),
+                  copyLabel: t.home.connect.promptCopy,
+                  copiedLabel: t.home.installCopied,
+                  note: t.home.connect.promptNote,
+                },
+                {
+                  id: 'mcp',
+                  label: t.home.connect.mcpTab,
+                  value: mcpUrl,
+                  copyLabel: t.home.install,
+                  copiedLabel: t.home.installCopied,
+                  note: t.home.connect.mcpNote,
+                  mono: true,
+                },
+                {
+                  id: 'cli',
+                  label: t.home.connect.cliTab,
+                  value: t.home.cli.command,
+                  copyLabel: t.home.cli.copy,
+                  copiedLabel: t.home.cli.copied,
+                  note: t.home.cli.note,
+                  mono: true,
+                },
+              ]}
+            />
+          </div>
+
+          <ul className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-caption text-muted lg:justify-start">
             {t.home.heroPoints.map((p) => (
-              <li key={p} className="flex items-center gap-1.5">
-                <CircleCheckIcon size={14} className="text-brand" />
+              <li key={p} className="flex items-center gap-2">
+                <CircleCheckIcon size={14} className="text-brandink" />
                 {p}
+              </li>
+            ))}
+          </ul>
+          </div>
+
+          <HeroFigure className="mx-auto hidden w-full max-w-[400px] lg:block" />
+        </div>
+      </section>
+
+      {/* The centred logo row that closes the hero. */}
+      <section>
+        <div className="mx-auto w-full max-w-[1200px] px-5 pb-20">
+          <p className="text-center text-caption text-muted">{t.home.surfacesNote}</p>
+          <ul className="mt-8 flex flex-wrap items-center justify-center gap-x-14 gap-y-6">
+            {SURFACES.map(({ label, Icon }) => (
+              <li key={label} className="flex items-center gap-2 text-body text-ink">
+                <Icon size={20} />
+                {label}
               </li>
             ))}
           </ul>
         </div>
       </section>
 
-      {/* Knowledge directory -- design source frame `EG2Gu`. */}
-      <section className="mx-auto w-full max-w-[918px] px-5 pt-6 pb-[70px]">
-        <SectionHeading
-          eyebrow="KNOWLEDGE DIRECTORY"
-          title={t.home.directoryTitle}
-          action={
-            <Button
-              href="/libraries/claim"
-              className="shadow-[0_4px_10px_rgba(0,150,133,0.26)] hover:-translate-y-0.5 hover:shadow-[0_10px_22px_-8px_rgba(0,150,133,0.5)]"
-            >
-              <PlusIcon size={15} />
-              {t.home.submitLibrary}
-            </Button>
-          }
-        />
+      {/*
+        Knowledge directory -- a tinted zone with the product floating paper
+        white on it. This is where the system shows the real thing rather than
+        describing it.
+      */}
+      <section className="wash-band">
+        <div className="mx-auto w-full max-w-[1200px] px-5 py-20">
+          <SectionHeading
+            eyebrow={t.home.directoryEyebrow}
+            title={t.home.directoryTitle}
+            action={
+              <Button href="/libraries/claim">
+                <PlusIcon size={15} />
+                {t.home.submitLibrary}
+              </Button>
+            }
+          />
 
-        <div className="mt-6">
-          <div className="flex flex-wrap items-start gap-3 pb-[18px]">
-            <label className="flex h-[46px] min-w-0 flex-1 items-center gap-2.5 rounded-lg border-2 border-line bg-card/60 px-[15px] py-0.5 shadow-[0_4px_10px_rgba(45,45,83,0.06)]">
-              <SearchIcon size={18} className="text-muted" />
-              <input
+          <ShowcaseCard className="mt-10">
+            <div className="flex flex-wrap items-center gap-3 pb-5">
+              <DirectorySearch
                 placeholder={t.home.searchPlaceholder}
-                className="min-w-0 flex-1 bg-transparent text-[13px] tracking-[-0.025em] text-ink outline-none placeholder:text-muted/70"
+                submitLabel={t.home.cli.searchSubmit}
               />
-              <kbd className="flex h-[34px] shrink-0 items-center rounded-[5px] border-2 border-line bg-mutedbg px-1.5 text-[16px] text-muted">
-                ⌘ K
-              </kbd>
-            </label>
-            <div className="flex h-[46px] shrink-0 items-center rounded-lg border-2 border-line bg-card/60 p-[5px]">
-              <span className="flex h-9 items-center gap-1.5 rounded-md bg-brandsoft px-3 text-[12px] font-[550] tracking-[-0.027em] text-brandink">
-                <SparklesIcon size={15} />
-                {t.home.popular}
-              </span>
-              <span className="flex h-9 items-center gap-1.5 rounded-md px-3 text-[12px] font-[550] tracking-[-0.027em] text-muted">
-                <ClockIcon size={15} />
-                {t.home.recentlyUpdated}
-              </span>
+              {/* The featured table is the popular head; both toggles open the
+                  full directory in that order. */}
+              <div className="flex shrink-0 items-center gap-1">
+                <Link
+                  href="/libraries?sort=popular"
+                  className="flex h-10 items-center gap-2 rounded-full bg-brandsoft px-4 text-caption font-medium text-ink"
+                >
+                  <SparklesIcon size={15} />
+                  {t.home.popular}
+                </Link>
+                <Link
+                  href="/libraries?sort=recent"
+                  className="flex h-10 items-center gap-2 rounded-full px-4 text-caption text-muted transition-colors hover:text-ink"
+                >
+                  <ClockIcon size={15} />
+                  {t.home.recentlyUpdated}
+                </Link>
+              </div>
             </div>
-          </div>
 
-          <LibraryTable entries={featured} showAnchor={false} />
+            <LibraryTable entries={featured} />
 
-          <div className="flex flex-wrap items-center justify-between gap-3 px-0.5 pt-3.5 text-[11px] tracking-[-0.029em]">
-            <p className="text-muted">{t.home.sampleNote}</p>
-            <Link
-              href="/libraries"
-              className="flex items-center gap-[5px] font-semibold text-brandink hover:underline"
-            >
-              {t.home.viewFullCatalog}
-              <ArrowUpRightIcon size={14} />
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* Surfaces -- design source frame `jByip`. */}
-      <section className="mx-auto w-full max-w-[918px] px-5 pt-11 pb-[54px]">
-        <p className="text-center text-[13px] tracking-[-0.029em] text-muted">
-          {t.home.surfacesNote}
-        </p>
-        <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-12 gap-y-4 sm:justify-between sm:px-[47px]">
-          {SURFACES.map(({ label, Icon }) => (
-            <li
-              key={label}
-              className="flex items-center gap-2 text-[15px] font-[650] tracking-[-0.025em] text-steel/78"
-            >
-              <Icon size={20} />
-              {label}
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {/* On-chain proof -- design source frame `oKG2g`. */}
-      <section className="mx-auto w-full max-w-[918px] px-5 pt-13 pb-[70px]">
-        <SectionHeading eyebrow="ON-CHAIN PROOF" title={t.home.proofTitle} />
-        <div className="mt-7 grid gap-[18px] sm:grid-cols-3">
-          {t.home.proof.map((item) => (
-            <div key={item.title} className="border-t-2 border-line pt-[18px]">
-              <h3 className="text-[14px] leading-[1.4] font-[650] tracking-[-0.029em] text-ink">
-                {item.title}
-              </h3>
-              <p className="mt-2 text-[11px] leading-[1.6] tracking-[-0.029em] text-muted">
-                {item.body}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-5 text-caption">
+              <p className="text-muted">
+                {fill(t.home.sampleNote, { count: featured.length, days: POPULARITY_WINDOW_DAYS })}
               </p>
+              <Link
+                href="/libraries"
+                className="flex items-center gap-1.5 text-brandink hover:underline"
+              >
+                {t.home.viewFullCatalog}
+                <ArrowUpRightIcon size={14} />
+              </Link>
             </div>
-          ))}
+          </ShowcaseCard>
         </div>
-        <p className="mt-7 text-[10px] leading-[1.5] tracking-[-0.032em] text-muted">
-          {t.home.proofNote}
-        </p>
       </section>
 
-      {/* CTA -- design source frame `B1XJrb`. */}
-      <section className="mx-auto w-full max-w-[918px] px-5 pt-16 pb-16">
-        <div className="flex flex-col items-start justify-between gap-[30px] rounded-xl bg-panel px-10 py-9 shadow-[0_4px_10px_rgba(45,45,83,0.06)] sm:flex-row sm:items-center">
-          <div className="flex flex-col gap-[11px] pt-2">
-            <span className="text-[11px] font-bold tracking-[-0.029em] text-brand">
-              {t.home.ctaEyebrow}
-            </span>
-            <h2 className="text-[26px] leading-[1.5] font-[650] tracking-[-0.04em] text-ink">
+      {/* Closing call to action, back on the paper canvas. */}
+      <section>
+        <div className="mx-auto flex w-full max-w-[1200px] flex-col items-start justify-between gap-8 px-5 py-20 sm:flex-row sm:items-center">
+          <div className="flex flex-col gap-2">
+            <span className="eyebrow">{t.home.ctaEyebrow}</span>
+            <h2 className="max-w-[22ch] text-heading-sm font-semibold tracking-[0.018em] text-ink">
               {t.home.ctaTitle}
             </h2>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button href="/pricing" variant="outline" size="md" className="bg-surface">
+          <div className="flex flex-wrap gap-3">
+            <Button href="/pricing" variant="outline" size="md">
               {t.home.ctaPricing}
             </Button>
             <Button href="/libraries" size="md">
@@ -202,7 +224,6 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
-
     </>
   );
 }

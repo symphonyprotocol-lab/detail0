@@ -53,6 +53,25 @@ export const OPERATION_STATES = [
 export type OperationState = (typeof OPERATION_STATES)[number];
 
 /**
+ * Who asked for an operation: an operator pressing a button, or the scheduled
+ * drain acting on a source's refresh policy. Kept on the row so the queue can
+ * say which, and so an audit reader is not left looking for an administrator
+ * behind a refresh nobody requested.
+ *
+ * `platform` is the platform's own decision -- a rebuild forced by a parser,
+ * chunker or model upgrade, or the first refresh of a library that predates
+ * per-source digests. library-build-billing.md 5.4: such a build is never the
+ * owner's bill, whatever it measures.
+ */
+export const OPERATION_TRIGGERS = ['manual', 'scheduled', 'platform'] as const;
+
+export type OperationTrigger = (typeof OPERATION_TRIGGERS)[number];
+
+export function isOperationTrigger(value: unknown): value is OperationTrigger {
+  return typeof value === 'string' && (OPERATION_TRIGGERS as readonly string[]).includes(value);
+}
+
+/**
  * The steps of architecture.md 8.2, in the order they run -- plus `purge`,
  * the Delete Workflow's single step (architecture.md 8.4), which runs on its
  * own operation rather than as part of a build.
@@ -142,6 +161,12 @@ export const INGESTION_ERRORS = [
   'index_incomplete',
   'storage_unavailable',
   'publish_failed',
+  /**
+   * library-build-billing.md 4.3: chunking measured a price the workspace's
+   * allowance and pack balance cannot cover, so the build stopped before
+   * embedding. Not retried -- the balance does not change on its own.
+   */
+  'quota_exceeded',
   'internal_error',
 ] as const;
 
@@ -181,10 +206,18 @@ export const INGESTION_LIMITS = {
   maxDocuments: 3_000,
   /** Per build. */
   maxChunks: 60_000,
-  /** How deep a crawl of one site may go from its entry point. */
-  maxCrawlDepth: 2,
-  /** How many pages a crawl or an llms.txt may pull. */
+  /** Hard ceiling for the selectable crawl depth of one site. */
+  maxCrawlDepth: 3,
+  /** How many pages a crawl may pull. */
   maxCrawlPages: 200,
+  /**
+   * How many documents an llms.txt may list, nested indexes included. Higher
+   * than the crawl cap because an index is a curated list of documentation,
+   * not a walk that can wander into a marketing site.
+   */
+  maxIndexPages: 500,
+  /** How many nested llms.txt indexes one index may point at. */
+  maxNestedIndexes: 10,
 } as const;
 
 /* ------------------------------------------------------------------ lookup */

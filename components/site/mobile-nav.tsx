@@ -50,7 +50,7 @@ function MenuIcon({ open }: { open: boolean }) {
 
 const TRIGGER = {
   link: 'flex size-8 items-center justify-center rounded-full border border-line/70 text-muted transition-colors hover:text-ink',
-  pill: 'flex size-9 items-center justify-center rounded-lg border-2 border-line bg-card text-steel transition-colors hover:bg-subtle',
+  pill: 'flex size-9 items-center justify-center rounded-lg border border-line bg-card text-steel transition-colors hover:bg-subtle',
 } as const;
 
 export function MobileNav({
@@ -107,7 +107,7 @@ export function MobileNav({
         <div
           role="menu"
           aria-label={label}
-          className="absolute right-0 z-40 mt-2 w-[180px] rounded-lg border-2 border-line bg-card p-1 shadow-[0_18px_60px_rgba(3,26,30,0.12)]"
+          className="absolute right-0 z-40 mt-2 w-[180px] rounded-lg border border-line bg-card p-1 shadow-md"
         >
           {items.map((item) => {
             const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -117,7 +117,7 @@ export function MobileNav({
                 href={item.href}
                 role="menuitem"
                 aria-current={active ? 'page' : undefined}
-                className={`block rounded-md px-2.5 py-2 text-[13px] tracking-[-0.023em] transition-colors ${
+                className={`block rounded-md px-2.5 py-2 text-[13px] transition-colors ${
                   active ? 'bg-brandsoft font-medium text-brandink' : 'text-steel hover:bg-subtle'
                 }`}
               >

@@ -12,13 +12,18 @@ import {
   requestPlatformLibraryRefresh,
   setPlatformLibraryLifecycle,
   updatePlatformLibrary,
+  updatePlatformLibraryFiles,
   updatePlatformLibrarySource,
 } from '@/lib/application/administration';
 import { runOperation } from '@/lib/application/ingestion';
+import { preparePlatformUploads } from '@/lib/application/libraries';
+import type { PrepareUploadResult } from '@/app/dashboard/libraries/new/actions';
+import { AppError } from '@/contracts/errors';
 import { AdminChangeRefused } from '@/lib/domain/admin';
 import {
   isPlatformLifecycleAction,
   PlatformLibraryRefused,
+  UPLOAD_LIMITS,
   type PlatformLibraryError,
 } from '@/lib/domain/library';
 import { requireAdminCapability } from '@/lib/http/admin';
@@ -83,23 +88,118 @@ export async function createPlatformLibraryAction(
   form: FormData,
 ): Promise<PlatformLibraryActionResult> {
   const session = await requireAdminCapability('platformLibraries');
+  /* The dialog posts an empty manifest field when no file was uploaded;
+     that is an empty PDF library, filled in from its files panel. */
+  let uploads: unknown;
+  const posted = text(form, 'uploads');
+  if (text(form, 'sourceType') === 'pdf' && posted !== '') {
+    try {
+      uploads = JSON.parse(posted);
+    } catch {
+      return { ok: false, error: 'invalid_uploads' };
+    }
+  }
   try {
-    const { libraryId, publicId } = await createPlatformLibrary({
+    const { libraryId, publicId, operationId } = await createPlatformLibrary({
       actor: await actor(session),
       title: text(form, 'title'),
       publicId: text(form, 'publicId'),
       sourceType: text(form, 'sourceType'),
       location: text(form, 'location'),
       refreshPolicy: text(form, 'refreshPolicy'),
+      indexDepth: text(form, 'indexDepth'),
+      uploads,
       description: text(form, 'description'),
       domainTag: text(form, 'domainTag'),
       language: text(form, 'language'),
       reason: text(form, 'reason'),
     });
     revalidatePath('/admin/platform-libraries');
+    /* A pdf library created with files builds at once, like a refresh. */
+    if (operationId) runAfterResponse(operationId, 'platform library first build');
     return { ok: true, libraryId, publicId };
   } catch (error) {
     return refused(error, 'platform library create');
+  }
+}
+
+/**
+ * Runs a queued operation after the response, the way every console
+ * mutation that queues one does: the operator gets the acknowledgement at
+ * once, and a failure lands on the operation row rather than here.
+ */
+function runAfterResponse(operationId: string, context: string): void {
+  after(async () => {
+    try {
+      await runOperation({ operationId });
+    } catch (error) {
+      console.error(`${context} run failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    }
+  });
+}
+
+/**
+ * Room in the store for the PDFs the console is about to upload, one
+ * ticket per file; the browser uploads straight to storage. The result shape
+ * is the dashboard wizard's, so the same uploader component serves both.
+ */
+export async function preparePlatformUploadAction(
+  files: { name: string; size: number }[],
+  batchId?: string,
+): Promise<PrepareUploadResult> {
+  await requireAdminCapability('platformLibraries');
+  const maxFileBytes = UPLOAD_LIMITS.maxFileBytes;
+  if (!Array.isArray(files) || files.length > UPLOAD_LIMITS.maxFiles) {
+    return { ok: false, maxFileBytes, error: 'invalid' };
+  }
+  try {
+    const prepared = await preparePlatformUploads({
+      files: files.map((file) => ({ name: String(file?.name ?? ''), size: Number(file?.size) })),
+      batchId: typeof batchId === 'string' ? batchId : undefined,
+    });
+    return { ok: true, maxFileBytes, ...prepared };
+  } catch (error) {
+    if (error instanceof AppError) {
+      if (error.code === 'library_size_exceeded') return { ok: false, maxFileBytes, error: 'too_large' };
+      if (error.code === 'invalid_request') return { ok: false, maxFileBytes, error: 'invalid' };
+    }
+    console.error(`platform upload prepare failed: ${error instanceof Error ? error.message : 'unknown'}`);
+    return { ok: false, maxFileBytes, error: 'unavailable' };
+  }
+}
+
+export async function updatePlatformFilesAction(
+  _previous: PlatformLibraryActionResult | null,
+  form: FormData,
+): Promise<PlatformLibraryActionResult> {
+  const session = await requireAdminCapability('platformLibraries');
+  const libraryId = text(form, 'libraryId');
+  let add: unknown;
+  let remove: unknown;
+  try {
+    const posted = text(form, 'add');
+    add = posted === '' ? undefined : JSON.parse(posted);
+    remove = JSON.parse(text(form, 'remove') || '[]');
+  } catch {
+    return { ok: false, error: 'invalid_uploads' };
+  }
+  if (!Array.isArray(remove) || remove.some((id) => typeof id !== 'string')) {
+    return { ok: false, error: 'invalid_uploads' };
+  }
+  try {
+    const { operationId, created } = await updatePlatformLibraryFiles({
+      actor: await actor(session),
+      libraryId,
+      add,
+      remove: remove as string[],
+      reason: text(form, 'reason'),
+    });
+    revalidatePath('/admin/platform-libraries');
+    revalidatePath(`/admin/platform-libraries/${libraryId}`);
+    if (operationId && created) runAfterResponse(operationId, 'platform library rebuild');
+    return { ok: true, libraryId, queued: operationId !== null };
+  } catch (error) {
+    return refused(error, 'platform library files');
   }
 }
 
@@ -138,6 +238,7 @@ export async function refreshPlatformLibraryAction(
     const { created, operationId } = await requestPlatformLibraryRefresh({
       actor: await actor(session),
       libraryId,
+      sourceId: text(form, 'sourceId') || null,
       reason: text(form, 'reason'),
     });
     /*
@@ -233,17 +334,29 @@ export async function addPlatformSourceAction(
 ): Promise<PlatformLibraryActionResult> {
   const session = await requireAdminCapability('platformLibraries');
   const libraryId = text(form, 'libraryId');
+  let uploads: unknown;
+  const posted = text(form, 'uploads');
+  if (text(form, 'sourceType') === 'pdf' && posted !== '') {
+    try {
+      uploads = JSON.parse(posted);
+    } catch {
+      return { ok: false, error: 'invalid_uploads' };
+    }
+  }
   try {
-    await addPlatformLibrarySource({
+    const { operationId } = await addPlatformLibrarySource({
       actor: await actor(session),
       libraryId,
       type: text(form, 'sourceType'),
       location: text(form, 'location'),
       refreshPolicy: text(form, 'refreshPolicy'),
+      indexDepth: text(form, 'indexDepth'),
+      uploads,
       reason: text(form, 'reason'),
     });
     revalidatePath('/admin/platform-libraries');
     revalidatePath(`/admin/platform-libraries/${libraryId}`);
+    if (operationId) runAfterResponse(operationId, 'platform library source build');
     return { ok: true, libraryId };
   } catch (error) {
     return refused(error, 'platform library source add');
@@ -263,6 +376,7 @@ export async function updatePlatformSourceAction(
       sourceId: text(form, 'sourceId'),
       location: text(form, 'location'),
       refreshPolicy: text(form, 'refreshPolicy'),
+      indexDepth: text(form, 'indexDepth'),
       reason: text(form, 'reason'),
     });
     revalidatePath(`/admin/platform-libraries/${libraryId}`);

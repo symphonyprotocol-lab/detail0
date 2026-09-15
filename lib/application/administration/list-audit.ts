@@ -29,6 +29,12 @@ export interface ConsoleAuditRow {
   originDigest: string | null;
   reason: string | null;
   result: string;
+  /**
+   * The snapshots the action recorded (requirement.md 5.3: values before and
+   * after). Null when the action had nothing to snapshot, e.g. a sign-in.
+   */
+  beforeValue: unknown;
+  afterValue: unknown;
 }
 
 export interface AuditListInput {
@@ -46,6 +52,35 @@ export interface AuditList {
    * daily anchor would commit to. Null while the log is empty.
    */
   chainHead: string | null;
+}
+
+const AUDIT_ROW = {
+  id: schema.auditLog.id,
+  createdAt: schema.auditLog.createdAt,
+  action: schema.auditLog.action,
+  targetId: schema.auditLog.targetId,
+  originDigest: schema.auditLog.ipDigest,
+  reason: schema.auditLog.reason,
+  result: schema.auditLog.result,
+  beforeValue: schema.auditLog.beforeValue,
+  afterValue: schema.auditLog.afterValue,
+  administratorName: schema.administrator.username,
+  administratorEmail: schema.administrator.email,
+};
+
+/**
+ * The newest entries and nothing else -- no total, no chain head. For the
+ * overview's activity panel, which shows a handful of rows and must not pay
+ * for a count of the whole append-only log on every render.
+ */
+export async function recentAuditEntries(input: { limit?: number } = {}): Promise<ConsoleAuditRow[]> {
+  const rows = await db()
+    .select(AUDIT_ROW)
+    .from(schema.auditLog)
+    .leftJoin(schema.administrator, eq(schema.administrator.id, schema.auditLog.administratorId))
+    .orderBy(desc(schema.auditLog.seq))
+    .limit(input.limit ?? 6);
+  return rows.map(normalize);
 }
 
 export async function listAuditEntries(input: AuditListInput = {}): Promise<AuditList> {
@@ -72,17 +107,7 @@ export async function listAuditEntries(input: AuditListInput = {}): Promise<Audi
 
   const [rows, [totalRow], [headRow]] = await Promise.all([
     database
-      .select({
-        id: schema.auditLog.id,
-        createdAt: schema.auditLog.createdAt,
-        action: schema.auditLog.action,
-        targetId: schema.auditLog.targetId,
-        originDigest: schema.auditLog.ipDigest,
-        reason: schema.auditLog.reason,
-        result: schema.auditLog.result,
-        administratorName: schema.administrator.username,
-        administratorEmail: schema.administrator.email,
-      })
+      .select(AUDIT_ROW)
       .from(schema.auditLog)
       .leftJoin(schema.administrator, eq(schema.administrator.id, schema.auditLog.administratorId))
       .where(where)
@@ -108,16 +133,34 @@ export async function listAuditEntries(input: AuditListInput = {}): Promise<Audi
   return {
     total: totalRow?.n ?? 0,
     chainHead: headRow?.hash ?? null,
-    rows: rows.map((row) => ({
-      id: row.id,
-      createdAt: row.createdAt,
-      administratorName: row.administratorName ?? null,
-      administratorEmail: row.administratorEmail ?? null,
-      action: row.action,
-      targetId: row.targetId,
-      originDigest: row.originDigest,
-      reason: row.reason,
-      result: row.result,
-    })),
+    rows: rows.map(normalize),
+  };
+}
+
+function normalize(row: {
+  id: string;
+  createdAt: Date;
+  action: string;
+  targetId: string | null;
+  originDigest: string | null;
+  reason: string | null;
+  result: string;
+  beforeValue: unknown;
+  afterValue: unknown;
+  administratorName: string | null;
+  administratorEmail: string | null;
+}): ConsoleAuditRow {
+  return {
+    id: row.id,
+    createdAt: row.createdAt,
+    administratorName: row.administratorName ?? null,
+    administratorEmail: row.administratorEmail ?? null,
+    action: row.action,
+    targetId: row.targetId,
+    originDigest: row.originDigest,
+    reason: row.reason,
+    result: row.result,
+    beforeValue: row.beforeValue ?? null,
+    afterValue: row.afterValue ?? null,
   };
 }

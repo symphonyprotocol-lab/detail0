@@ -9,25 +9,36 @@
  * rebuild before returning, so the figures are always the events' figures --
  * the table is a materialisation, not a second source of truth.
  */
-import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, lt, or, sql, type SQL } from 'drizzle-orm';
+import { maskApiKey } from '@/lib/domain/api-key';
 import { uuidv7 } from '@/lib/domain/id';
+import { BUILD_ENTRYPOINT } from '@/lib/domain/build-billing';
+import { REQUEST_PAGE_SIZE, type RequestFilter } from '@/lib/domain/request-log';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
-import { PLAN_VERSION_NEWEST_FIRST } from './configuration';
+import { workspacePlanVersion } from './billing';
 
 /** Daily buckets kept per workspace. */
 const SUMMARY_WINDOW_DAYS = 90;
-const REQUEST_PAGE_LIMIT = 50;
+const REQUEST_PAGE_LIMIT = REQUEST_PAGE_SIZE;
+/** Rows per round trip when an export walks the whole filtered log. */
+const EXPORT_BATCH = 500;
 
 export interface UsageBucket {
   date: string; // YYYY-MM-DD, UTC
+  /** Retrieval calls. */
   calls: number;
+  /** Build calls (library-build-billing.md 8), shown apart. */
+  buildCalls: number;
 }
 
 export interface UsageOverview {
   buckets: UsageBucket[];
   periodStart: string;
   periodEnd: string;
+  /** Everything debited from the allowance this period: retrieval and build. */
   callsThisPeriod: number;
+  retrievalCallsThisPeriod: number;
+  buildCallsThisPeriod: number;
   returnedTokensThisPeriod: number;
   planAllowance: number;
   addonBalanceRemaining: number;
@@ -50,7 +61,8 @@ export async function rebuildUsageSummary(workspaceId: string): Promise<void> {
     const counted = await tx
       .select({
         day: sql<string>`to_char(date_trunc('day', ${schema.usageEvent.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
-        calls: sql<number>`count(*)::int`,
+        calls: sql<number>`coalesce(sum(${schema.usageEvent.calls}) filter (where ${schema.usageEvent.entrypoint} <> ${BUILD_ENTRYPOINT}), 0)::int`,
+        buildCalls: sql<number>`coalesce(sum(${schema.usageEvent.calls}) filter (where ${schema.usageEvent.entrypoint} = ${BUILD_ENTRYPOINT}), 0)::int`,
       })
       .from(schema.usageEvent)
       .where(
@@ -79,6 +91,7 @@ export async function rebuildUsageSummary(workspaceId: string): Promise<void> {
             periodStart: windowStart,
             bucketDate: new Date(`${bucket.day}T00:00:00Z`),
             calls: bucket.calls,
+            buildCalls: bucket.buildCalls,
           })),
         )
         .onConflictDoUpdate({
@@ -86,6 +99,7 @@ export async function rebuildUsageSummary(workspaceId: string): Promise<void> {
           set: {
             periodStart: sql`excluded.period_start`,
             calls: sql`excluded.calls`,
+            buildCalls: sql`excluded.build_calls`,
           },
         });
     }
@@ -98,7 +112,11 @@ export async function usageOverview(workspaceId: string): Promise<UsageOverview>
   const database = db();
 
   const buckets = await database
-    .select({ bucketDate: schema.usageSummary.bucketDate, calls: schema.usageSummary.calls })
+    .select({
+      bucketDate: schema.usageSummary.bucketDate,
+      calls: schema.usageSummary.calls,
+      buildCalls: schema.usageSummary.buildCalls,
+    })
     .from(schema.usageSummary)
     .where(eq(schema.usageSummary.workspaceId, workspaceId))
     .orderBy(schema.usageSummary.bucketDate);
@@ -106,7 +124,8 @@ export async function usageOverview(workspaceId: string): Promise<UsageOverview>
   const { allowance, periodStart, periodEnd } = await currentWindow(workspaceId);
   const [inPeriod] = await database
     .select({
-      n: sql<number>`count(*)::int`,
+      retrieval: sql<number>`coalesce(sum(${schema.usageEvent.calls}) filter (where ${schema.usageEvent.entrypoint} <> ${BUILD_ENTRYPOINT}), 0)::int`,
+      build: sql<number>`coalesce(sum(${schema.usageEvent.calls}) filter (where ${schema.usageEvent.entrypoint} = ${BUILD_ENTRYPOINT}), 0)::int`,
       tokens: sql<number>`coalesce(sum(${schema.usageEvent.returnedTokens}), 0)::bigint`,
     })
     .from(schema.usageEvent)
@@ -128,66 +147,27 @@ export async function usageOverview(workspaceId: string): Promise<UsageOverview>
     buckets: buckets.map((bucket) => ({
       date: bucket.bucketDate.toISOString().slice(0, 10),
       calls: bucket.calls,
+      buildCalls: bucket.buildCalls,
     })),
     periodStart: periodStart.toISOString(),
     periodEnd: periodEnd.toISOString(),
-    callsThisPeriod: inPeriod?.n ?? 0,
+    callsThisPeriod: (inPeriod?.retrieval ?? 0) + (inPeriod?.build ?? 0),
+    retrievalCallsThisPeriod: inPeriod?.retrieval ?? 0,
+    buildCallsThisPeriod: inPeriod?.build ?? 0,
     returnedTokensThisPeriod: Number(inPeriod?.tokens ?? 0),
     planAllowance: allowance,
     addonBalanceRemaining: addon?.remaining ?? 0,
   };
 }
 
-/**
- * The same window logic reserveCall uses, read-only: active subscription
- * period and its plan's allowance, or the newest Free version over a UTC
- * calendar month.
- */
 async function currentWindow(
   workspaceId: string,
 ): Promise<{ allowance: number; periodStart: Date; periodEnd: Date }> {
-  const database = db();
-  const [active] = await database
-    .select({
-      planVersionId: schema.subscription.planVersionId,
-      periodStart: schema.subscription.periodStart,
-      periodEnd: schema.subscription.periodEnd,
-    })
-    .from(schema.subscription)
-    .where(
-      and(
-        eq(schema.subscription.workspaceId, workspaceId),
-        eq(schema.subscription.status, 'active'),
-        sql`${schema.subscription.periodStart} <= now()`,
-        sql`${schema.subscription.periodEnd} >= now()`,
-      ),
-    )
-    .orderBy(desc(schema.subscription.periodEnd))
-    .limit(1);
-
-  if (active) {
-    const [version] = await database
-      .select({ monthlyCalls: schema.planVersion.monthlyCalls })
-      .from(schema.planVersion)
-      .where(eq(schema.planVersion.id, active.planVersionId));
-    return {
-      allowance: version?.monthlyCalls ?? 0,
-      periodStart: active.periodStart,
-      periodEnd: active.periodEnd,
-    };
-  }
-
-  const [free] = await database
-    .select({ monthlyCalls: schema.planVersion.monthlyCalls })
-    .from(schema.planVersion)
-    .where(eq(schema.planVersion.planId, 'free'))
-    .orderBy(...PLAN_VERSION_NEWEST_FIRST)
-    .limit(1);
-  const now = new Date();
+  const plan = await workspacePlanVersion(workspaceId);
   return {
-    allowance: free?.monthlyCalls ?? 0,
-    periodStart: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
-    periodEnd: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)),
+    allowance: plan.monthlyCalls,
+    periodStart: plan.periodStart,
+    periodEnd: plan.periodEnd,
   };
 }
 
@@ -206,6 +186,8 @@ export async function recordRequestLog(entry: {
   entrypoint: string | null;
   statusCode: number;
   latencyMs: number | null;
+  returnedTokens: number | null;
+  apiKeyId: string | null;
 }): Promise<void> {
   await db()
     .insert(schema.requestLog)
@@ -219,7 +201,160 @@ export interface RequestLogRow {
   entrypoint: string | null;
   statusCode: number;
   latencyMs: number | null;
+  returnedTokens: number | null;
+  /** Prefix and last four of the key that made the request, or null. */
+  apiKeyMasked: string | null;
   createdAt: string;
+}
+
+export interface RequestLogPage {
+  rows: RequestLogRow[];
+  /** Rows matching the filter, not the page: what a truthful footer prints. */
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** Everything a filter narrows the log to, always within the workspace. */
+function requestConditions(workspaceId: string, filter: Partial<RequestFilter>): SQL {
+  const conditions: SQL[] = [eq(schema.requestLog.workspaceId, workspaceId)];
+  if (filter.from) conditions.push(gte(schema.requestLog.createdAt, filter.from));
+  if (filter.to) conditions.push(lt(schema.requestLog.createdAt, filter.to));
+  if (filter.status === 'ok') conditions.push(lt(schema.requestLog.statusCode, 400));
+  if (filter.status === 'error') conditions.push(gte(schema.requestLog.statusCode, 400));
+  if (filter.entrypoint) conditions.push(eq(schema.requestLog.entrypoint, filter.entrypoint));
+  if (filter.library) conditions.push(eq(schema.requestLog.libraryPublicId, filter.library));
+  if (filter.query) {
+    /* Escaped so a typed `%` matches a percent sign and not everything. */
+    const pattern = `%${filter.query.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+    conditions.push(
+      or(
+        ilike(schema.requestLog.requestId, pattern),
+        ilike(schema.requestLog.operation, pattern),
+        ilike(schema.requestLog.libraryPublicId, pattern),
+      )!,
+    );
+  }
+  return and(...conditions)!;
+}
+
+const REQUEST_SELECTION = {
+  requestId: schema.requestLog.requestId,
+  operation: schema.requestLog.operation,
+  libraryPublicId: schema.requestLog.libraryPublicId,
+  entrypoint: schema.requestLog.entrypoint,
+  statusCode: schema.requestLog.statusCode,
+  latencyMs: schema.requestLog.latencyMs,
+  returnedTokens: schema.requestLog.returnedTokens,
+  createdAt: schema.requestLog.createdAt,
+  keyPrefix: schema.apiKey.keyPrefix,
+  keyLastFour: schema.apiKey.lastFour,
+};
+
+interface RequestSelection {
+  requestId: string;
+  operation: string;
+  libraryPublicId: string | null;
+  entrypoint: string | null;
+  statusCode: number;
+  latencyMs: number | null;
+  returnedTokens: number | null;
+  createdAt: Date;
+  keyPrefix: string | null;
+  keyLastFour: string | null;
+}
+
+function toRow(row: RequestSelection): RequestLogRow {
+  return {
+    requestId: row.requestId,
+    operation: row.operation,
+    libraryPublicId: row.libraryPublicId,
+    entrypoint: row.entrypoint,
+    statusCode: row.statusCode,
+    latencyMs: row.latencyMs,
+    returnedTokens: row.returnedTokens,
+    apiKeyMasked:
+      row.keyPrefix && row.keyLastFour ? maskApiKey(row.keyPrefix, row.keyLastFour) : null,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+/**
+ * One page of a workspace's log, newest first, with the count behind it.
+ * The key is joined for its mask only -- a revoked key still names its
+ * requests, which is why revocation keeps the row.
+ */
+export async function queryRequests(
+  workspaceId: string,
+  filter: Partial<RequestFilter> = {},
+  pageSize = REQUEST_PAGE_LIMIT,
+): Promise<RequestLogPage> {
+  const database = db();
+  const where = requestConditions(workspaceId, filter);
+  const page = Math.max(1, filter.page ?? 1);
+  const limit = Math.min(Math.max(1, Math.floor(pageSize)), REQUEST_PAGE_LIMIT);
+
+  const [rows, [counted]] = await Promise.all([
+    database
+      .select(REQUEST_SELECTION)
+      .from(schema.requestLog)
+      .leftJoin(schema.apiKey, eq(schema.apiKey.id, schema.requestLog.apiKeyId))
+      .where(where)
+      .orderBy(desc(schema.requestLog.createdAt), desc(schema.requestLog.id))
+      .limit(limit)
+      .offset((page - 1) * limit),
+    database.select({ n: sql<number>`count(*)::int` }).from(schema.requestLog).where(where),
+  ]);
+
+  return { rows: rows.map(toRow), total: counted?.n ?? 0, page, pageSize: limit };
+}
+
+export interface RequestStats {
+  /** Rows matching the filter, the same number `queryRequests` counts. */
+  total: number;
+  /** Of those, the ones that were served (status below 400). */
+  served: number;
+  /** Mean latency over served rows that recorded one, or null when none did. */
+  averageLatencyMs: number | null;
+  /** Tokens returned across matching rows. */
+  returnedTokens: number;
+}
+
+/**
+ * The filtered log summarised, in one query over the same predicate the list
+ * and the export use.
+ *
+ * The screen used to derive its success rate and average latency from the
+ * fifty rows it had in hand, which made `?page=2` report a different success
+ * rate for the same filter and put a page-shaped figure beside period-shaped
+ * ones. A summary of a filter has to be computed over the filter; aggregating
+ * in Postgres is also the only way to do it without reading the whole log.
+ */
+export async function requestStats(
+  workspaceId: string,
+  filter: Partial<RequestFilter> = {},
+): Promise<RequestStats> {
+  const [row] = await db()
+    .select({
+      total: sql<number>`count(*)::int`,
+      served: sql<number>`count(*) filter (where ${schema.requestLog.statusCode} < 400)::int`,
+      /* Served rows only, matching what the success tile beside it counts; a
+         failed request's latency measures how fast it gave up. */
+      averageLatencyMs: sql<
+        number | null
+      >`avg(${schema.requestLog.latencyMs}) filter (where ${schema.requestLog.statusCode} < 400)`,
+      returnedTokens: sql<number>`coalesce(sum(${schema.requestLog.returnedTokens}), 0)::bigint`,
+    })
+    .from(schema.requestLog)
+    .where(requestConditions(workspaceId, filter));
+
+  const average = row?.averageLatencyMs ?? null;
+  return {
+    total: row?.total ?? 0,
+    served: row?.served ?? 0,
+    averageLatencyMs: average === null ? null : Math.round(Number(average)),
+    returnedTokens: Number(row?.returnedTokens ?? 0),
+  };
 }
 
 /** A workspace reads its own log and nothing else -- anonymous has no log view. */
@@ -227,20 +362,37 @@ export async function listRequests(
   workspaceId: string,
   limit = REQUEST_PAGE_LIMIT,
 ): Promise<RequestLogRow[]> {
-  const rows = await db()
-    .select()
-    .from(schema.requestLog)
-    .where(eq(schema.requestLog.workspaceId, workspaceId))
-    .orderBy(desc(schema.requestLog.createdAt))
-    .limit(Math.min(limit, REQUEST_PAGE_LIMIT));
+  return (await queryRequests(workspaceId, {}, limit)).rows;
+}
 
-  return rows.map((row) => ({
-    requestId: row.requestId,
-    operation: row.operation,
-    libraryPublicId: row.libraryPublicId,
-    entrypoint: row.entrypoint,
-    statusCode: row.statusCode,
-    latencyMs: row.latencyMs,
-    createdAt: row.createdAt.toISOString(),
-  }));
+/**
+ * The whole filtered log, a batch at a time, for the CSV export. Keyset on
+ * (created_at, id) rather than offset, so a log that grows while it is being
+ * exported neither skips nor repeats a row.
+ */
+export async function* iterateRequests(
+  workspaceId: string,
+  filter: Partial<RequestFilter> = {},
+): AsyncGenerator<RequestLogRow[]> {
+  const database = db();
+  const base = requestConditions(workspaceId, filter);
+  let cursor: { createdAt: Date; id: string } | null = null;
+
+  for (;;) {
+    const after: SQL | undefined = cursor
+      ? sql`(${schema.requestLog.createdAt}, ${schema.requestLog.id}) < (${cursor.createdAt}, ${cursor.id})`
+      : undefined;
+    const rows: (RequestSelection & { id: string })[] = await database
+      .select({ ...REQUEST_SELECTION, id: schema.requestLog.id })
+      .from(schema.requestLog)
+      .leftJoin(schema.apiKey, eq(schema.apiKey.id, schema.requestLog.apiKeyId))
+      .where(after ? and(base, after) : base)
+      .orderBy(desc(schema.requestLog.createdAt), desc(schema.requestLog.id))
+      .limit(EXPORT_BATCH);
+    if (rows.length === 0) return;
+    yield rows.map(toRow);
+    if (rows.length < EXPORT_BATCH) return;
+    const last = rows[rows.length - 1]!;
+    cursor = { createdAt: last.createdAt, id: last.id };
+  }
 }

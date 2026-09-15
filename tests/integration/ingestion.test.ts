@@ -31,7 +31,7 @@ process.env.SESSION_SIGNING_SECRET ??= 'test-secret-that-is-long-enough-000000';
 const { buildVersion, memoryObjectStore, runOperation, drainOperations } = await import(
   '@/lib/application/ingestion'
 );
-const { createPlatformLibrary } = await import(
+const { createPlatformLibrary, addPlatformLibrarySource, requestPlatformLibraryRefresh } = await import(
   '@/lib/application/administration/manage-platform-libraries'
 );
 const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
@@ -121,16 +121,64 @@ async function fixtureLibrary(slug: string, language?: string): Promise<string> 
   return libraryId;
 }
 
-async function queueRefresh(libraryId: string): Promise<string> {
+async function queueRefresh(libraryId: string, sourceId: string | null = null): Promise<string> {
   const operationId = uuidv7();
   await db().insert(schema.workflowOperation).values({
     id: operationId,
     libraryId,
     operationType: 'refresh',
     sourceDigest: null,
+    sourceId,
     status: 'pending',
   });
   return operationId;
+}
+
+/**
+ * Two sources, told apart by location. Counts what the pipeline asked for --
+ * which sources were fetched, which texts were embedded -- because that is
+ * the whole of what carrying a source forward is supposed to save.
+ */
+function twoSourceDependencies(content: Record<string, typeof FILES>) {
+  const fetched: string[] = [];
+  const embedded: string[] = [];
+  return {
+    fetched,
+    embedded,
+    dependencies: {
+      async fetchSnapshot(input: { location: string }) {
+        fetched.push(input.location);
+        return {
+          files: content[input.location] ?? [],
+          config: {
+            projectTitle: null,
+            description: null,
+            branch: null,
+            folders: [],
+            excludeFolders: [],
+            excludeFiles: [],
+            rules: [],
+          },
+          revision: null,
+          lastModifiedAt: new Date(),
+          hasLicense: true,
+          stale: false,
+        };
+      },
+      embeddings: () => ({
+        model: 'fixture-embed-1',
+        dimensions: EMBEDDING_DIMENSIONS,
+        async embed(texts: string[]) {
+          embedded.push(...texts);
+          return texts.map((text) =>
+            Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) => ((text.length + i) % 17) / 17),
+          );
+        },
+      }),
+      store: () => store,
+      configured: () => ({ embeddings: true, storage: true }),
+    },
+  };
 }
 
 describeWithDb('ingestion', () => {
@@ -164,6 +212,86 @@ describeWithDb('ingestion', () => {
     await database
       .delete(schema.auditLog)
       .where(inArray(schema.auditLog.targetId, created));
+  });
+
+  it('carries an unchanged source forward and refreshes one source alone', async () => {
+    const slug = `ingest-carry-${Date.now()}`;
+    const libraryId = await fixtureLibrary(slug);
+    const siteA = 'https://example.test/docs';
+    const siteB = 'https://example.test/api';
+    await addPlatformLibrarySource({
+      actor,
+      libraryId,
+      type: 'website',
+      location: siteB,
+      refreshPolicy: 'manual',
+      reason: 'second source',
+    });
+    const sources = await db()
+      .select({ id: schema.source.id, location: schema.source.location })
+      .from(schema.source)
+      .where(eq(schema.source.libraryId, libraryId));
+    const sourceB = sources.find((source) => source.location === siteB)!;
+
+    const docsA = [{ path: 'a.md', url: 'https://example.test/a', content: '# Alpha\n\nAlpha body one.' }];
+    const docsB = [{ path: 'b.md', url: 'https://example.test/b', content: '# Beta\n\nBeta body one.' }];
+
+    /* First build: everything is fetched and embedded. */
+    const first = twoSourceDependencies({ [siteA]: docsA, [siteB]: docsB });
+    const built = await runOperation({ operationId: await queueRefresh(libraryId), dependencies: first.dependencies });
+    expect(built.status).toBe('succeeded');
+    expect(first.fetched.sort()).toEqual([siteB, siteA].sort());
+    expect(first.embedded.some((text) => text.includes('Alpha'))).toBe(true);
+    expect(first.embedded.some((text) => text.includes('Beta'))).toBe(true);
+    const [v1] = await db()
+      .select({ id: schema.libraryVersion.id, sourceDigests: schema.libraryVersion.sourceDigests })
+      .from(schema.libraryVersion)
+      .where(eq(schema.libraryVersion.libraryId, libraryId));
+    expect(Object.keys(v1!.sourceDigests ?? {}).sort()).toEqual(sources.map((s) => s.id).sort());
+    const docsV1 = await db().select({ id: schema.document.id, sourceId: schema.document.sourceId, objectKey: schema.document.objectKey }).from(schema.document).where(eq(schema.document.versionId, v1!.id));
+    expect(docsV1.map((d) => d.sourceId).sort()).toEqual(sources.map((s) => s.id).sort());
+
+    /* Nothing changed: no version, both sources checked. */
+    const same = twoSourceDependencies({ [siteA]: docsA, [siteB]: docsB });
+    expect((await runOperation({ operationId: await queueRefresh(libraryId), dependencies: same.dependencies })).status).toBe('skipped');
+    expect(same.embedded).toHaveLength(0);
+
+    /* B changed: A is fetched (to know it did not change) but not embedded. */
+    const docsB2 = [{ path: 'b.md', url: 'https://example.test/b', content: '# Beta\n\nBeta body two, revised.' }];
+    const second = twoSourceDependencies({ [siteA]: docsA, [siteB]: docsB2 });
+    const rebuilt = await runOperation({ operationId: await queueRefresh(libraryId), dependencies: second.dependencies });
+    expect(rebuilt.status).toBe('succeeded');
+    expect(second.fetched.sort()).toEqual([siteB, siteA].sort());
+    expect(second.embedded.some((text) => text.includes('Alpha'))).toBe(false);
+    expect(second.embedded.some((text) => text.includes('revised'))).toBe(true);
+    if (rebuilt.status !== 'succeeded') return;
+    const docsV2 = await db().select({ sourceId: schema.document.sourceId, objectKey: schema.document.objectKey, title: schema.document.title }).from(schema.document).where(eq(schema.document.versionId, rebuilt.versionId));
+    expect(docsV2).toHaveLength(2);
+    const carried = docsV2.find((d) => d.title === 'Alpha')!;
+    /* The carried document shares its normalized object with the old version. */
+    expect(docsV1.find((d) => d.objectKey === carried.objectKey)).toBeDefined();
+    const chunksV2 = await db().select({ body: schema.chunk.body, embedding: schema.chunk.embedding }).from(schema.chunk).where(eq(schema.chunk.versionId, rebuilt.versionId));
+    expect(chunksV2.some((c) => c.body.includes('Alpha') && Array.isArray(c.embedding))).toBe(true);
+    expect(rebuilt.chunks).toBe(chunksV2.length);
+
+    /* A refresh naming B fetches B only; A rides along unfetched. */
+    const docsB3 = [{ path: 'b.md', url: 'https://example.test/b', content: '# Beta\n\nBeta body three.' }];
+    const third = twoSourceDependencies({ [siteA]: docsA, [siteB]: docsB3 });
+    const request = await requestPlatformLibraryRefresh({ actor, libraryId, sourceId: sourceB.id, reason: 'B moved' });
+    expect(request.created).toBe(true);
+    const only = await runOperation({ operationId: request.operationId, dependencies: third.dependencies });
+    expect(only.status).toBe('succeeded');
+    expect(third.fetched).toEqual([siteB]);
+    expect(third.embedded.some((text) => text.includes('Alpha'))).toBe(false);
+    if (only.status === 'succeeded') expect(only.documents).toBe(2);
+
+    /* An open whole-library refresh covers a per-source request; one for
+       another source does not. */
+    const whole = await requestPlatformLibraryRefresh({ actor, libraryId, reason: 'all' });
+    expect(whole.created).toBe(true);
+    const covered = await requestPlatformLibraryRefresh({ actor, libraryId, sourceId: sourceB.id, reason: 'B again' });
+    expect(covered).toEqual({ operationId: whole.operationId, created: false });
+    await db().update(schema.workflowOperation).set({ status: 'cancelled' }).where(eq(schema.workflowOperation.id, whole.operationId));
   });
 
   it('builds a version with documents, chunks, citations and vectors', async () => {

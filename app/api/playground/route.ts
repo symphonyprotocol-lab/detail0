@@ -24,17 +24,29 @@
  *
  * Anonymous is the normal case here and rides the fail-closed anonymous rate
  * limit; a signed-in visitor runs as their workspace, metered by its quota
- * and answered by its plan's models; a Bearer key works the same way.
+ * and answered by its plan's models; a Bearer key works the same way, and is
+ * held to the same scopes it would need on /v1 -- one exchange routes and
+ * then reads context, so a key that may do neither must not do both here.
+ * Either way the stream's first data part says where the caller stands
+ * (rule 8).
+ *
+ * An optional `libraryId` pins the exchange to one public library -- the
+ * detail page's fixed entry (requirement.md 5.1: 针对该库的固定查询入口，复用
+ * 在线试用的同一实现). Routing is skipped, nothing else changes.
  */
 import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { AppError } from '@/contracts/errors';
+import { libraryIdSchema } from '@/contracts/schemas';
+import { requireScope } from '@/lib/application/auth';
+import { publicLibraryHeading } from '@/lib/application/libraries';
 import { resolveLibraryId } from '@/lib/application/retrieval';
 import { streamPlayground } from '@/lib/application/playground';
-import { playgroundCaller } from '@/lib/http/retrieval-caller';
+import { fencedCodeBlocks } from '@/lib/domain/code-blocks';
+import { playgroundCaller, trialHeaders } from '@/lib/http/retrieval-caller';
 import { errorResponse, newRequestId } from '@/lib/http/respond';
-import type { PlaygroundUIMessage } from '@/lib/http/playground-stream';
+import type { PlaygroundAllowance, PlaygroundUIMessage } from '@/lib/http/playground-stream';
 
 export const runtime = 'nodejs';
 
@@ -45,10 +57,16 @@ export async function POST(request: NextRequest): Promise<Response> {
   const requestId = newRequestId();
   try {
     const caller = await playgroundCaller(request, requestId);
+    /* A Bearer key reaches this route too, and one exchange spends the same
+       quota /v1 does: routing reads the catalogue and the answer reads chunks,
+       so a key must hold both scopes here as it would there. Session and
+       anonymous callers carry no scopes and pass (requireScope). */
+    requireScope(caller, 'knowledge:search');
+    requireScope(caller, 'knowledge:read');
 
-    let body: { question?: unknown };
+    let body: { question?: unknown; libraryId?: unknown };
     try {
-      body = (await request.json()) as { question?: unknown };
+      body = (await request.json()) as { question?: unknown; libraryId?: unknown };
     } catch {
       throw new AppError('invalid_request', 'the body must be JSON');
     }
@@ -56,23 +74,51 @@ export async function POST(request: NextRequest): Promise<Response> {
     if (question.length === 0 || question.length > 2_000) {
       throw new AppError('invalid_request', 'question is required (1-2000 characters)');
     }
+    const pinnedId =
+      body.libraryId === undefined || body.libraryId === null || body.libraryId === ''
+        ? null
+        : libraryIdSchema.safeParse(body.libraryId);
+    if (pinnedId && !pinnedId.success) {
+      throw new AppError('invalid_request', 'libraryId must look like /owner/name');
+    }
 
     /*
      * Routing runs before the stream opens. It is one round trip and it
      * decides whether there is anything to stream at all, so a failure here
      * can still be an honest error response rather than a stream that opens
-     * only to say nothing happened.
+     * only to say nothing happened. A pinned library skips it: the caller
+     * already chose, and an id that is not a routable public library is a
+     * 404 here exactly as it would be on the detail page.
      */
-    const resolved = await resolveLibraryId(caller, { query: question });
-    const candidates = resolved.results.slice(0, CANDIDATES_READ).map((candidate) => ({
-      libraryId: candidate.libraryId,
-      title: candidate.title,
-    }));
-    const top = resolved.results[0] ?? null;
+    let candidates: { libraryId: string; title: string }[];
+    let top: { libraryId: string; title: string; version: string | null } | null;
+    if (pinnedId) {
+      const heading = await publicLibraryHeading(pinnedId.data);
+      if (!heading) throw new AppError('library_not_found', 'no public library with that id');
+      candidates = [{ libraryId: heading.publicId, title: heading.title }];
+      top = { libraryId: heading.publicId, title: heading.title, version: heading.version };
+    } else {
+      const resolved = await resolveLibraryId(caller, { query: question });
+      candidates = resolved.results.slice(0, CANDIDATES_READ).map((candidate) => ({
+        libraryId: candidate.libraryId,
+        title: candidate.title,
+      }));
+      top = resolved.results[0] ?? null;
+    }
+
+    const allowance: PlaygroundAllowance = caller.trial
+      ? {
+          anonymous: true,
+          limit: caller.trial.limit,
+          remaining: caller.trial.remaining,
+          windowSeconds: caller.trial.windowSeconds,
+        }
+      : { anonymous: false, limit: null, remaining: null, windowSeconds: null };
 
     const stream = createUIMessageStream<PlaygroundUIMessage>({
       execute: async ({ writer }) => {
         writer.write({ type: 'start' });
+        writer.write({ type: 'data-allowance', data: allowance });
         writer.write({
           type: 'data-routing',
           data: {
@@ -82,6 +128,7 @@ export async function POST(request: NextRequest): Promise<Response> {
             libraryTitle: top?.title ?? null,
             version: top?.version ?? null,
             requestId,
+            pinned: pinnedId !== null,
           },
         });
 
@@ -120,6 +167,7 @@ export async function POST(request: NextRequest): Promise<Response> {
                     section: chunk.citation.section,
                     libraryId: chunk.libraryId,
                     libraryTitle: chunk.libraryTitle,
+                    codeBlocks: fencedCodeBlocks(chunk.text),
                   })),
                 },
               });
@@ -151,7 +199,7 @@ export async function POST(request: NextRequest): Promise<Response> {
 
     return createUIMessageStreamResponse({
       stream,
-      headers: { 'cache-control': 'private, no-store' },
+      headers: { 'cache-control': 'private, no-store', ...trialHeaders(caller.trial) },
     });
   } catch (error) {
     return errorResponse(error, requestId) as unknown as NextResponse;

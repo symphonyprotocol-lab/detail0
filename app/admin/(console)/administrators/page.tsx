@@ -29,6 +29,7 @@ import { getMessages } from '@/lib/i18n/server';
 import {
   changeRoleAction,
   inviteAdministratorAction,
+  resetMfaAction,
   revokeSessionsAction,
   setStatusAction,
 } from './actions';
@@ -134,7 +135,9 @@ export default async function AdminAdministratorsPage({
             changeRole: changeRoleAction,
             setStatus: setStatusAction,
             revokeSessions: revokeSessionsAction,
+            resetMfa: resetMfaAction,
           }}
+          inviteTtlDays={Math.round(ADMIN_INVITE_TTL_MS / 86_400_000)}
         />
       </Panel>
 

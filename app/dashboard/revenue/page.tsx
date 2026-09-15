@@ -103,7 +103,7 @@ export default async function DashboardRevenuePage() {
       <section className={`${PANEL} overflow-hidden p-0.5`}>
         <div className="overflow-x-auto">
           <div className="min-w-[520px]">
-            <div className={`${GRID} bg-subtle px-[18px] py-3 text-[11px] tracking-[-0.023em] text-muted`}>
+            <div className={`${GRID} bg-subtle px-[18px] py-3 text-[11px] text-muted`}>
               {r.periodColumns.map((column) => (
                 <span key={column}>{column}</span>
               ))}
@@ -112,12 +112,12 @@ export default async function DashboardRevenuePage() {
             {earnings.periods.map((period) => (
               <div
                 key={period.periodId}
-                className={`${GRID} border-t-2 border-line px-[18px] py-3.5 transition-colors hover:bg-subtle`}
+                className={`${GRID} border-t border-line px-[18px] py-3.5 transition-colors hover:bg-subtle`}
               >
-                <span className="font-mono text-[12px] tracking-[-0.023em] text-steel">
+                <span className="font-mono text-[12px] text-steel">
                   {period.periodId}
                 </span>
-                <span className="text-[12px] tracking-[-0.023em] text-steel">
+                <span className="text-[12px] text-steel">
                   {number.format(period.attributableCalls)}
                 </span>
                 <span
@@ -127,14 +127,14 @@ export default async function DashboardRevenuePage() {
                 >
                   {period.locked ? r.statusLocked : r.statusAccruing}
                 </span>
-                <span className="text-[12px] font-semibold tracking-[-0.023em] text-ink">
+                <span className="text-[12px] font-medium text-ink">
                   {period.amountMinor === null ? r.pendingAmount : usd(period.amountMinor)}
                 </span>
               </div>
             ))}
 
             {earnings.periods.length === 0 ? (
-              <p className="border-t-2 border-line px-[18px] py-10 text-center text-[13px] text-muted">
+              <p className="border-t border-line px-[18px] py-10 text-center text-[13px] text-muted">
                 {r.periodsEmpty}
               </p>
             ) : null}

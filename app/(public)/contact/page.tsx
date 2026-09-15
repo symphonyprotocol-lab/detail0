@@ -23,14 +23,14 @@ const CHANNEL_EMAILS = [
   'partners@re0.com',
   'security@re0.com',
 ];
-const ELSEWHERE_HREFS = ['/status', '/docs', '/pricing', '/legal'];
+const ELSEWHERE_HREFS = ['/status', '/pricing', '/legal'];
 
 export default async function ContactPage() {
   const { contact: c } = await getMessages();
 
   return (
     <>
-      <section className="mx-auto w-full max-w-[918px] px-5 pt-11 pb-12">
+      <section className="mx-auto w-full max-w-[1080px] px-5 pt-11 pb-12">
         <SectionHeading eyebrow="CONTACT" title={c.title} as="h1" size="lg" />
         <p className="mt-3 max-w-[70ch] text-[13px] leading-[1.7] text-muted">{c.lede}</p>
 
@@ -46,7 +46,7 @@ export default async function ContactPage() {
                   </span>
                   <Chip tone="neutral">{sla}</Chip>
                 </div>
-                <h2 className="mt-4 text-[14.5px] font-semibold tracking-[-0.03em] text-ink">
+                <h2 className="mt-4 text-[14.5px] font-medium text-ink">
                   {title}
                 </h2>
                 <p className="mt-2 text-[12.5px] leading-[1.75] text-muted">{body}</p>
@@ -62,7 +62,7 @@ export default async function ContactPage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-[918px] border-t-2 border-line px-5 pt-12 pb-14">
+      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-14">
         <SectionHeading eyebrow="CHECKLIST" title={c.checklistTitle} />
         <p className="mt-3 text-[13px] text-muted">{c.checklistNote}</p>
         <Card className="mt-6 p-6">
@@ -76,7 +76,7 @@ export default async function ContactPage() {
               </li>
             ))}
           </ul>
-          <p className="mt-5 border-t-2 border-line pt-4 text-[12px] leading-[1.7] text-faint">
+          <p className="mt-5 border-t border-line pt-4 text-[12px] leading-[1.7] text-faint">
             {c.phishingLead}{' '}
             <a href="mailto:security@re0.com" className="font-medium text-brandink hover:underline">
               security@re0.com
@@ -86,16 +86,16 @@ export default async function ContactPage() {
         </Card>
       </section>
 
-      <section className="mx-auto w-full max-w-[918px] border-t-2 border-line px-5 pt-12 pb-16">
+      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-16">
         <SectionHeading eyebrow="ELSEWHERE" title={c.elsewhereTitle} />
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {c.elsewhere.map((item, index) => (
             <Link
               key={item.title}
-              href={ELSEWHERE_HREFS[index] ?? '/docs'}
-              className="rounded-lg border-2 border-line bg-card p-5 transition-colors hover:bg-subtle"
+              href={ELSEWHERE_HREFS[index] ?? '/status'}
+              className="rounded-lg border border-line bg-card p-5 transition-colors hover:bg-subtle"
             >
-              <p className="text-[13.5px] font-semibold tracking-[-0.02em] text-ink">
+              <p className="text-[13.5px] font-medium text-ink">
                 {item.title}
               </p>
               <p className="mt-2 text-[12px] leading-[1.7] text-muted">{item.body}</p>

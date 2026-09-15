@@ -9,8 +9,9 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';
 import { resolveLibraryInputSchema } from '@/contracts/schemas';
+import { requireScope } from '@/lib/application/auth';
 import { resolveLibraryId } from '@/lib/application/retrieval';
-import { retrievalCaller } from '@/lib/http/retrieval-caller';
+import { retrievalCaller, trialHeaders } from '@/lib/http/retrieval-caller';
 import { errorResponse, newRequestId } from '@/lib/http/respond';
 
 export const runtime = 'nodejs';
@@ -19,6 +20,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
     const caller = await retrievalCaller(request, requestId);
+    requireScope(caller, 'knowledge:search');
 
     const parsed = resolveLibraryInputSchema.safeParse({
       query: request.nextUrl.searchParams.get('query') ?? undefined,
@@ -30,7 +32,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const output = await resolveLibraryId(caller, parsed.data);
     return NextResponse.json(output, {
-      headers: { 'cache-control': 'private, no-store' },
+      headers: { 'cache-control': 'private, no-store', ...trialHeaders(caller.trial) },
     });
   } catch (error) {
     return errorResponse(error, requestId);

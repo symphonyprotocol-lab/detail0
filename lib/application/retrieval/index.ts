@@ -20,6 +20,16 @@ export interface CallerContext {
   apiKeyId: string | null;
   requestId: string;
   anonymous: boolean;
+  /**
+   * What the key grants, when a key authenticated the call. Absent for the
+   * session and anonymous callers, which the scope gate lets through.
+   */
+  scopes?: readonly string[];
+  /**
+   * Which door: `rest`, `mcp` or `web`. Recorded on the usage event and the
+   * request log. Absent means "rest if a key, else web", the pre-MCP reading.
+   */
+  entrypoint?: 'rest' | 'mcp' | 'web';
 }
 
 export async function resolveLibraryId(

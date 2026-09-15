@@ -11,7 +11,15 @@
 import { desc, eq, inArray, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import type { PolicyPatch, PolicyResponse, WorkspacePolicyView } from '@/contracts/schemas';
-import { OPEN_POLICY, type WorkspacePolicy } from '@/lib/domain/policy';
+import {
+  isDomainEntry,
+  normalizePolicyMode,
+  OPEN_POLICY,
+  OPEN_QUALITY,
+  PRIVATE_SOURCE_TYPE,
+  type PolicyQuality,
+  type WorkspacePolicy,
+} from '@/lib/domain/policy';
 import { uuidv7 } from '@/lib/domain/id';
 import { db, schema, type Database } from '@/lib/infrastructure/postgres/client';
 import { ref } from '@/lib/application/administration/column-ref';
@@ -61,23 +69,41 @@ export async function pinPolicy(
 
   const list = (kind: string) =>
     entries.filter((entry) => entry.kind === kind).map((entry) => entry.targetValue);
-  const quality = version.qualityFilters as Partial<WorkspacePolicy['quality']>;
-
   return {
     versionId: version.id,
-    policy: {
+    /* Read as what it enforces: a version stored before `mode` was written
+       alongside its thresholds is a quality policy (`normalizePolicyMode`). */
+    policy: normalizePolicyMode({
       mode: version.mode,
       sourceTypes: version.sourceTypes,
-      quality: {
-        requireVerified: quality.requireVerified ?? false,
-        minTrustScore: quality.minTrustScore ?? null,
-        maxAgeDays: quality.maxAgeDays ?? null,
-      },
+      quality: readQuality(version.qualityFilters as Partial<PolicyQuality>),
       blockedLibraries: list('block'),
       exceptedLibraries: list('except'),
       allowedLibraries: list('allow'),
-    },
+    }),
   };
+}
+
+/**
+ * Older versions were stored before a threshold existed; each missing key
+ * reads as "not set", which is what those versions meant.
+ */
+function readQuality(stored: Partial<PolicyQuality>): PolicyQuality {
+  return patchQuality(OPEN_QUALITY, stored);
+}
+
+/** A key present in the patch is set (null unsets); an absent one is kept. */
+function patchQuality(
+  current: PolicyQuality,
+  patch: Partial<PolicyQuality> | undefined,
+): PolicyQuality {
+  const next: PolicyQuality = { ...current };
+  if (!patch) return next;
+  for (const key of Object.keys(OPEN_QUALITY) as (keyof PolicyQuality)[]) {
+    const value = patch[key];
+    if (value !== undefined) (next as Record<keyof PolicyQuality, unknown>)[key] = value;
+  }
+  return next;
 }
 
 export async function readPolicy(workspaceId: string, requestId: string): Promise<PolicyResponse> {
@@ -85,7 +111,7 @@ export async function readPolicy(workspaceId: string, requestId: string): Promis
   return {
     policyVersionId: pinned.versionId,
     policy: toView(pinned.policy),
-    accessibleLibraryCount: await accessibleLibraryCount(pinned.policy),
+    accessibleLibraryCount: await countReachableLibraries(workspaceId, pinned.policy),
     requestId,
   };
 }
@@ -108,26 +134,22 @@ export async function patchPolicy(
 
     const current = (await pinPolicy(workspaceId, tx)).policy;
 
-    const next: WorkspacePolicy = {
+    const patched: WorkspacePolicy = {
       mode: patch.mode === 'clear' ? null : (patch.mode ?? current.mode),
       sourceTypes: { ...current.sourceTypes },
-      quality: {
-        requireVerified: patch.quality?.requireVerified ?? current.quality.requireVerified,
-        minTrustScore:
-          patch.quality?.minTrustScore !== undefined
-            ? patch.quality.minTrustScore
-            : current.quality.minTrustScore,
-        maxAgeDays:
-          patch.quality?.maxAgeDays !== undefined
-            ? patch.quality.maxAgeDays
-            : current.quality.maxAgeDays,
-      },
+      quality: patchQuality(current.quality, patch.quality),
       blockedLibraries: patchList(current.blockedLibraries, patch.blocked),
       exceptedLibraries: patchList(current.exceptedLibraries, patch.excepted),
       allowedLibraries: patchList(current.allowedLibraries, patch.allowed),
     };
-    for (const type of patch.sourceTypes?.enable ?? []) delete next.sourceTypes[type];
-    for (const type of patch.sourceTypes?.disable ?? []) next.sourceTypes[type] = false;
+    for (const type of patch.sourceTypes?.enable ?? []) delete patched.sourceTypes[type];
+    for (const type of patch.sourceTypes?.disable ?? []) patched.sourceTypes[type] = false;
+    /*
+     * Stored unambiguous: a patch that sets a threshold or an "always allow"
+     * entry without naming a mode still means quality mode, and the version
+     * row must say so or the evaluator will ignore what the console showed.
+     */
+    const next = normalizePolicyMode(patched);
 
     const overLimit = (
       [
@@ -148,7 +170,7 @@ export async function patchPolicy(
       workspaceId,
       mode: next.mode,
       sourceTypes: next.sourceTypes,
-      qualityFilters: next.quality,
+      qualityFilters: { ...next.quality },
       appliedAt: new Date(),
     });
     const rows = [
@@ -162,7 +184,7 @@ export async function patchPolicy(
           id: uuidv7(),
           policyVersionId: versionId,
           kind: row.kind,
-          targetType: 'library',
+          targetType: isDomainEntry(row.value) ? 'domain' : 'library',
           targetValue: row.value,
         })),
       );
@@ -173,7 +195,7 @@ export async function patchPolicy(
   return {
     policyVersionId: versionId,
     policy: toView(next),
-    accessibleLibraryCount: await accessibleLibraryCount(next),
+    accessibleLibraryCount: await countReachableLibraries(workspaceId, next),
     requestId,
   };
 }
@@ -194,67 +216,128 @@ function toView(policy: WorkspacePolicy): WorkspacePolicyView {
 }
 
 /**
- * How many routable public libraries this policy admits -- the number the
- * console shows next to a rule change. Block/select and the trust threshold
- * are counted in SQL; the remaining quality filters need per-library facts
- * that are cheap per candidate but not worth a corpus scan for a preview
- * count, so the figure is an upper bound with respect to those.
+ * How many libraries this policy admits for the workspace -- the number the
+ * console shows next to a rule change (requirement.md 5.2): the routable
+ * public catalogue plus the workspace's own private libraries.
+ *
+ * Every rule the evaluator (lib/domain/policy.ts) can decide from stored
+ * facts is counted here in SQL: the source switches, the three lists, and
+ * the verification, trust and freshness thresholds. The repo and website
+ * metrics are not collected yet, so the evaluator passes them as unknown and
+ * this count agrees with it.
  */
-async function accessibleLibraryCount(policy: WorkspacePolicy): Promise<number> {
-  const database = db();
-  const routable = sql`${schema.library.visibility} = 'public'
-    and ${schema.library.lifecycleStatus} = 'published'
-    and ${schema.library.indexStatus} = 'ready'
-    and ${schema.library.currentVersionId} is not null`;
+export async function countReachableLibraries(
+  workspaceId: string,
+  policy: WorkspacePolicy,
+): Promise<number> {
+  const privateDisabled = policy.sourceTypes[PRIVATE_SOURCE_TYPE] === false;
+  const disabledTypes = Object.keys(policy.sourceTypes).filter(
+    (type) => type !== PRIVATE_SOURCE_TYPE && policy.sourceTypes[type] === false,
+  );
+
+  const clauses = [
+    sql`${schema.library.deletedAt} is null`,
+    sql`${schema.library.lifecycleStatus} = 'published'`,
+    sql`${schema.library.indexStatus} = 'ready'`,
+    sql`${schema.library.currentVersionId} is not null`,
+    privateDisabled
+      ? sql`${schema.library.visibility} = 'public'`
+      : sql`(${schema.library.visibility} = 'public'
+          or (${schema.library.visibility} = 'private'
+            and ${schema.library.ownerWorkspaceId} = ${workspaceId}))`,
+  ];
+  if (disabledTypes.length > 0) {
+    clauses.push(sql`not exists (
+      select 1 from ${schema.source} s
+      where s.library_id = ${ref(schema.library.id)}
+        and s.type in (${sql.join(
+          disabledTypes.map((type) => sql`${type}`),
+          sql`, `,
+        )})
+    )`);
+  }
+  if (policy.blockedLibraries.length > 0) {
+    clauses.push(sql`not ${listedInSql(policy.blockedLibraries)}`);
+  }
 
   if (policy.mode === 'select') {
     if (policy.allowedLibraries.length === 0) return 0;
-    const [row] = await database
-      .select({ n: sql<number>`count(*)::int` })
-      .from(schema.library)
-      .where(
-        sql`${routable}
-          and ${listedInSql(policy.allowedLibraries)}
-          ${policy.blockedLibraries.length > 0 ? sql`and not ${listedInSql(policy.blockedLibraries)}` : sql``}`,
+    clauses.push(listedInSql(policy.allowedLibraries));
+  } else if (policy.mode === 'quality') {
+    const thresholds = [];
+    if (policy.quality.requireVerified) {
+      thresholds.push(
+        sql`(${schema.library.isPlatformLibrary} or ${schema.library.ownerWorkspaceId} is not null)`,
       );
-    return row?.n ?? 0;
+    }
+    if (policy.quality.minTrustScore !== null) {
+      thresholds.push(sql`coalesce((
+        select s.trust_score from ${schema.libraryScore} s
+        where s.library_id = ${ref(schema.library.id)}
+        order by s.computed_at desc limit 1
+      ), 0) >= ${policy.quality.minTrustScore}`);
+    }
+    if (policy.quality.maxAgeDays !== null) {
+      thresholds.push(sql`(${schema.library.lastSuccessfulRefreshAt} is null
+        or ${schema.library.lastSuccessfulRefreshAt} >= now() - make_interval(days => ${policy.quality.maxAgeDays}))`);
+    }
+    if (thresholds.length > 0) {
+      const all = sql`(${sql.join(thresholds, sql` and `)})`;
+      clauses.push(
+        policy.exceptedLibraries.length > 0
+          ? sql`(${listedInSql(policy.exceptedLibraries)} or ${all})`
+          : all,
+      );
+    }
   }
 
-  const threshold = policy.mode === 'quality' ? policy.quality.minTrustScore : null;
-  const [row] = await database
+  const [row] = await db()
     .select({ n: sql<number>`count(*)::int` })
     .from(schema.library)
-    .where(
-      sql`${routable}
-        ${policy.blockedLibraries.length > 0 ? sql`and not ${listedInSql(policy.blockedLibraries)}` : sql``}
-        ${
-          threshold !== null
-            ? sql`and coalesce((
-                select s.trust_score from ${schema.libraryScore} s
-                where s.library_id = ${ref(schema.library.id)}
-                order by s.computed_at desc limit 1
-              ), 0) >= ${threshold}`
-            : sql``
-        }`,
-    );
+    .where(sql.join(clauses, sql` and `));
   return row?.n ?? 0;
 }
 
 /**
- * `libraryEntryMatches` (lib/domain/policy.ts) as a predicate over
- * `library.public_id`, for the preview count: exact entries by equality, and
- * `/prefix/*` entries as the prefix itself or anything nested under it.
+ * `listedIn` (lib/domain/policy.ts) as a predicate over a library row, for
+ * the preview count: exact entries by `public_id` equality, `/prefix/*`
+ * entries as the prefix itself or anything nested under it, and domain
+ * entries against the host of any of the library's source locations.
  * `like` is given an escaped prefix, so a `_` in a slug matches itself.
+ *
+ * Ids are folded to lower case on both sides, exactly as
+ * `libraryEntryMatches` folds them: a repository Library ID keeps GitHub's
+ * casing, so `vercel` must reach `/Vercel/next.js` here too or the count
+ * would disagree with the evaluator it previews.
  */
 function listedInSql(entries: readonly string[]) {
-  const exact = entries.filter((entry) => !entry.endsWith('/*'));
-  const prefixes = entries.filter((entry) => entry.endsWith('/*')).map((entry) => entry.slice(0, -2));
+  const domains = entries.filter(isDomainEntry).map((entry) => entry.toLowerCase());
+  const ids = entries.filter((entry) => !isDomainEntry(entry)).map((entry) => entry.toLowerCase());
+  const exact = ids.filter((entry) => !entry.endsWith('/*'));
+  const prefixes = ids.filter((entry) => entry.endsWith('/*')).map((entry) => entry.slice(0, -2));
   const clauses = [
-    ...(exact.length > 0 ? [inArray(schema.library.publicId, exact)] : []),
+    ...(exact.length > 0 ? [inArray(PUBLIC_ID, exact)] : []),
     ...prefixes.flatMap((prefix) => [
-      sql`${schema.library.publicId} = ${prefix}`,
-      sql`${schema.library.publicId} like ${`${prefix.replace(/[\\%_]/g, (m) => `\\${m}`)}/%`}`,
+      sql`${PUBLIC_ID} = ${prefix}`,
+      sql`${PUBLIC_ID} like ${`${escapeLike(prefix)}/%`}`,
     ]),
+    ...domains.map(
+      (domain) => sql`exists (
+        select 1 from ${schema.source} s
+        where s.library_id = ${ref(schema.library.id)}
+          and (${SOURCE_HOST} = ${domain} or ${SOURCE_HOST} like ${`%.${escapeLike(domain)}`})
+      )`,
+    ),
   ];
   return sql`(${sql.join(clauses, sql` or `)})`;
+}
+
+/** The library's public id, folded for a case-insensitive entry match. */
+const PUBLIC_ID = sql`lower(${schema.library.publicId})`;
+
+/** The lower-cased host of a source location URL, or null for a non-URL. */
+const SOURCE_HOST = sql`lower(substring(s.location from '^[a-zA-Z][a-zA-Z0-9+.-]*://([^/:?#]+)'))`;
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (m) => `\\${m}`);
 }

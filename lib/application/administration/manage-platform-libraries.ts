@@ -31,7 +31,9 @@
  * the reason, the result, the time and a summary of the network origin.
  */
 import { and, count, desc, eq, gte, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { confirmUploads } from '@/lib/application/libraries/create';
 import { markLibraryDeleted } from '@/lib/application/libraries/delete';
+import { AppError } from '@/contracts/errors';
 import { normalizeReason } from '@/lib/domain/admin';
 import type { FetchSummary } from '@/lib/domain/ingestion';
 import { uuidv7 } from '@/lib/domain/id';
@@ -39,18 +41,27 @@ import {
   draftPlatformLibrary,
   draftPlatformSource,
   editPlatformLibrary,
+  isPlatformLibraryType,
   isPlatformSourceType,
   lifecycleActionAvailable,
+  mergeUploadedFiles,
+  parseUploadManifest,
+  PLATFORM_UPLOAD_OWNER,
+  uploadedFilesOf,
+  type UploadedFile,
   lifecycleTarget,
   PlatformLibraryRefused,
   type PlatformLibraryInput,
   type PlatformLifecycleAction,
   type PlatformLifecycleState,
-  type PlatformSourceType,
+  type PlatformLibraryType,
   type RefreshPolicy,
+  indexDepthOf,
+  type IndexDepth,
 } from '@/lib/domain/library';
 import { PROFILE_VERSION } from '@/lib/domain/profile';
 import { rebuildProfile } from '@/lib/application/ingestion/rebuild-profile';
+import type { ObjectStore } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { recordAudit } from './audit';
 import { ref } from './column-ref';
@@ -272,6 +283,8 @@ export interface PlatformSourceView {
   type: string;
   location: string;
   refreshPolicy: RefreshPolicy | 'unknown';
+  /** Website/llms.txt only: nested levels followed; 0 for every other type. */
+  indexDepth: IndexDepth;
 }
 
 export interface PlatformVersionView {
@@ -290,6 +303,10 @@ export interface PlatformVersionView {
 export interface PlatformOperationView {
   id: string;
   operationType: string;
+  /** An operator's button, or the scheduled drain acting on a policy. */
+  trigger: string;
+  /** The one source it fetches; null for all of them. */
+  sourceId: string | null;
   status: string;
   attempts: number;
   error: string | null;
@@ -353,6 +370,8 @@ export interface PlatformLibraryDetail {
   chunks: number;
   tokens: number;
   sources: PlatformSourceView[];
+  /** The uploads of a `pdf` library, in list order; null when it has no pdf source. */
+  files: UploadedFile[] | null;
   versions: PlatformVersionView[];
   operations: PlatformOperationView[];
   audit: PlatformAuditView[];
@@ -422,6 +441,7 @@ export async function getPlatformLibrary(libraryId: string): Promise<PlatformLib
         id: schema.source.id,
         type: schema.source.type,
         location: schema.source.location,
+        config: schema.source.config,
         refreshPolicy: schema.source.refreshPolicy,
       })
       .from(schema.source)
@@ -450,6 +470,8 @@ export async function getPlatformLibrary(libraryId: string): Promise<PlatformLib
       .select({
         id: schema.workflowOperation.id,
         operationType: schema.workflowOperation.operationType,
+        trigger: schema.workflowOperation.trigger,
+        sourceId: schema.workflowOperation.sourceId,
         status: schema.workflowOperation.status,
         attempts: schema.workflowOperation.attempts,
         error: schema.workflowOperation.error,
@@ -546,11 +568,16 @@ export async function getPlatformLibrary(libraryId: string): Promise<PlatformLib
       type: source.type,
       location: source.location,
       refreshPolicy: readRefreshPolicy(source.refreshPolicy),
+      indexDepth: indexDepthOf(source.config),
     })),
     versions: versions.map((version) => ({
       ...version,
       isCurrent: version.id === record.currentVersionId,
     })),
+    files: (() => {
+      const pdf = sources.find((source) => source.type === 'pdf');
+      return pdf ? uploadedFilesOf(pdf.config) : null;
+    })(),
     operations,
     audit,
     hasReadyVersion: current?.indexStatus === 'ready',
@@ -635,6 +662,8 @@ function readRefreshPolicy(stored: Record<string, unknown> | null): RefreshPolic
 /* ------------------------------------------------------------------ create */
 
 export interface CreatePlatformLibraryResult {
+  /** The first build, queued when a pdf library was created with files; null otherwise. */
+  operationId: string | null;
   libraryId: string;
   publicId: string;
 }
@@ -655,11 +684,21 @@ export interface CreatePlatformLibraryResult {
  * ruling -- and a platform library is neither.
  */
 export async function createPlatformLibrary(
-  input: PlatformLibraryInput & { actor: PlatformActor; reason: string },
+  input: PlatformLibraryInput & {
+    actor: PlatformActor;
+    reason: string;
+    /** The store the uploads are confirmed in; the configured one by default. */
+    store?: Pick<ObjectStore, 'head'>;
+  },
 ): Promise<CreatePlatformLibraryResult> {
   const draft = draftPlatformLibrary(input);
   const reason = normalizeReason(input.reason);
   const database = db();
+
+  /* A pdf library's files are confirmed present at their declared size
+     before any row is written, the same contract the dashboard's wizard is
+     held to (`createWorkspaceLibrary`). */
+  await confirmPlatformUploads(draft.files, input.store);
 
   /*
    * Checked before the insert so the operator gets `public_id_taken` rather
@@ -695,6 +734,9 @@ export async function createPlatformLibrary(
 
   const libraryId = uuidv7();
   const sourceId = uuidv7();
+  /* Nothing to build for a pdf library without files; every other type is
+     built by the first refresh the operator queues. */
+  const operationId = draft.sourceType === 'pdf' && draft.files.length > 0 ? uuidv7() : null;
 
   try {
     await database.transaction(async (tx) => {
@@ -716,9 +758,21 @@ export async function createPlatformLibrary(
         libraryId,
         type: draft.sourceType,
         location: draft.location,
-        config: {},
+        config:
+          draft.sourceType === 'pdf'
+            ? { files: draft.files }
+            : { indexDepth: draft.indexDepth },
         refreshPolicy: { cadence: draft.refreshPolicy },
       });
+      if (operationId) {
+        await tx.insert(schema.workflowOperation).values({
+          id: operationId,
+          libraryId,
+          operationType: 'ingest',
+          sourceDigest: null,
+          status: 'pending',
+        });
+      }
     });
   } catch (error) {
     if (isUniqueViolation(error)) {
@@ -740,13 +794,14 @@ export async function createPlatformLibrary(
       sourceType: draft.sourceType,
       location: draft.location,
       refreshPolicy: draft.refreshPolicy,
+      indexDepth: draft.indexDepth,
       lifecycleStatus: 'draft',
     },
     clientAddress: input.actor.clientAddress ?? null,
     result: 'success',
   });
 
-  return { libraryId, publicId: draft.publicId };
+  return { libraryId, publicId: draft.publicId, operationId };
 }
 
 /* --------------------------------------------------------------- lifecycle */
@@ -879,6 +934,8 @@ export interface RefreshRequestResult {
 export async function requestPlatformLibraryRefresh(input: {
   actor: PlatformActor;
   libraryId: string;
+  /** Refresh this one source only; the others are carried forward unfetched. */
+  sourceId?: string | null;
   reason: string;
 }): Promise<RefreshRequestResult> {
   const reason = normalizeReason(input.reason);
@@ -888,9 +945,15 @@ export async function requestPlatformLibraryRefresh(input: {
   if (target.lifecycleStatus === 'archived') {
     throw new PlatformLibraryRefused('archived', 'an archived library is not refreshed');
   }
+  const sourceId = input.sourceId ? (await loadSource(database, target.id, input.sourceId)).id : null;
 
-  const [open] = await database
-    .select({ id: schema.workflowOperation.id })
+  /*
+   * An open refresh of the whole library covers a request for one source; an
+   * open refresh of the same source covers a repeat. One of another source
+   * does not -- it will not fetch this one -- so a new row is queued behind.
+   */
+  const open = await database
+    .select({ id: schema.workflowOperation.id, sourceId: schema.workflowOperation.sourceId })
     .from(schema.workflowOperation)
     .where(
       and(
@@ -899,10 +962,9 @@ export async function requestPlatformLibraryRefresh(input: {
         inArray(schema.workflowOperation.status, [...OPEN_OPERATION_STATUSES]),
       ),
     )
-    .orderBy(desc(schema.workflowOperation.createdAt))
-    .limit(1);
-
-  if (open) return { operationId: open.id, created: false };
+    .orderBy(desc(schema.workflowOperation.createdAt));
+  const covering = open.find((row) => row.sourceId === null || row.sourceId === sourceId);
+  if (covering) return { operationId: covering.id, created: false };
 
   const operationId = uuidv7();
   await database.insert(schema.workflowOperation).values({
@@ -910,6 +972,7 @@ export async function requestPlatformLibraryRefresh(input: {
     libraryId: target.id,
     operationType: REFRESH_OPERATION,
     sourceDigest: null,
+    sourceId,
     status: 'pending',
   });
 
@@ -923,7 +986,7 @@ export async function requestPlatformLibraryRefresh(input: {
       publicId: target.publicId,
       lastCheckedAt: target.lastCheckedAt,
     },
-    afterValue: { publicId: target.publicId, operationId, status: 'pending' },
+    afterValue: { publicId: target.publicId, operationId, sourceId, status: 'pending' },
     clientAddress: input.actor.clientAddress ?? null,
     result: 'success',
   });
@@ -1110,8 +1173,16 @@ export async function addPlatformLibrarySource(input: {
   type: string;
   location: string;
   refreshPolicy: string;
+  indexDepth?: unknown;
+  /** `pdf` only: the manifest the console posted after uploading. */
+  uploads?: unknown;
   reason: string;
-}): Promise<{ sourceId: string }> {
+  store?: Pick<ObjectStore, 'head'>;
+}): Promise<{
+  sourceId: string;
+  /** The build a pdf source with files queued for itself; null otherwise. */
+  operationId: string | null;
+}> {
   const reason = normalizeReason(input.reason);
   const draft = draftPlatformSource(input);
   const database = db();
@@ -1121,14 +1192,46 @@ export async function addPlatformLibrarySource(input: {
     throw new PlatformLibraryRefused('archived', 'an archived library takes no new sources');
   }
 
+  /*
+   * One pdf source per library: the files panel manages "the" pdf source,
+   * and two would leave it managing one and hiding the other. A second set
+   * of PDFs is added to the existing source from that panel.
+   */
+  if (draft.type === 'pdf') {
+    const [existing] = await database
+      .select({ id: schema.source.id })
+      .from(schema.source)
+      .where(and(eq(schema.source.libraryId, target.id), eq(schema.source.type, 'pdf')))
+      .limit(1);
+    if (existing) {
+      throw new PlatformLibraryRefused('pdf_source_exists', 'this library already has a pdf source');
+    }
+    await confirmPlatformUploads(draft.files, input.store);
+  }
+
   const sourceId = uuidv7();
-  await database.insert(schema.source).values({
-    id: sourceId,
-    libraryId: target.id,
-    type: draft.type,
-    location: draft.location,
-    config: {},
-    refreshPolicy: { cadence: draft.refreshPolicy },
+  /* A pdf source with files builds itself at once; the other sources are
+     carried forward from the current version (build-version.ts). */
+  const operationId = draft.type === 'pdf' && draft.files.length > 0 ? uuidv7() : null;
+  await database.transaction(async (tx) => {
+    await tx.insert(schema.source).values({
+      id: sourceId,
+      libraryId: target.id,
+      type: draft.type,
+      location: draft.location,
+      config: draft.type === 'pdf' ? { files: draft.files } : { indexDepth: draft.indexDepth },
+      refreshPolicy: { cadence: draft.refreshPolicy },
+    });
+    if (operationId) {
+      await tx.insert(schema.workflowOperation).values({
+        id: operationId,
+        libraryId: target.id,
+        operationType: REFRESH_OPERATION,
+        sourceDigest: null,
+        sourceId,
+        status: 'pending',
+      });
+    }
   });
 
   await recordAudit({
@@ -1143,12 +1246,15 @@ export async function addPlatformLibrarySource(input: {
       type: draft.type,
       location: draft.location,
       refreshPolicy: draft.refreshPolicy,
+      indexDepth: draft.indexDepth,
+      files: draft.files.map((file) => file.name),
+      operationId,
     },
     clientAddress: input.actor.clientAddress ?? null,
     result: 'success',
   });
 
-  return { sourceId };
+  return { sourceId, operationId };
 }
 
 /**
@@ -1165,6 +1271,7 @@ export async function updatePlatformLibrarySource(input: {
   sourceId: string;
   location: string;
   refreshPolicy: string;
+  indexDepth?: unknown;
   reason: string;
 }): Promise<void> {
   const reason = normalizeReason(input.reason);
@@ -1176,10 +1283,15 @@ export async function updatePlatformLibrarySource(input: {
   }
 
   const before = await loadSource(database, target.id, input.sourceId);
+  /* A pdf source has no location to edit; its files panel is the edit. */
+  if (before.type === 'pdf') {
+    throw new PlatformLibraryRefused('unsupported_source', 'a pdf source is edited from its files panel');
+  }
   const draft = draftPlatformSource({
     type: before.type,
     location: input.location,
     refreshPolicy: input.refreshPolicy,
+    indexDepth: input.indexDepth,
   });
 
   await database
@@ -1187,6 +1299,7 @@ export async function updatePlatformLibrarySource(input: {
     .set({
       location: draft.location,
       refreshPolicy: { cadence: draft.refreshPolicy },
+      config: { ...before.config, indexDepth: draft.indexDepth },
     })
     .where(and(eq(schema.source.id, before.id), eq(schema.source.libraryId, target.id)));
 
@@ -1200,11 +1313,13 @@ export async function updatePlatformLibrarySource(input: {
       sourceId: before.id,
       location: before.location,
       refreshPolicy: before.refreshPolicy,
+      indexDepth: indexDepthOf(before.config),
     },
     afterValue: {
       sourceId: before.id,
       location: draft.location,
       refreshPolicy: draft.refreshPolicy,
+      indexDepth: draft.indexDepth,
     },
     clientAddress: input.actor.clientAddress ?? null,
     result: 'success',
@@ -1294,6 +1409,150 @@ export async function removePlatformLibrarySource(input: {
     clientAddress: input.actor.clientAddress ?? null,
     result: 'success',
   });
+}
+
+/* ------------------------------------------------------------------ delete */
+
+export interface UpdatePlatformFilesResult {
+  files: UploadedFile[];
+  /** The rebuild this edit queued, or found already waiting; null when there is nothing to build. */
+  operationId: string | null;
+  /** False when the rebuild was already waiting, so the console says so. */
+  created: boolean;
+}
+
+/**
+ * Adds and removes the PDFs of a platform library, then queues its rebuild.
+ *
+ * The console's counterpart of `updateLibraryFiles` (lib/application/
+ * libraries/files.ts), held to the same contract: every added file is a
+ * manifest entry under the platform prefix, confirmed present in the store
+ * at its declared size, and every removed one is a file the source lists.
+ * Removed files' objects stay until the upload sweep finds nothing listing
+ * them -- the published version's citations point at them until the rebuild
+ * lands.
+ */
+export async function updatePlatformLibraryFiles(input: {
+  actor: PlatformActor;
+  libraryId: string;
+  /** A manifest of freshly uploaded files, as parsed JSON; absent adds none. */
+  add?: unknown;
+  /** Ids of listed files to drop. */
+  remove?: readonly string[];
+  reason: string;
+  store?: Pick<ObjectStore, 'head'>;
+}): Promise<UpdatePlatformFilesResult> {
+  const reason = normalizeReason(input.reason);
+  const database = db();
+  const target = await loadTarget(database, input.libraryId);
+  if (target.lifecycleStatus === 'archived') {
+    throw new PlatformLibraryRefused('archived', 'an archived library is not edited');
+  }
+
+  const manifest =
+    input.add === undefined || input.add === null
+      ? { files: [] as UploadedFile[] }
+      : parseUploadManifest(input.add, PLATFORM_UPLOAD_OWNER);
+  if (!manifest) throw new PlatformLibraryRefused('invalid_uploads', 'the upload manifest is not valid');
+  const remove = input.remove ?? [];
+  if (remove.some((id) => typeof id !== 'string' || !isUuid(id))) {
+    throw new PlatformLibraryRefused('invalid_uploads', 'a file id to remove is not valid');
+  }
+  if (manifest.files.length === 0 && remove.length === 0) {
+    throw new PlatformLibraryRefused('nothing_to_change', 'nothing to change');
+  }
+
+  /* Confirmed before the transaction: a store round-trip per file is not
+     something to hold a row lock across. */
+  await confirmPlatformUploads(manifest.files, input.store);
+
+  const outcome = await database.transaction(async (tx) => {
+    const [source] = await tx
+      .select({ id: schema.source.id, config: schema.source.config })
+      .from(schema.source)
+      .where(and(eq(schema.source.libraryId, target.id), eq(schema.source.type, 'pdf')))
+      .limit(1)
+      .for('update');
+    if (!source) {
+      throw new PlatformLibraryRefused('unsupported_source', 'this library has no pdf source');
+    }
+    const before = uploadedFilesOf(source.config);
+    const files = mergeUploadedFiles(before, manifest.files, remove);
+    if (!files) throw new PlatformLibraryRefused('invalid_uploads', 'the file list is not valid');
+
+    await tx
+      .update(schema.source)
+      .set({ config: { ...source.config, files } })
+      .where(eq(schema.source.id, source.id));
+
+    if (files.length === 0) return { before, files, operationId: null, created: false };
+
+    /* A pending build has not read the source yet and will pick this up; a
+       running one already has, so a new row is queued behind it. */
+    const [open] = await tx
+      .select({ id: schema.workflowOperation.id, status: schema.workflowOperation.status })
+      .from(schema.workflowOperation)
+      .where(
+        and(
+          eq(schema.workflowOperation.libraryId, target.id),
+          inArray(schema.workflowOperation.operationType, ['ingest', REFRESH_OPERATION]),
+          inArray(schema.workflowOperation.status, [...OPEN_OPERATION_STATUSES]),
+        ),
+      )
+      .orderBy(desc(schema.workflowOperation.createdAt))
+      .limit(1);
+    if (open?.status === 'pending') return { before, files, operationId: open.id, created: false };
+
+    const operationId = uuidv7();
+    await tx.insert(schema.workflowOperation).values({
+      id: operationId,
+      libraryId: target.id,
+      operationType: REFRESH_OPERATION,
+      sourceDigest: null,
+      status: 'pending',
+    });
+    return { before, files, operationId, created: true };
+  });
+
+  await recordAudit({
+    administratorId: input.actor.administratorId,
+    action: 'platform_library.files',
+    targetType: AUDIT_TARGET,
+    targetId: target.id,
+    reason,
+    beforeValue: { publicId: target.publicId, files: outcome.before.map((file) => file.name) },
+    afterValue: {
+      publicId: target.publicId,
+      files: outcome.files.map((file) => file.name),
+      operationId: outcome.operationId,
+    },
+    clientAddress: input.actor.clientAddress ?? null,
+    result: 'success',
+  });
+
+  return { files: outcome.files, operationId: outcome.operationId, created: outcome.created };
+}
+
+/**
+ * `confirmUploads` speaks the API's error vocabulary; the console speaks the
+ * platform-library one. A manifest entry the store does not hold is the
+ * operator's upload having failed, not a malformed request.
+ */
+async function confirmPlatformUploads(
+  files: UploadedFile[],
+  store: Pick<ObjectStore, 'head'> | undefined,
+): Promise<void> {
+  try {
+    await confirmUploads(files, store);
+  } catch (error) {
+    if (error instanceof AppError && error.code === 'invalid_request') {
+      throw new PlatformLibraryRefused('invalid_uploads', error.message);
+    }
+    if (error instanceof AppError && error.code === 'provider_unavailable') {
+      throw new PlatformLibraryRefused('unavailable', error.message);
+    }
+    throw error;
+  }
 }
 
 /* ------------------------------------------------------------------ delete */
@@ -1396,6 +1655,8 @@ async function loadSource(
   type: string;
   location: string;
   refreshPolicy: RefreshPolicy | 'unknown';
+  indexDepth: IndexDepth;
+  config: Record<string, unknown>;
 }> {
   if (!isUuid(sourceId)) throw new PlatformLibraryRefused('source_not_found', 'no such source');
 
@@ -1405,6 +1666,7 @@ async function loadSource(
       type: schema.source.type,
       location: schema.source.location,
       refreshPolicy: schema.source.refreshPolicy,
+      config: schema.source.config,
     })
     .from(schema.source)
     .where(and(eq(schema.source.id, sourceId), eq(schema.source.libraryId, libraryId)))
@@ -1416,6 +1678,8 @@ async function loadSource(
     type: row.type,
     location: row.location,
     refreshPolicy: readRefreshPolicy(row.refreshPolicy),
+    indexDepth: indexDepthOf(row.config),
+    config: row.config,
   };
 }
 
@@ -1431,7 +1695,7 @@ async function sourceTypeOf(
   database: ReturnType<typeof db>,
   libraryId: string,
   publicId: string,
-): Promise<PlatformSourceType> {
+): Promise<PlatformLibraryType> {
   const [row] = await database
     .select({ type: schema.source.type })
     .from(schema.source)
@@ -1439,7 +1703,7 @@ async function sourceTypeOf(
     .orderBy(schema.source.id)
     .limit(1);
 
-  if (row && isPlatformSourceType(row.type)) return row.type;
+  if (row && isPlatformLibraryType(row.type)) return row.type;
   if (publicId.startsWith('/websites/')) return 'website';
   if (publicId.startsWith('/notion/')) return 'notion';
   if (publicId.startsWith('/docs/')) return 'openapi';

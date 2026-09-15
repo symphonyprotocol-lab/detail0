@@ -7,6 +7,7 @@ export function notImplemented(name: string): never {
 
 export {
   countWorkspaceLibraries,
+  largestWorkspaceLibraryBytes,
   listWorkspaceLibraries,
   type WorkspaceLibraryRow,
 } from './workspace';
@@ -14,11 +15,29 @@ export {
   countPublicLibraries,
   listPublicLibraries,
   publicLibraryDetail,
+  publicLibraryHeading,
+  CATALOG_PAGE_SIZE,
+  POPULARITY_WINDOW_DAYS,
   type CatalogEntry,
   type PublicLibraryDetail,
+  type PublicLibrarySource,
+  type PublicLibraryVersion,
 } from './catalog';
-export { prepareUploads, type PreparedUpload, type PrepareUploadsInput } from './uploads';
 export {
+  prepareUploads,
+  preparePlatformUploads,
+  type PreparedUpload,
+  type PrepareUploadsInput,
+} from './uploads';
+export {
+  libraryFiles,
+  updateLibraryFiles,
+  type LibraryFilesView,
+  type UpdateLibraryFilesInput,
+  type UpdateLibraryFilesResult,
+} from './files';
+export {
+  confirmUploads,
   createWorkspaceLibrary,
   type CreateWorkspaceLibraryInput,
   type CreateWorkspaceLibraryResult,
@@ -34,3 +53,34 @@ export {
   type DeleteWorkspaceLibraryInput,
   type WorkspaceRole,
 } from './delete';
+export { workspaceLibraryDetail, type WorkspaceLibraryDetail } from './detail';
+export { requestLibraryRebuild, type RebuildResult } from './rebuild';
+export {
+  documentPreview,
+  documentsPage,
+  documentsPageSize,
+  DOCUMENTS_PAGE_SIZE,
+  DOCUMENTS_PAGE_SIZES,
+  listVersionDocuments,
+  type DocumentPreview,
+  type VersionDocument,
+} from './documents';
+export {
+  checkDomainVerification,
+  startDomainVerification,
+  type CheckDomainVerificationInput,
+  type CheckDomainVerificationResult,
+  type DomainChallenge,
+  type StartDomainVerificationInput,
+} from './domain-verification';
+export {
+  applyOwnerLifecycleAction,
+  editLibraryMetadata,
+  updateParseScope,
+  type EditLibraryMetadataInput,
+  type EditLibraryMetadataResult,
+  type OwnerLifecycleInput,
+  type OwnerLifecycleResult,
+  type UpdateParseScopeInput,
+  type UpdateParseScopeResult,
+} from './manage';

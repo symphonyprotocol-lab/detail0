@@ -16,6 +16,7 @@ import {
   TD,
   TH,
 } from '@/components/admin/ui';
+import { UserRevokeControl } from '@/components/admin/user-revoke-dialog';
 import { UserStatusControl } from '@/components/admin/user-status-dialog';
 import { ChevronLeftIcon } from '@/components/ui/icons';
 import { getConsoleUser } from '@/lib/application/administration';
@@ -24,7 +25,7 @@ import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import { bytes, initialsOf, utcDate, utcStamp } from '../../list-params';
-import { setUserStatusAction } from '../actions';
+import { revokeUserApiKeyAction, revokeUserSessionAction, setUserStatusAction } from '../actions';
 
 /**
  * The metadata and the page both need the account, and Next renders them as
@@ -253,9 +254,23 @@ export default async function AdminUserDetailPage({
               </td>
               <td className={`${TD} whitespace-nowrap`}>{utcDate(key.createdAt)}</td>
               <td className={TD}>
-                <Pill tone={key.revokedAt ? 'neutral' : 'ok'}>
-                  {key.revokedAt ? d.keyRevoked : d.keyActive}
-                </Pill>
+                <span className="flex items-center gap-2">
+                  <Pill tone={key.revokedAt ? 'neutral' : 'ok'}>
+                    {key.revokedAt ? d.keyRevoked : d.keyActive}
+                  </Pill>
+                  {key.revokedAt ? null : (
+                    <UserRevokeControl
+                      kind="key"
+                      action={revokeUserApiKeyAction}
+                      userId={account.id}
+                      target={{
+                        id: key.id,
+                        title: key.name,
+                        detail: `${key.keyPrefix}…${key.lastFour} · ${key.environment}`,
+                      }}
+                    />
+                  )}
+                </span>
               </td>
             </tr>
           ))}
@@ -288,7 +303,21 @@ export default async function AdminUserDetailPage({
                 <td className={`${TD} whitespace-nowrap`}>{`${utcStamp(session.lastSeenAt)} UTC`}</td>
                 <td className={`${TD} whitespace-nowrap`}>{`${utcStamp(session.expiresAt)} UTC`}</td>
                 <td className={TD}>
-                  <Pill tone={live ? 'ok' : 'neutral'}>{live ? d.sessionLive : d.sessionEnded}</Pill>
+                  <span className="flex items-center gap-2">
+                    <Pill tone={live ? 'ok' : 'neutral'}>{live ? d.sessionLive : d.sessionEnded}</Pill>
+                    {live ? (
+                      <UserRevokeControl
+                        kind="session"
+                        action={revokeUserSessionAction}
+                        userId={account.id}
+                        target={{
+                          id: session.id,
+                          title: clientOf(session.clientSummary) ?? d.sessionUnknownClient,
+                          detail: session.id,
+                        }}
+                      />
+                    ) : null}
+                  </span>
                 </td>
               </tr>
             );

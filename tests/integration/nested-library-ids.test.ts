@@ -20,6 +20,7 @@ const { runOperation, memoryObjectStore } = await import('@/lib/application/inge
 const { queryDocs } = await import('@/lib/application/retrieval/query-docs');
 const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
+const { verifiedDomain } = await import('@/tests/fixtures/verified-domain');
 const { uuidv7 } = await import('@/lib/domain/id');
 
 const workspaces: string[] = [];
@@ -125,11 +126,12 @@ async function publish(workspaceId: string, slug: string, content: string) {
     visibility: 'private',
     sourceType: 'website',
     location: `https://docs.example.test/${slug}`,
+    domainVerificationId: await verifiedDomain(workspaceId, `https://docs.example.test/${slug}`),
     slug,
   });
   libraries.push(created.libraryId);
   const built = await runOperation({
-    operationId: created.operationId,
+    operationId: created.operationId!,
     dependencies: dependencies(content),
   });
   expect(built.status).toBe('succeeded');
@@ -153,6 +155,9 @@ describeWithDb('nested library ids', () => {
       await database.delete(schema.document).where(inArray(schema.document.libraryId, libraries));
       await database.delete(schema.libraryVersion).where(inArray(schema.libraryVersion.libraryId, libraries));
       await database.delete(schema.libraryScore).where(inArray(schema.libraryScore.libraryId, libraries));
+      await database
+        .delete(schema.libraryClaim)
+        .where(inArray(schema.libraryClaim.libraryId, libraries));
       await database.delete(schema.source).where(inArray(schema.source.libraryId, libraries));
       await database.delete(schema.library).where(inArray(schema.library.id, libraries));
     }
@@ -161,6 +166,9 @@ describeWithDb('nested library ids', () => {
       await database.delete(schema.usageEvent).where(inArray(schema.usageEvent.workspaceId, workspaces));
       await database.delete(schema.usageReservation).where(inArray(schema.usageReservation.workspaceId, workspaces));
       await database.delete(schema.subscription).where(inArray(schema.subscription.workspaceId, workspaces));
+      await database
+        .delete(schema.domainVerification)
+        .where(inArray(schema.domainVerification.workspaceId, workspaces));
       await database.delete(schema.workspace).where(inArray(schema.workspace.id, workspaces));
     }
     if (planVersions.length > 0) {
@@ -190,7 +198,7 @@ describeWithDb('nested library ids', () => {
     const [operation] = await db()
       .select({ fetchSummary: schema.workflowOperation.fetchSummary })
       .from(schema.workflowOperation)
-      .where(eq(schema.workflowOperation.id, parent.operationId));
+      .where(eq(schema.workflowOperation.id, parent.operationId!));
     expect(operation?.fetchSummary).toEqual({ direct: 1, rendered: 1, renderer: 'firecrawl' });
 
     const owner = { workspaceId, apiKeyId: null, requestId: `req_${crypto.randomUUID()}`, anonymous: false };
@@ -228,6 +236,7 @@ describeWithDb('nested library ids', () => {
         visibility: 'private',
         sourceType: 'website',
         location: 'https://docs.example.test/shadow',
+        domainVerificationId: await verifiedDomain(workspaceId, 'https://docs.example.test/shadow'),
         slug: `${parentSlug}/${version!.label}`,
       }),
     ).rejects.toMatchObject({ code: 'invalid_request' });

@@ -11,7 +11,17 @@ import { fileURLToPath } from 'node:url';
  * the integration tests can run against a local Postgres through a
  * WebSocket-to-TCP proxy, using the same driver production uses. See the file
  * itself for the two commands.
+ *
+ * Integration files run one at a time, because they share one database and
+ * several of them assert on figures the whole database contributes to -- the
+ * console overview counts every library and request there is, and reads the
+ * count twice to assert the difference. A file inserting rows in between makes
+ * that difference wrong, which is a failure about scheduling rather than about
+ * the code under test. Without a database they are skipped, so the fast suite
+ * keeps its parallelism.
  */
+const sharesADatabase = Boolean(process.env.TEST_DATABASE_URL);
+
 export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('.', import.meta.url)) },
@@ -20,5 +30,6 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     setupFiles: ['./tests/fixtures/local-postgres.ts'],
+    fileParallelism: !sharesADatabase,
   },
 });

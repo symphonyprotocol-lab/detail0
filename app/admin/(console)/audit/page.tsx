@@ -14,8 +14,9 @@ import {
   TD,
   TH,
 } from '@/components/admin/ui';
-import { BadgeCheckIcon, ScrollTextIcon } from '@/components/ui/icons';
+import { ChevronDownIcon, ScrollTextIcon } from '@/components/ui/icons';
 import { listAuditEntries, type AuditResultFilter } from '@/lib/application/administration';
+import { diffAuditValues, type AuditValueChange } from '@/lib/domain/admin';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
@@ -30,14 +31,67 @@ const RESULTS: AuditResultFilter[] = ['all', 'success', 'failure'];
 /** Nothing recorded, e.g. an action with no target or a request with no origin. */
 const NONE = '—';
 
+/** A leaf as the diff prints it: JSON, so a string and a number stay apart. */
+function leaf(value: unknown): string {
+  if (value === undefined) return NONE;
+  const text = JSON.stringify(value);
+  return text.length > 120 ? `${text.slice(0, 117)}…` : text;
+}
+
+/**
+ * The before/after snapshots an entry carries, folded shut by default: the
+ * table stays one line per action, and the values open in place -- a native
+ * `<details>`, so the log needs no client code to be read.
+ */
+function ValueDiff({
+  changes,
+  summary,
+  none,
+}: {
+  changes: AuditValueChange[];
+  summary: string;
+  none: string;
+}) {
+  return (
+    <details className="group mt-1 text-[11px] tracking-[-0.023em]">
+      <summary className="flex cursor-pointer list-none items-center gap-1 text-muted hover:text-ink [&::-webkit-details-marker]:hidden">
+        <ChevronDownIcon size={12} className="transition-transform group-open:rotate-180" />
+        {summary}
+      </summary>
+      {changes.length === 0 ? (
+        <p className="mt-1.5 text-muted">{none}</p>
+      ) : (
+        <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-[6px] bg-subtle px-2.5 py-2">
+          {changes.map((change) => (
+            <div key={change.path} className="contents">
+              <dt className="font-mono text-steel">{change.path}</dt>
+              <dd className="flex min-w-0 flex-wrap items-center gap-1.5 font-mono">
+                <span className={change.before === undefined ? 'text-faint' : 'text-err line-through'}>
+                  {leaf(change.before)}
+                </span>
+                <span aria-hidden className="text-faint">
+                  →
+                </span>
+                <span className={change.after === undefined ? 'text-faint' : 'text-pubink'}>
+                  {leaf(change.after)}
+                </span>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </details>
+  );
+}
+
 /**
  * Audit log -- design source frame `Uko79`.
  *
  * Reads the real `audit_log`: append only, kept 365 days, and chained so the
- * daily head can be anchored (requirement.md 5.3, architecture.md 14). The
- * anchor card shows that head rather than an anchoring transaction, because
- * anchoring itself is not live yet (architecture.md 21) and a transaction hash
- * that nothing wrote would be the one lie a tamper-evident log cannot afford.
+ * daily head can be anchored (requirement.md 5.3). The head is shown as a
+ * value, not as a claim about a chain -- anchoring has no interface here, and
+ * a transaction hash this screen did not read would be the one lie a
+ * tamper-evident log cannot afford.
  *
  * The origin column is a digest, not the address the design frame draws: plain
  * IPs must not reach product storage (requirement.md 12), which is why
@@ -94,19 +148,6 @@ export default async function AdminAuditPage({
         }
       />
 
-      <ConsoleNotice
-        icon={<BadgeCheckIcon size={18} />}
-        title={a.anchorTitle}
-        body={a.anchorBody}
-        action={
-          <span className="flex flex-col gap-1">
-            <span className="text-[11px] tracking-[-0.023em] text-muted">{a.chainHead}</span>
-            <code className="rounded-[6px] bg-card px-2 py-1.5 font-mono text-[11px] text-brandink">
-              {chainHead ? `${chainHead.slice(0, 8)}…${chainHead.slice(-4)}` : a.chainHeadNone}
-            </code>
-          </span>
-        }
-      />
 
       <Panel>
         {/* GET, so a filtered page of the log is a URL an operator can keep. */}
@@ -147,38 +188,51 @@ export default async function AdminAuditPage({
               {rows.length === 0 ? (
                 <EmptyRow columns={a.columns.length} message={a.empty} />
               ) : null}
-              {rows.map((entry) => (
-                <tr key={entry.id} className="border-t-2 border-line">
-                  <td className={TD}>
-                    <code className="font-mono text-[11px] tracking-[-0.01em] whitespace-nowrap text-steel">
-                      {utcInstant(entry.createdAt)}
-                    </code>
-                  </td>
-                  <td className={TD}>{entry.administratorName ?? a.unknownAdmin}</td>
-                  <td className={TD}>
-                    <span className="flex flex-col gap-0.5">
-                      <span className="font-medium text-ink">
-                        {actionLabels[entry.action] ?? entry.action}
+              {rows.map((entry) => {
+                const changes =
+                  entry.beforeValue !== null || entry.afterValue !== null
+                    ? diffAuditValues(entry.beforeValue, entry.afterValue)
+                    : null;
+                return (
+                  <tr key={entry.id} className="border-t-2 border-line">
+                    <td className={TD}>
+                      <code className="font-mono text-[11px] tracking-[-0.01em] whitespace-nowrap text-steel">
+                        {utcInstant(entry.createdAt)}
+                      </code>
+                    </td>
+                    <td className={TD}>{entry.administratorName ?? a.unknownAdmin}</td>
+                    <td className={TD}>
+                      <span className="flex flex-col gap-0.5">
+                        <span className="font-medium text-ink">
+                          {actionLabels[entry.action] ?? entry.action}
+                        </span>
+                        {/* requirement.md 5.3 records a reason; it belongs beside the action. */}
+                        {entry.reason ? (
+                          <span className="text-[11px] text-muted">{entry.reason}</span>
+                        ) : null}
+                        {changes ? (
+                          <ValueDiff
+                            changes={changes}
+                            summary={fill(a.values.summary, { count: changes.length })}
+                            none={a.values.none}
+                          />
+                        ) : null}
                       </span>
-                      {/* requirement.md 5.3 records a reason; it belongs beside the action. */}
-                      {entry.reason ? (
-                        <span className="text-[11px] text-muted">{entry.reason}</span>
-                      ) : null}
-                    </span>
-                  </td>
-                  <td className={TD}>{entry.targetId ?? NONE}</td>
-                  <td className={TD}>
-                    <code className="font-mono text-[11px] tracking-[-0.01em] text-muted">
-                      {entry.originDigest ?? NONE}
-                    </code>
-                  </td>
-                  <td className={TD}>
-                    <Pill tone={entry.result === 'success' ? 'ok' : 'danger'}>
-                      {entry.result === 'success' ? f.auditSuccess : f.auditFailure}
-                    </Pill>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className={TD}>{entry.targetId ?? NONE}</td>
+                    <td className={TD}>
+                      <code className="font-mono text-[11px] tracking-[-0.01em] text-muted">
+                        {entry.originDigest ?? NONE}
+                      </code>
+                    </td>
+                    <td className={TD}>
+                      <Pill tone={entry.result === 'success' ? 'ok' : 'danger'}>
+                        {entry.result === 'success' ? f.auditSuccess : f.auditFailure}
+                      </Pill>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </TableScroller>

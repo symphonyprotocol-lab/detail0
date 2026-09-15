@@ -261,6 +261,21 @@ export function GitHubIcon({ size = 18, className }: IconProps) {
   );
 }
 
+export function NotionIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="currentColor"
+      className={`shrink-0 ${className ?? ''}`}
+    >
+      <path d="M4.46 3.43c.75.61 1.03.57 2.44.48l13.3-.8c.28 0 .05-.28-.05-.33l-2.2-1.6c-.43-.33-1-.7-2.08-.61L3 1.5c-.47.05-.56.28-.38.47l1.84 1.46Zm.8 3.1v13.98c0 .75.37 1.03 1.22.99l14.6-.85c.85-.05.95-.56.95-1.17V5.6c0-.61-.24-.94-.76-.9l-15.26.9c-.56.05-.75.33-.75.93Zm14.42.75c.1.42 0 .85-.43.9l-.7.14v10.36c-.61.33-1.17.52-1.65.52-.75 0-.94-.24-1.5-.94l-4.6-7.23v6.99l1.46.33s0 .85-1.18.85l-3.25.19c-.1-.19 0-.66.33-.75l.85-.24V9.13l-1.18-.1c-.1-.42.14-1.03.8-1.08l3.48-.23 4.8 7.33V8.57l-1.22-.14c-.1-.52.28-.9.75-.94l3.24-.19Z" />
+    </svg>
+  );
+}
+
 export function GoogleIcon({ size = 18, className }: IconProps) {
   return (
     <svg
@@ -702,6 +717,30 @@ export function XIcon(props: IconProps) {
     <Icon {...props}>
       <path d="M18 6 6 18" />
       <path d="m6 6 12 12" />
+    </Icon>
+  );
+}
+
+export function SunIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2" />
+      <path d="M12 20v2" />
+      <path d="m4.93 4.93 1.41 1.41" />
+      <path d="m17.66 17.66 1.41 1.41" />
+      <path d="M2 12h2" />
+      <path d="M20 12h2" />
+      <path d="m6.34 17.66-1.41 1.41" />
+      <path d="m19.07 4.93-1.41 1.41" />
+    </Icon>
+  );
+}
+
+export function MoonIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9" />
     </Icon>
   );
 }

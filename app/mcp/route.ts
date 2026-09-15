@@ -16,6 +16,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { AppError } from '@/contracts/errors';
 import { queryDocsInputSchema, resolveLibraryInputSchema } from '@/contracts/schemas';
+import { requireScope } from '@/lib/application/auth';
 import { queryDocs, resolveLibraryId } from '@/lib/application/retrieval';
 import { retrievalCaller } from '@/lib/http/retrieval-caller';
 import { newRequestId } from '@/lib/http/respond';
@@ -128,9 +129,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const name = message.params?.name;
       const args = (message.params?.arguments ?? {}) as Record<string, unknown>;
       try {
-        const caller = await retrievalCaller(request, requestId);
+        /* `mcp`, so the usage event and request log name this door. */
+        const caller = await retrievalCaller(request, requestId, 'mcp');
 
         if (name === 'resolve-library-id') {
+          requireScope(caller, 'knowledge:search');
           const parsed = resolveLibraryInputSchema.safeParse(args);
           if (!parsed.success) {
             throw new AppError('invalid_request', 'query is required (1-2000 characters)');
@@ -142,6 +145,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         }
 
         if (name === 'query-docs') {
+          requireScope(caller, 'knowledge:read');
           const parsed = queryDocsInputSchema.safeParse({ format: 'json', ...args });
           if (!parsed.success) {
             throw new AppError('invalid_request', 'libraryId and query are required');

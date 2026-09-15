@@ -180,6 +180,60 @@ export const userSession = pgTable(
   ],
 );
 
+/**
+ * A person's GitHub account, connected for repository imports.
+ *
+ * Login drops the provider token (requirement.md 12). This is the separate
+ * grant a person gives on the wizard so it can list their own public
+ * repositories and, at submit, prove the chosen one is theirs
+ * (lib/domain/github.ts). `token_sealed` is the access token sealed with the
+ * cookie key -- never the token itself -- and the row sits apart from
+ * business tables as requirement.md 12 asks. One per user; reconnecting
+ * replaces the token.
+ */
+export const githubConnection = pgTable(
+  'github_connection',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id').notNull().references(() => user.id),
+    /** GitHub's numeric account id as text; logins are renamed, ids are not. */
+    githubUserId: text('github_user_id').notNull(),
+    login: text('login').notNull(),
+    tokenSealed: text('token_sealed').notNull(),
+    scope: text('scope').notNull().default(''),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('github_connection_user_uq').on(t.userId)],
+);
+
+/**
+ * A person's Notion account, connected for page imports.
+ *
+ * The counterpart of `githubConnection` for the one source that cannot be
+ * read anonymously: the sealed token is the only way to fetch the pages the
+ * person shared with the integration, so it is kept for the library's
+ * refreshes as well as for the wizard's listing (lib/domain/notion.ts). One
+ * per user; reconnecting replaces the token.
+ */
+export const notionConnection = pgTable(
+  'notion_connection',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id').notNull().references(() => user.id),
+    /** The integration's bot id in the granted workspace. */
+    botId: text('bot_id').notNull(),
+    notionWorkspaceId: text('notion_workspace_id').notNull(),
+    workspaceName: text('workspace_name'),
+    notionUserId: text('notion_user_id'),
+    ownerName: text('owner_name'),
+    tokenSealed: text('token_sealed').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('notion_connection_user_uq').on(t.userId)],
+);
+
 export const workspace = pgTable('workspace', {
   id: uuid('id').primaryKey(),
   name: text('name').notNull(),
@@ -254,6 +308,14 @@ export const planVersion = pgTable(
     apiKeyLimit: integer('api_key_limit').notNull(),
     /** Publisher share rate, frozen per version. requirement.md 4.4 */
     shareRateBps: integer('share_rate_bps').notNull().default(2000),
+    /**
+     * What a library build costs, frozen per version like every price here.
+     * library-build-billing.md 3.3; `lib/domain/build-billing.ts` `BuildRates`.
+     * The pack stores the 0 sentinel in all three, never a rate.
+     */
+    buildBaseCalls: integer('build_base_calls').notNull().default(1),
+    buildTokensPerCall: integer('build_tokens_per_call').notNull().default(20_000),
+    buildPagesPerCall: integer('build_pages_per_call').notNull().default(5),
     capabilities: jsonb('capabilities').$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -487,6 +549,20 @@ export const libraryVersion = pgTable(
     libraryId: uuid('library_id').notNull().references(() => library.id),
     label: text('label').notNull(),
     sourceDigest: text('source_digest').notNull(),
+    /**
+     * What each source contributed to this version, keyed by source id: its
+     * own snapshot digest, content bytes and the facts scoring reads. The
+     * next build compares a source's fresh digest against this and, when
+     * equal, copies the source's documents and chunks forward instead of
+     * parsing and embedding them again (`build-version.ts`). Null on versions
+     * built before this existed, which the next build treats as "rebuild all".
+     */
+    sourceDigests: jsonb('source_digests').$type<
+      Record<
+        string,
+        { digest: string; bytes: number; lastModifiedAt: string | null; hasLicense: boolean }
+      >
+    >(),
     parserVersion: text('parser_version').notNull(),
     chunkerVersion: text('chunker_version').notNull(),
     embeddingModel: text('embedding_model').notNull(),
@@ -557,6 +633,34 @@ export const libraryClaim = pgTable(
   ],
 );
 
+/**
+ * A challenge proving a workspace controls a host, met before a website,
+ * llms.txt or OpenAPI library may be created from it (requirement.md 7.3.2,
+ * architecture.md 5.4, lib/domain/domain-verification.ts). Reuses the claim
+ * enums: a domain challenge is a claim made before the library exists, and
+ * a verified one is copied onto `library_claim` when the library is created.
+ * Hash only; the plaintext token is returned once. Spent on exactly one
+ * library through `consumed_library_id`.
+ */
+export const domainVerification = pgTable(
+  'domain_verification',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
+    host: text('host').notNull(),
+    method: claimMethodEnum('method').notNull(),
+    challengeTokenHash: text('challenge_token_hash').notNull(),
+    status: claimStatusEnum('status').notNull(),
+    failureReason: text('failure_reason'),
+    attempts: integer('attempts').notNull().default(0),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    consumedLibraryId: uuid('consumed_library_id').references(() => library.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('domain_verification_workspace_idx').on(t.workspaceId, t.createdAt)],
+);
+
 export const libraryScore = pgTable(
   'library_score',
   {
@@ -581,6 +685,12 @@ export const document = pgTable(
     title: text('title').notNull(),
     sourceUrl: text('source_url').notNull(),
     objectKey: text('object_key'),
+    /**
+     * Which source this document came from. No foreign key: a source may be
+     * removed while the versions it fed stay immutable. Null on documents
+     * written before this existed.
+     */
+    sourceId: uuid('source_id'),
   },
   /** Documents are counted per version -- versions are immutable, so a count by
       library would include every superseded build. */
@@ -912,6 +1022,14 @@ export const usageReservation = pgTable(
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
     requestId: text('request_id').notNull(),
     status: reservationStatusEnum('status').notNull(),
+    /** Seats held: 1 for a retrieval, the quoted cap for a build. */
+    calls: integer('calls').notNull().default(1),
+    /**
+     * 'retrieval' or 'build'. The abandoned-seat sweep in `reserveCall` only
+     * releases retrieval seats: a build's seat outlives the sweep's TTL and
+     * is released by the operation that holds it.
+     */
+    kind: text('kind').notNull().default('retrieval'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -938,6 +1056,14 @@ export const usageEvent = pgTable(
     latencyMs: integer('latency_ms'),
     inputTokens: integer('input_tokens'),
     returnedTokens: integer('returned_tokens'),
+    /**
+     * The event's weight against the allowance: 1 for every retrieval, the
+     * priced figure for a build (`entrypoint = 'build'`). Every count of
+     * consumption sums this rather than counting rows.
+     */
+    calls: integer('calls').notNull().default(1),
+    /** A build's measurements and the rates it was priced at. `BuildDetail`. */
+    buildDetail: jsonb('build_detail').$type<Record<string, unknown>>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -945,6 +1071,10 @@ export const usageEvent = pgTable(
     index('usage_event_workspace_time_idx').on(t.workspaceId, t.createdAt),
     /** Retrieval calls per library, for the console's per-library figures. */
     index('usage_event_library_time_idx').on(t.libraryId, t.createdAt),
+    /** "What did this version's build cost", read by the library page. */
+    index('usage_event_version_idx')
+      .on(t.versionId)
+      .where(sql`${t.entrypoint} = 'build'`),
   ],
 );
 
@@ -955,7 +1085,10 @@ export const usageSummary = pgTable(
     workspaceId: uuid('workspace_id').notNull().references(() => workspace.id),
     periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
     bucketDate: timestamp('bucket_date', { withTimezone: true }).notNull(),
+    /** Retrieval calls in the bucket. */
     calls: integer('calls').notNull().default(0),
+    /** Build calls in the bucket, kept apart so the dashboard can say which is which. */
+    buildCalls: integer('build_calls').notNull().default(0),
   },
   (t) => [uniqueIndex('usage_summary_uq').on(t.workspaceId, t.bucketDate)],
 );
@@ -1053,6 +1186,13 @@ export const anchorBatch = pgTable(
     status: anchorBatchStatusEnum('status').notNull(),
     attempts: integer('attempts').notNull().default(0),
     confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    /**
+     * When the batch was planned, not when its window closed. A backfill
+     * anchors versions published days earlier, so `window_end` would make every
+     * catch-up batch look overdue the moment it existed; the staleness alarm
+     * needs this clock instead (aptos-anchoring-proposal.md 4.8).
+     */
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('anchor_batch_tx_uq').on(t.txHash)],
 );
@@ -1087,9 +1227,21 @@ export const workflowOperation = pgTable(
     libraryId: uuid('library_id').references(() => library.id),
     operationType: text('operation_type').notNull(),
     sourceDigest: text('source_digest'),
+    /**
+     * A refresh asked for one source only: that source is fetched, the
+     * others are carried forward from the current version unfetched. Null
+     * means every source.
+     */
+    sourceId: uuid('source_id'),
     status: text('status').notNull(),
     attempts: integer('attempts').notNull().default(0),
     error: text('error'),
+    /**
+     * `manual` for an operator's button or a workspace action, `scheduled`
+     * for a refresh the drain queued from a source's refresh policy.
+     * `lib/domain/ingestion.ts` `OperationTrigger`.
+     */
+    trigger: text('trigger').notNull().default('manual'),
     /**
      * How the pages of a build were fetched -- our own fetch vs a rendering
      * provider, per page. Written by the build after `fetch-snapshot`; null
@@ -1101,6 +1253,16 @@ export const workflowOperation = pgTable(
       rendered: number;
       renderer: 'firecrawl' | 'jina' | null;
     }>(),
+    /**
+     * The build's seat in the call ledger. library-build-billing.md 4:
+     * `quoted_calls` is the cap reserved before fetching, `charged_calls` the
+     * priced figure once chunking measured the build; the reservation is
+     * committed with the version's publication and released on every other
+     * outcome. All null for a build that was never billable.
+     */
+    reservationId: uuid('reservation_id').references(() => usageReservation.id),
+    quotedCalls: integer('quoted_calls'),
+    chargedCalls: integer('charged_calls'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1112,6 +1274,8 @@ export const workflowOperation = pgTable(
     index('workflow_operation_pending_idx')
       .on(t.createdAt)
       .where(sql`${t.status} = 'pending'`),
+    /** "What finished in the last day", the console's health panel. */
+    index('workflow_operation_updated_idx').on(t.updatedAt),
   ],
 );
 
@@ -1128,13 +1292,29 @@ export const requestLog = pgTable(
      * The query text is deliberately absent (architecture.md 17.1).
      */
     libraryPublicId: text('library_public_id'),
-    /** 'rest' | 'web' -- which door the request came through. */
+    /** 'rest' | 'mcp' | 'web' -- which door the request came through. */
     entrypoint: text('entrypoint'),
     statusCode: integer('status_code').notNull(),
     latencyMs: integer('latency_ms'),
+    /** Tokens served, as the usage event counts them. Null when nothing was. */
+    returnedTokens: integer('returned_tokens'),
+    /**
+     * The key that authenticated the request, so the screen can show its
+     * masked prefix. No foreign key, like the library above: the log must
+     * outlive whatever it names, and a key row is only ever revoked anyway.
+     */
+    apiKeyId: uuid('api_key_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('request_log_workspace_time_idx').on(t.workspaceId, t.createdAt)],
+  (t) => [
+    index('request_log_workspace_time_idx').on(t.workspaceId, t.createdAt),
+    /**
+     * The console's health panel counts the last day's requests across every
+     * workspace. Without a time-only index that is a scan of the busiest
+     * table in the schema on every overview render.
+     */
+    index('request_log_time_idx').on(t.createdAt),
+  ],
 );
 
 export const report = pgTable('report', {

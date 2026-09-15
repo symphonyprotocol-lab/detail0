@@ -23,6 +23,10 @@ export function isSecureDeployment(): boolean {
  */
 export const SESSION_COOKIE = isSecureDeployment() ? '__Host-r0_session' : 'r0_session';
 export const HANDSHAKE_COOKIE = isSecureDeployment() ? '__Host-r0_oauth' : 'r0_oauth';
+/** The GitHub connect handshake (repository imports), separate from login's. */
+export const GITHUB_CONNECT_COOKIE = isSecureDeployment() ? '__Host-r0_github' : 'r0_github';
+/** The Notion connect handshake (page imports), likewise its own. */
+export const NOTION_CONNECT_COOKIE = isSecureDeployment() ? '__Host-r0_notion' : 'r0_notion';
 
 /**
  * `__Host-` is unavailable for the console because that prefix forbids a path

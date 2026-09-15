@@ -30,7 +30,7 @@ export async function updateRetrievalConfigAction(
   _previous: RetrievalConfigActionResult | null,
   form: FormData,
 ): Promise<RetrievalConfigActionResult> {
-  const session = await requireAdminCapability('plans');
+  const session = await requireAdminCapability('models');
   try {
     const bag = await headers();
     /* A blank field posts '' and becomes NaN, which the domain refuses by

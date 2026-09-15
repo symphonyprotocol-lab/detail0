@@ -61,6 +61,53 @@ export function middleware(request: NextRequest): NextResponse {
   /* Query string included: `safeReturnTo` preserves it on the way back. */
   const returnTo = path + request.nextUrl.search;
 
+  /*
+   * Every page has a Markdown representation at the same URL plus `.md`.
+   * Rewrite before the session gates so the renderer can fetch the canonical
+   * page with this request's credentials and preserve its normal access rule.
+   * `/.md` is the representation of the home page.
+   */
+  if (
+    (path === '/.md' || path.endsWith('.md')) &&
+    !path.startsWith('/.well-known/agent-skills/')
+  ) {
+    const sourcePath = path === '/.md' ? '/' : path.slice(0, -3) || '/';
+    const markdown = request.nextUrl.clone();
+    markdown.pathname = '/api/page-markdown';
+    markdown.search = '';
+    const source = `${sourcePath}${request.nextUrl.search}`;
+    markdown.searchParams.set('source', source);
+
+    /* A rewritten Route Handler can retain the original URL's searchParams
+       even though `x-middleware-rewrite` contains the destination query.
+       Carry the source explicitly in the rewritten request as well. */
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set('x-re0-markdown-page', source);
+    const rewritten = NextResponse.rewrite(markdown, {
+      request: { headers: requestHeaders },
+    });
+
+    /* The canonical page fetch slides the database session. Slide the
+       browser's cookie on the outer response as well, because Set-Cookie from
+       that internal fetch is deliberately not proxied through the renderer. */
+    if (
+      sourcePath.startsWith('/admin') &&
+      ADMIN_SESSION_COOKIE_NAMES.some((name) => request.cookies.has(name))
+    ) {
+      return slideCookie(
+        request,
+        rewritten,
+        ADMIN_SESSION_COOKIE_NAMES,
+        '/admin',
+        ADMIN_SESSION_LIFETIME_MS,
+      );
+    }
+    if (SESSION_COOKIE_NAMES.some((name) => request.cookies.has(name))) {
+      return slideCookie(request, rewritten, SESSION_COOKIE_NAMES, '/', SESSION_LIFETIME_MS);
+    }
+    return rewritten;
+  }
+
   if (path.startsWith('/admin')) {
     if (ADMIN_SESSION_COOKIE_NAMES.some((name) => request.cookies.has(name))) {
       return slideCookie(

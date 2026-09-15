@@ -13,9 +13,21 @@ import { resolveSession, type UserSession } from '@/lib/application/auth';
    the Edge middleware slides these same cookies and cannot import this file --
    it used to restate them from memory instead. Re-exported here so every
    existing importer keeps its one obvious source. */
-import { HANDSHAKE_COOKIE, isSecureDeployment, SESSION_COOKIE } from '@/lib/http/cookie-names';
+import {
+  GITHUB_CONNECT_COOKIE,
+  HANDSHAKE_COOKIE,
+  isSecureDeployment,
+  NOTION_CONNECT_COOKIE,
+  SESSION_COOKIE,
+} from '@/lib/http/cookie-names';
 
-export { HANDSHAKE_COOKIE, isSecureDeployment, SESSION_COOKIE };
+export {
+  GITHUB_CONNECT_COOKIE,
+  HANDSHAKE_COOKIE,
+  isSecureDeployment,
+  NOTION_CONNECT_COOKIE,
+  SESSION_COOKIE,
+};
 
 export function appBaseUrl(): string {
   const url = process.env.APP_BASE_URL;
@@ -25,6 +37,24 @@ export function appBaseUrl(): string {
 
 export function callbackUrl(provider: string): string {
   return `${appBaseUrl()}/api/auth/${provider}/callback`;
+}
+
+/**
+ * Where GitHub sends the browser after the repository-import consent. Must
+ * be registered on the GitHub App alongside the login callback: GitHub Apps
+ * match callback URLs exactly.
+ */
+export function githubConnectCallbackUrl(): string {
+  return `${callbackUrl('github')}/connect`;
+}
+
+/**
+ * Where Notion sends the browser after the page-import consent. Notion is
+ * not a login provider, so this is the one URL registered on the public
+ * integration.
+ */
+export function notionConnectCallbackUrl(): string {
+  return `${callbackUrl('notion')}/connect`;
 }
 
 interface CookieOptions {
@@ -57,6 +87,28 @@ export function setHandshakeCookie(response: NextResponse, value: string, expire
 
 export function clearHandshakeCookie(response: NextResponse): void {
   response.cookies.set(HANDSHAKE_COOKIE, '', { ...baseCookieOptions(), maxAge: 0 });
+}
+
+export function setGithubConnectCookie(response: NextResponse, value: string, expiresAt: number): void {
+  response.cookies.set(GITHUB_CONNECT_COOKIE, value, {
+    ...baseCookieOptions(),
+    expires: new Date(expiresAt),
+  });
+}
+
+export function clearGithubConnectCookie(response: NextResponse): void {
+  response.cookies.set(GITHUB_CONNECT_COOKIE, '', { ...baseCookieOptions(), maxAge: 0 });
+}
+
+export function setNotionConnectCookie(response: NextResponse, value: string, expiresAt: number): void {
+  response.cookies.set(NOTION_CONNECT_COOKIE, value, {
+    ...baseCookieOptions(),
+    expires: new Date(expiresAt),
+  });
+}
+
+export function clearNotionConnectCookie(response: NextResponse): void {
+  response.cookies.set(NOTION_CONNECT_COOKIE, '', { ...baseCookieOptions(), maxAge: 0 });
 }
 
 /**
@@ -104,19 +156,30 @@ export async function requireSession(returnTo: string): Promise<UserSession> {
  * A cross-site form post carries the attacker's Origin, or none at all on some
  * clients; both are refused. SameSite=Lax already blocks the session cookie
  * from riding along, this closes the login-CSRF case as well.
+ *
+ * Written against a header lookup rather than a request or a `headers()` bag,
+ * because both callers exist: server actions read the ambient bag, Route
+ * Handlers hold a `NextRequest`. The rule had been copied verbatim into
+ * `app/api/v1/api-keys/principal.ts`, which is one place too many for a
+ * security check to be corrected in.
  */
-export async function isSameOrigin(): Promise<boolean> {
-  const headerBag = await headers();
-  const origin = headerBag.get('origin');
+export function isSameOriginHeaders(header: (name: string) => string | null): boolean {
+  const origin = header('origin');
   if (origin) return origin === appBaseUrl();
 
-  const referer = headerBag.get('referer');
+  const referer = header('referer');
   if (!referer) return false;
   try {
     return new URL(referer).origin === new URL(appBaseUrl()).origin;
   } catch {
     return false;
   }
+}
+
+/** The same guard against the ambient request, for server actions and pages. */
+export async function isSameOrigin(): Promise<boolean> {
+  const headerBag = await headers();
+  return isSameOriginHeaders((name) => headerBag.get(name));
 }
 
 /**

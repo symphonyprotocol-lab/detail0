@@ -5,7 +5,7 @@
  * session, then check user and workspace state). Always reads the primary --
  * permission state must not come from a replica (architecture.md 16).
  */
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import {
   isAccountUsable,
   isSessionLive,
@@ -14,6 +14,7 @@ import {
   workspaceInitial,
 } from '@/lib/domain/auth';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import { workspacePlanVersion } from '@/lib/application/plans/billing';
 import { sessionTokenHash } from '@/lib/application/auth/session-token';
 
 export interface SessionUser {
@@ -81,22 +82,52 @@ export async function resolveSession(
     })
     .from(schema.workspaceMember)
     .innerJoin(schema.workspace, eq(schema.workspace.id, schema.workspaceMember.workspaceId))
+    /*
+     * The same rule `workspacePlanVersion` (lib/application/plans/billing.ts)
+     * and `planWindow` (lib/application/plans/quota.ts) apply: a subscription
+     * sets the plan only while its own period contains now. `status = 'active'`
+     * alone is not that rule -- a row whose period has lapsed but whose status
+     * nobody has moved yet kept printing "Pro" in the sidebar and on the
+     * settings screen while billing and the quota transaction had already
+     * fallen back to Free, so the badge sat beside Free's price and Free's
+     * allowance. Plan identity has one definition; this is it.
+     */
     .leftJoin(
       schema.subscription,
       and(
         eq(schema.subscription.workspaceId, schema.workspace.id),
         eq(schema.subscription.status, 'active'),
+        lte(schema.subscription.periodStart, sql`now()`),
+        gte(schema.subscription.periodEnd, sql`now()`),
       ),
     )
     .leftJoin(schema.planVersion, eq(schema.planVersion.id, schema.subscription.planVersionId))
     .leftJoin(schema.plan, eq(schema.plan.id, schema.planVersion.planId))
     .where(eq(schema.workspaceMember.userId, row.userId))
     /* Oldest membership first, id as tiebreak: a user in several workspaces
-       must land in the same one on every request. */
-    .orderBy(asc(schema.workspaceMember.createdAt), asc(schema.workspaceMember.workspaceId))
+       must land in the same one on every request. The furthest period end
+       breaks a tie between two live subscriptions, which is the one billing
+       picks, so the two never disagree. */
+    .orderBy(
+      asc(schema.workspaceMember.createdAt),
+      asc(schema.workspaceMember.workspaceId),
+      desc(schema.subscription.periodEnd),
+    )
     .limit(1);
 
   if (!workspace) return null;
+
+  /*
+   * No subscription decides this workspace's plan, so the plan is whatever
+   * billing falls back to: the newest Free version, with Free's allowance.
+   * Naming the tier here and leaving the allowance at zero printed "Free"
+   * beside "0 calls" on the sidebar and the settings screen for every
+   * workspace without a live subscription -- a lapsed one, or one whose Free
+   * subscription row was never written -- while the quota transaction was
+   * happily granting Free's thousand. One definition, so read it from the
+   * one place that has it.
+   */
+  const fallback = workspace.planId === null ? await workspacePlanVersion(workspace.id) : null;
 
   /* Sliding expiry (lib/domain/auth.ts): a use inside the window moves it. */
   const expiresAt = shouldTouchSession(row, now) ? sessionExpiryFrom(now) : row.expiresAt;
@@ -121,9 +152,9 @@ export async function resolveSession(
       name: workspace.name,
       initial: workspaceInitial(workspace.name),
       role: workspace.role,
-      planId: workspace.planId ?? 'free',
-      planName: workspace.planName ?? 'Free',
-      monthlyCalls: workspace.monthlyCalls ?? 0,
+      planId: workspace.planId ?? fallback?.planId ?? 'free',
+      planName: workspace.planName ?? fallback?.planName ?? 'Free',
+      monthlyCalls: workspace.monthlyCalls ?? fallback?.monthlyCalls ?? 0,
     },
   };
 }

@@ -326,16 +326,20 @@ export function ExportLink({
   resource,
   query,
   status,
+  period,
   label,
 }: {
   resource: string;
   query?: string;
   status?: string;
+  /** A settlement period; only that export reads it. */
+  period?: string;
   label: string;
 }) {
   const params = new URLSearchParams();
   if (query) params.set('q', query);
   if (status && status !== 'all') params.set('status', status);
+  if (period) params.set('period', period);
   const suffix = params.size > 0 ? `?${params.toString()}` : '';
 
   return (

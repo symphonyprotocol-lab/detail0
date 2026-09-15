@@ -11,9 +11,17 @@ import {
   type PlatformAction as Action,
 } from './platform-library-shared';
 import {
-  PLATFORM_SOURCE_TYPES,
+  formatBytes,
+  PdfUploadField,
+  usePdfUploads,
+  type PrepareUploads,
+} from '@/components/dashboard/pdf-uploader';
+import {
+  INDEX_DEPTHS,
+  PLATFORM_LIBRARY_TYPES,
   REFRESH_POLICIES,
-  type PlatformSourceType,
+  UPLOAD_LIMITS,
+  type PlatformLibraryType,
 } from '@/lib/domain/library';
 import { useI18n } from '@/lib/i18n/client';
 import { fill } from '@/lib/i18n/format';
@@ -27,7 +35,14 @@ import { fill } from '@/lib/i18n/format';
  * workspace by rule (architecture.md 5.4), and starts as a draft because
  * nothing has been fetched yet.
  */
-export function CreatePlatformLibraryControl({ action }: { action: Action }) {
+export function CreatePlatformLibraryControl({
+  action,
+  prepare,
+}: {
+  action: Action;
+  /** Upload tickets for a pdf library's files; the browser uploads directly. */
+  prepare: PrepareUploads;
+}) {
   const { t } = useI18n();
   const p = t.admin.platformLibraries;
   const [open, setOpen] = useState(false);
@@ -49,6 +64,7 @@ export function CreatePlatformLibraryControl({ action }: { action: Action }) {
         <CreateDialog
           key={attempt}
           action={action}
+          prepare={prepare}
           onClose={() => {
             setOpen(false);
             setAttempt((value) => value + 1);
@@ -59,13 +75,24 @@ export function CreatePlatformLibraryControl({ action }: { action: Action }) {
   );
 }
 
-function CreateDialog({ action, onClose }: { action: Action; onClose: () => void }) {
+function CreateDialog({
+  action,
+  prepare,
+  onClose,
+}: {
+  action: Action;
+  prepare: PrepareUploads;
+  onClose: () => void;
+}) {
   const { t } = useI18n();
   const p = t.admin.platformLibraries;
   const f = p.form;
   const [state, submit, pending] = useActionState(action, null);
   const formId = useId();
   const done = state?.ok === true;
+  /* A pdf library's files go to the store as they are picked; the form only
+     ever posts the manifest of what landed (`components/dashboard/pdf-uploader`). */
+  const uploads = usePdfUploads(prepare);
 
   /*
    * The source type is the only field the rest of the form depends on: it
@@ -74,7 +101,8 @@ function CreateDialog({ action, onClose }: { action: Action; onClose: () => void
    * prefix and take only the slug, rather than let the operator type a prefix
    * the server will refuse.
    */
-  const [sourceType, setSourceType] = useState<PlatformSourceType>('website');
+  const [sourceType, setSourceType] = useState<PlatformLibraryType>('website');
+  const isPdf = sourceType === 'pdf';
 
   return (
     <ConsoleDialog
@@ -94,7 +122,12 @@ function CreateDialog({ action, onClose }: { action: Action; onClose: () => void
             <ConsoleButton onClick={onClose} disabled={dismissBlocked}>
               {f.cancel}
             </ConsoleButton>
-            <ConsoleButton variant="primary" type="submit" form={formId} disabled={pending}>
+            <ConsoleButton
+              variant="primary"
+              type="submit"
+              form={formId}
+              disabled={pending || (isPdf && !uploads.settled)}
+            >
               {pending ? (
                 <>
                   <SpinnerIcon size={14} className="motion-safe:animate-spin" />
@@ -181,25 +214,30 @@ function CreateDialog({ action, onClose }: { action: Action; onClose: () => void
               <select
                 name="sourceType"
                 value={sourceType}
-                onChange={(event) => setSourceType(event.target.value as PlatformSourceType)}
+                onChange={(event) => setSourceType(event.target.value as PlatformLibraryType)}
                 className={FIELD}
               >
-                {PLATFORM_SOURCE_TYPES.map((type) => (
+                {PLATFORM_LIBRARY_TYPES.map((type) => (
                   <option key={type} value={type}>
                     {p.sourceTypes[type]}
                   </option>
                 ))}
               </select>
             </Field>
-            <Field label={f.fieldLocation} hint={f.hintLocation}>
-              <input
-                name="location"
-                required
-                maxLength={500}
-                placeholder={f.placeholderLocation}
-                className={FIELD}
-              />
-            </Field>
+            {isPdf ? (
+              /* Derived server side: the prefix the uploads were keyed under. */
+              <input type="hidden" name="location" value="" />
+            ) : (
+              <Field label={f.fieldLocation} hint={f.hintLocation}>
+                <input
+                  name="location"
+                  required
+                  maxLength={500}
+                  placeholder={f.placeholderLocation}
+                  className={FIELD}
+                />
+              </Field>
+            )}
 
             <Field label={f.fieldTag}>
               <input
@@ -229,16 +267,50 @@ function CreateDialog({ action, onClose }: { action: Action; onClose: () => void
             />
           </Field>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label={f.fieldRefresh}>
-              <select name="refreshPolicy" defaultValue="daily" className={FIELD}>
-                {REFRESH_POLICIES.map((policy) => (
-                  <option key={policy} value={policy}>
-                    {p.refreshPolicies[policy]}
+          {sourceType === 'website' || sourceType === 'llms_txt' ? (
+            <Field
+              label={t.admin.platformLibraryDetail.sourceDialog.fieldIndexDepth}
+              hint={t.admin.platformLibraryDetail.sourceDialog.hintIndexDepth}
+            >
+              <select name="indexDepth" defaultValue="0" className={FIELD}>
+                {INDEX_DEPTHS.map((depth) => (
+                  <option key={depth} value={depth}>
+                    {t.admin.platformLibraryDetail.sourceDialog.indexDepths[depth]}
                   </option>
                 ))}
               </select>
             </Field>
+          ) : null}
+
+          {isPdf ? (
+            <>
+              <PdfUploadField
+                state={uploads}
+                label={f.fieldFiles}
+                hint={fill(f.hintFiles, {
+                  max: String(UPLOAD_LIMITS.maxFiles),
+                  size: formatBytes(UPLOAD_LIMITS.maxFileBytes),
+                })}
+              />
+              <input type="hidden" name="uploads" value={uploads.manifest} />
+            </>
+          ) : null}
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {isPdf ? (
+              /* Always manual for a pdf library; the server forces it too. */
+              <input type="hidden" name="refreshPolicy" value="manual" />
+            ) : (
+              <Field label={f.fieldRefresh}>
+                <select name="refreshPolicy" defaultValue="daily" className={FIELD}>
+                  {REFRESH_POLICIES.map((policy) => (
+                    <option key={policy} value={policy}>
+                      {p.refreshPolicies[policy]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
             <Field label={f.reason}>
               <input
                 name="reason"
@@ -250,7 +322,9 @@ function CreateDialog({ action, onClose }: { action: Action; onClose: () => void
             </Field>
           </div>
 
-          <p className="text-[11px] leading-[1.55] tracking-[-0.023em] text-muted">{f.note}</p>
+          <p className="text-[11px] leading-[1.55] tracking-[-0.023em] text-muted">
+            {isPdf ? f.pdfNote : f.note}
+          </p>
         </form>
       )}
     </ConsoleDialog>

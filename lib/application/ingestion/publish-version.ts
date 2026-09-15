@@ -4,7 +4,8 @@
  * Five statements, one transaction, no exceptions: verify the version belongs
  * to the library and is publishable, mark it published, move
  * `library.current_version_id`, supersede the version it replaced, and record
- * the publication. Any failure rolls the whole thing back, which is what makes
+ * the publication -- plus, for a billed build, the usage event that pays for
+ * it (library-build-billing.md 4.4). Any failure rolls the whole thing back, which is what makes
  * "a query never mixes chunks from two versions" true rather than likely -- a
  * reader fixes `current_version_id` at the start of a request and every chunk
  * it then reads belongs to that version.
@@ -19,6 +20,11 @@
 import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 import { IngestionFailure } from '@/lib/domain/ingestion';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
+import {
+  commitBuildCharge,
+  type BuildCharge,
+  type SettledBuildCharge,
+} from '@/lib/application/plans/build-quota';
 
 export interface PublishResult {
   versionId: string;
@@ -28,6 +34,17 @@ export interface PublishResult {
 export async function publishVersion(input: {
   libraryId: string;
   versionId: string;
+  /**
+   * The build's seat in the call ledger, when the build was the owner's
+   * bill. library-build-billing.md 4.4: the usage event is the sixth
+   * statement of this transaction, so a version is never published unbilled
+   * and never billed unpublished.
+   */
+  charge?: {
+    charge: BuildCharge;
+    settled: SettledBuildCharge;
+    operation: string;
+  } | null;
 }): Promise<PublishResult> {
   const database = db();
 
@@ -139,6 +156,16 @@ export async function publishVersion(input: {
             ne(schema.libraryVersion.id, version.id),
           ),
         );
+    }
+
+    /* 5. The build is billed, with the publication it paid for. */
+    if (input.charge) {
+      await commitBuildCharge(tx, input.charge.charge, {
+        libraryId: input.libraryId,
+        versionId: version.id,
+        operation: input.charge.operation,
+        settled: input.charge.settled,
+      });
     }
 
     return { versionId: version.id, supersededVersionId: superseded };

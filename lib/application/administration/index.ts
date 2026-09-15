@@ -22,6 +22,7 @@ export { qrCodeSvg } from './qr-code';
 export { listConsoleUsers, type ConsoleUserRow, type UserStatusFilter } from './list-users';
 export {
   listAuditEntries,
+  recentAuditEntries,
   type AuditList,
   type AuditListInput,
   type AuditResultFilter,
@@ -30,11 +31,27 @@ export {
 export {
   listUserLibraries,
   listClaims,
+  pendingReviewQueue,
   type ConsoleLibraryRow,
   type ConsoleClaimRow,
   type LibraryReviewFilter,
   type ClaimFilter,
 } from './list-libraries';
+export {
+  consoleOverview,
+  healthNeedsAttention,
+  type ConsoleOverview,
+  type OverviewHealth,
+  type OverviewInput,
+  type ReviewQueueState,
+  type WindowedCount,
+} from './overview';
+export {
+  listRefreshQueue,
+  type RefreshQueue,
+  type RefreshQueueCounts,
+  type RefreshQueueRow,
+} from './refresh-queue';
 export {
   createPlatformLibrary,
   deletePlatformLibrary,
@@ -47,6 +64,8 @@ export {
   updatePlatformLibrary,
   addPlatformLibrarySource,
   updatePlatformLibrarySource,
+  updatePlatformLibraryFiles,
+  type UpdatePlatformFilesResult,
   rebuildPlatformLibraryProfile,
   removePlatformLibrarySource,
   PLATFORM_STATUS_FILTERS,
@@ -86,9 +105,13 @@ export {
   revokeAdministratorSessions,
   offerEnrolment,
   completeEnrolment,
+  hasAnyAdministrator,
+  offerBootstrap,
+  bootstrapFirstAdministrator,
   type AdministratorRow,
   type InviteResult,
   type EnrolmentOffer,
+  type BootstrapOffer,
 } from './manage-administrators';
 export {
   activeLlmConfig,
@@ -121,3 +144,30 @@ export {
   type RetrievalConfiguration,
   type UpdateRetrievalConfigInput,
 } from './manage-retrieval-config';
+export {
+  getUserLibrary,
+  reviewUserLibrary,
+  MANUAL_REVIEW_STAGE,
+  type ReviewResult,
+  type UserLibraryDetail,
+  type UserLibraryReviewView,
+} from './review-libraries';
+export {
+  generateSettlements,
+  isSettlementStatusFilter,
+  listSettlements,
+  periodParam,
+  settlementPeriods,
+  settlementSummary,
+  SETTLEMENT_STATUS_FILTERS,
+  type ConsoleSettlementRow,
+  type GenerateSettlementsResult,
+  type SettlementList,
+  type SettlementListInput,
+  type SettlementPeriodView,
+  type SettlementStatus,
+  type SettlementStatusFilter,
+  type SettlementSummary,
+} from './settlements';
+export { resetAdministratorMfa, type MfaResetResult } from './manage-administrators';
+export { revokeUserApiKey, revokeUserSession, type UserRevocation } from './manage-users';

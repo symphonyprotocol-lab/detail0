@@ -7,8 +7,15 @@
  * Ownership vs rights, deliberately split: `owner_workspace_id` is set to the
  * creator so the dashboard and private visibility work, but that is *access*,
  * not *rights*. Sources that requirement.md 7.3 gates behind a claim (github,
- * website, llms_txt) do not earn until a claim verifies -- enforced where the
- * earning event is written, not here.
+ * website, llms_txt, openapi) do not earn until a claim verifies -- enforced
+ * where the earning event is written, not here.
+ *
+ * For the three sources fetched from a host -- website, llms_txt, openapi --
+ * control of that host is proven *before* the library exists: the wizard
+ * starts a domain challenge (domain-verification.ts) and creation refuses
+ * anything but a verified, unspent challenge for the source's host. The
+ * challenge is spent here, inside the same transaction that writes the rows,
+ * and copied onto `library_claim` so the library is born claimed.
  */
 import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
@@ -16,44 +23,80 @@ import { uuidv7 } from '@/lib/domain/id';
 import {
   idNamespace,
   isConnectedSourceType,
+  isUploadSourceType,
+  libraryDescription,
+  libraryLanguage,
   normalizeLocation,
   normalizePublicId,
+  parseIndexDepth,
   parseUploadManifest,
+  PlatformLibraryRefused,
   uploadPrefix,
   type ConnectedSourceType,
   type UploadedFile,
 } from '@/lib/domain/library';
+import { checkGithubImport, type CheckGithubImport } from '@/lib/application/auth/github-connection';
+import { checkNotionImport, type CheckNotionImport } from '@/lib/application/auth/notion-connection';
+import { NOTION_SOURCE_USER_KEY } from '@/lib/domain/notion';
+import { requiresDomainVerification } from '@/lib/domain/domain-verification';
+import { consumeDomainVerification } from './domain-verification';
 import { isObjectStoreConfigured, objectStore, type ObjectStore } from '@/lib/infrastructure/objects/store';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { canManageLibraries, type WorkspaceRole } from './delete';
 import { PLAN_VERSION_NEWEST_FIRST } from '@/lib/application/plans/configuration';
+import { assertBuildAffordable } from '@/lib/application/plans/build-quota';
 
 export interface CreateWorkspaceLibraryInput {
   workspaceId: string;
   role: WorkspaceRole;
+  /**
+   * The signed-in account. Required for github, whose repository must be
+   * one this person owns on GitHub (lib/domain/github.ts), and for notion,
+   * whose page is read with this person's own grant (lib/domain/notion.ts);
+   * both checks read a connected grant that belongs to the user, not the
+   * workspace.
+   */
+  userId?: string;
   title: string;
   visibility: 'public' | 'private';
   sourceType: ConnectedSourceType;
-  /** Ignored for pdf, whose location is where its uploads sit. */
+  /** Ignored for pdf and markdown, whose location is where their uploads sit. */
   location: string;
   /** Ignored for github, whose id is the repository. */
   slug: string;
   /**
-   * For pdf only: the manifest the wizard posted after uploading, as parsed
-   * JSON. Checked against this workspace's key prefix and against the store
-   * before a row is written, because a form post can say anything.
+   * For pdf and markdown only: the manifest the wizard posted after
+   * uploading, as parsed JSON. Checked against this workspace's key prefix
+   * and against the store before a row is written, because a form post can
+   * say anything. Absent, or a manifest with no files, creates an empty
+   * upload library: the files come later through `updateLibraryFiles`, and
+   * no build is queued until they do.
    */
   uploads?: unknown;
+  /** For website/llms_txt: how many child-page or nested-index levels to follow. */
+  indexDepth?: unknown;
+  /**
+   * For website, llms_txt and openapi: the verified domain challenge for the
+   * source's host, as `startDomainVerification` issued it and
+   * `checkDomainVerification` verified it. Required for those types; spent
+   * on this library.
+   */
+  domainVerificationId?: unknown;
   description?: string | null;
   language?: string | null;
   /** The store the uploads are confirmed in; the configured one by default. */
   store?: Pick<ObjectStore, 'head'>;
+  /** The repository check for github; GitHub itself by default. */
+  checkRepository?: CheckGithubImport;
+  /** The page check for notion; Notion itself by default. */
+  checkPage?: CheckNotionImport;
 }
 
 export interface CreateWorkspaceLibraryResult {
   libraryId: string;
   publicId: string;
-  operationId: string;
+  /** The queued first build. Null for an upload library created without files. */
+  operationId: string | null;
 }
 
 export async function createWorkspaceLibrary(
@@ -70,20 +113,45 @@ export async function createWorkspaceLibrary(
   if (title.length === 0 || title.length > 120) {
     throw new AppError('invalid_request', 'a library needs a title (1-120 characters)');
   }
+
+  /*
+   * The same rule the metadata form applies (`editWorkspaceLibrary`), not a
+   * second set of numbers: the wizard's `maxLength` attributes are a courtesy
+   * to the person typing, and the action behind them is a public endpoint.
+   * Without this a description longer than the edit path allows was stored,
+   * published, and then unsavable through the only form that could shorten it.
+   */
+  let description: string | null;
+  let language: string | null;
+  try {
+    description = libraryDescription(input.description);
+    language = libraryLanguage(input.language);
+  } catch (error) {
+    if (error instanceof PlatformLibraryRefused) {
+      throw new AppError('invalid_request', 'the description or language is longer than allowed');
+    }
+    throw error;
+  }
   if (!isConnectedSourceType(input.sourceType)) {
     throw new AppError('invalid_request', 'unsupported source type');
   }
 
   /*
-   * A pdf source's location is derived, not typed: the prefix its files were
-   * uploaded under. Each file is confirmed to exist in the store at the size
-   * the manifest claims, so a build never starts on an upload that failed
-   * halfway or a manifest a client edited.
+   * An upload source's location is derived, not typed: the prefix its files
+   * were uploaded under. Each file is confirmed to exist in the store at the
+   * size the manifest claims, so a build never starts on an upload that
+   * failed halfway or a manifest a client edited.
    */
+  const isUpload = isUploadSourceType(input.sourceType);
   let uploaded: UploadedFile[] = [];
   let location: string | null;
-  if (input.sourceType === 'pdf') {
-    const manifest = parseUploadManifest(input.uploads, input.workspaceId);
+  /* What the source row remembers besides its location. */
+  let sourceConfig: Record<string, unknown> = {};
+  if (isUploadSourceType(input.sourceType)) {
+    const manifest =
+      input.uploads === undefined || input.uploads === null
+        ? { batchId: uuidv7(), files: [] }
+        : parseUploadManifest(input.uploads, input.workspaceId, input.sourceType);
     if (!manifest) {
       throw new AppError('invalid_request', 'the upload manifest is not valid');
     }
@@ -97,6 +165,48 @@ export async function createWorkspaceLibrary(
     throw new AppError('invalid_request', 'the source location is not valid for this source type');
   }
 
+  /*
+   * A repository is imported from the person's own GitHub account and from
+   * nowhere else: public, not a fork, owned by the account whose grant is on
+   * file. The check re-reads the repository with that grant rather than
+   * trusting the wizard's list, and the location is rewritten to GitHub's
+   * spelling so the library id follows the repository, not the form post.
+   * The repository id is kept on the source for the claim flow to compare
+   * against (architecture.md 5.4).
+   */
+  if (input.sourceType === 'github') {
+    if (!input.userId) {
+      throw new AppError('access_denied', 'a signed-in account is needed to import a repository');
+    }
+    const check = await (input.checkRepository ?? checkGithubImport)({
+      userId: input.userId,
+      location,
+    });
+    location = check.location;
+    sourceConfig = { repositoryId: check.repositoryId };
+  } else if (input.sourceType === 'notion') {
+    /*
+     * A Notion page is read with the person's own grant and no other: the
+     * check re-reads it with that grant, the location is rewritten to the
+     * page's own URL, and the account is remembered on the source so every
+     * later build resolves the same grant (build-version.ts). A page the
+     * grant cannot see is refused here, not minutes later by the build.
+     */
+    if (!input.userId) {
+      throw new AppError('access_denied', 'a signed-in account is needed to import a Notion page');
+    }
+    const check = await (input.checkPage ?? checkNotionImport)({
+      userId: input.userId,
+      location,
+    });
+    location = check.location;
+    sourceConfig = { pageId: check.pageId, [NOTION_SOURCE_USER_KEY]: input.userId };
+  } else if (isUpload) {
+    sourceConfig = { files: uploaded };
+  } else if (input.sourceType === 'website' || input.sourceType === 'llms_txt') {
+    sourceConfig = { indexDepth: parseIndexDepth(input.indexDepth) };
+  }
+
   const publicId =
     input.sourceType === 'github'
       ? normalizePublicId('github', location)
@@ -105,13 +215,38 @@ export async function createWorkspaceLibrary(
     throw new AppError('invalid_request', 'the library id is not valid');
   }
 
+  /* Refused before anything is counted or locked: a missing challenge is
+     the wizard skipping a step, and the answer should not wait on the plan. */
+  if (requiresDomainVerification(input.sourceType) && typeof input.domainVerificationId !== 'string') {
+    throw new AppError(
+      'claim_verification_failed',
+      'the source domain must be verified before this library is created',
+      'challenge_not_found',
+    );
+  }
+
   const database = db();
 
   const limit = await libraryLimit(input.workspaceId);
+  /*
+   * library-build-billing.md 4.1: a workspace that cannot cover a build's
+   * base fee is refused before a row exists, rather than handed a library
+   * whose first build can only fail. Read before the lock, like the limit:
+   * the reservation itself is taken by the worker under the lock.
+   */
+  if (!isUpload || uploaded.length > 0) {
+    await assertBuildAffordable({
+      workspaceId: input.workspaceId,
+      fetchesPages: requiresDomainVerification(input.sourceType),
+    });
+  }
+  const now = new Date();
 
   const libraryId = uuidv7();
   const sourceId = uuidv7();
-  const operationId = uuidv7();
+  /* Nothing to build yet for an empty upload library; `source_empty` from a
+     build that could only fail is not information the operator lacks. */
+  const operationId = isUpload && uploaded.length === 0 ? null : uuidv7();
 
   try {
     await database.transaction(async (tx) => {
@@ -150,8 +285,8 @@ export async function createWorkspaceLibrary(
         id: libraryId,
         publicId,
         title,
-        description: input.description?.trim() || null,
-        language: input.language?.trim() || null,
+        description,
+        language,
         ownerWorkspaceId: input.workspaceId,
         isPlatformLibrary: false,
         visibility: input.visibility,
@@ -163,15 +298,26 @@ export async function createWorkspaceLibrary(
         libraryId,
         type: input.sourceType,
         location,
-        config: input.sourceType === 'pdf' ? { files: uploaded } : {},
+        config: sourceConfig,
       });
-      await tx.insert(schema.workflowOperation).values({
-        id: operationId,
-        libraryId,
-        operationType: 'ingest',
-        sourceDigest: null,
-        status: 'pending',
-      });
+      if (requiresDomainVerification(input.sourceType)) {
+        await consumeDomainVerification(tx, {
+          workspaceId: input.workspaceId,
+          verificationId: input.domainVerificationId,
+          location: location!,
+          libraryId,
+          now,
+        });
+      }
+      if (operationId) {
+        await tx.insert(schema.workflowOperation).values({
+          id: operationId,
+          libraryId,
+          operationType: 'ingest',
+          sourceDigest: null,
+          status: 'pending',
+        });
+      }
     });
   } catch (error) {
     /* The driver wraps the pg error; the constraint name sits on the cause. */
@@ -188,7 +334,11 @@ export async function createWorkspaceLibrary(
   return { libraryId, publicId, operationId };
 }
 
-async function confirmUploads(files: UploadedFile[], store?: Pick<ObjectStore, 'head'>): Promise<void> {
+export async function confirmUploads(
+  files: UploadedFile[],
+  store?: Pick<ObjectStore, 'head'>,
+): Promise<void> {
+  if (files.length === 0) return;
   if (!store && !isObjectStoreConfigured()) {
     throw new AppError('provider_unavailable', 'no object storage is configured');
   }

@@ -32,7 +32,7 @@ export async function UsageChart({ days }: { days: UsageChartDay[] }) {
           {ticks.map((tick, index) => (
             <span
               key={`${tick}-${index}`}
-              className="absolute right-[7px] -translate-y-1/2 text-[10px] leading-none tracking-[-0.023em] text-muted"
+              className="absolute right-[7px] -translate-y-1/2 text-[10px] leading-none text-muted"
               style={{ top: (index * PLOT_HEIGHT) / (ticks.length - 1) }}
             >
               {tick}
@@ -42,14 +42,14 @@ export async function UsageChart({ days }: { days: UsageChartDay[] }) {
 
         <div className="min-w-0 flex-1">
           <div
-            className="relative border-b-2 border-l-2 border-line"
+            className="relative border-b border-l border-line"
             style={{ height: PLOT_HEIGHT }}
           >
             {ticks.slice(0, -1).map((tick, index) => (
               <span
                 key={`${tick}-${index}`}
                 aria-hidden
-                className="absolute inset-x-0 border-t-2 border-line"
+                className="absolute inset-x-0 border-t border-line"
                 style={{ top: (index * PLOT_HEIGHT) / (ticks.length - 1) }}
               />
             ))}
@@ -74,7 +74,7 @@ export async function UsageChart({ days }: { days: UsageChartDay[] }) {
             {days.map((day) => (
               <li
                 key={day.label}
-                className="min-w-0 flex-1 text-center text-[10px] tracking-[-0.023em] whitespace-nowrap text-muted"
+                className="min-w-0 flex-1 text-center text-[10px] whitespace-nowrap text-muted"
               >
                 {day.label}
               </li>
@@ -83,7 +83,7 @@ export async function UsageChart({ days }: { days: UsageChartDay[] }) {
         </div>
       </div>
 
-      <ul className="mt-3 flex justify-center gap-3.5 text-[11px] tracking-[-0.023em] text-muted">
+      <ul className="mt-3 flex justify-center gap-3.5 text-[11px] text-muted">
         <li className="flex items-center gap-1.5">
           <span aria-hidden className="size-1.5 rounded-full bg-barstrong" />
           {o.seriesRetrieval}

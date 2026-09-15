@@ -37,8 +37,11 @@ describe('upload manifest', () => {
     expect(parseUploadManifest({ batchId: BATCH, files: [{ id: 'x/y', name: 'a', size: 1 }] }, WS)).toBeNull();
   });
 
-  it('refuses empty, oversized and over-long manifests', () => {
-    expect(parseUploadManifest({ batchId: BATCH, files: [] }, WS)).toBeNull();
+  it('accepts an empty manifest: a PDF library may be created before its files', () => {
+    expect(parseUploadManifest({ batchId: BATCH, files: [] }, WS)).toEqual({ batchId: BATCH, files: [] });
+  });
+
+  it('refuses oversized and over-long manifests', () => {
     expect(
       parseUploadManifest(
         { batchId: BATCH, files: [{ id: FILE, name: 'a', size: UPLOAD_LIMITS.maxFileBytes + 1 }] },

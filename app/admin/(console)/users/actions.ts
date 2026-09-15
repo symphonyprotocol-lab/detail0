@@ -2,7 +2,11 @@
 
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
-import { setUserAccountStatus } from '@/lib/application/administration';
+import {
+  revokeUserApiKey,
+  revokeUserSession,
+  setUserAccountStatus,
+} from '@/lib/application/administration';
 import {
   AdminChangeRefused,
   isUserAccountStatus,
@@ -69,4 +73,70 @@ export async function setUserStatusAction(
     );
     return { ok: false, error: 'invalid_input' };
   }
+}
+
+/**
+ * Revoke one session or one API key of an account. Same shape and the same
+ * checks as the status change: capability re-checked here, reason required,
+ * the use case writes the audit entry.
+ */
+export interface UserRevokeActionResult {
+  ok: boolean;
+  error?: Extract<AdminChangeError, 'not_found' | 'invalid_input' | 'reason_required'>;
+}
+
+async function revoke(
+  form: FormData,
+  kind: 'session' | 'key',
+): Promise<UserRevokeActionResult> {
+  const session = await requireAdminCapability('users');
+  const userId = String(form.get('userId') ?? '');
+  const targetId = String(form.get('targetId') ?? '');
+  const bag = await headers();
+
+  try {
+    const input = {
+      actor: {
+        administratorId: session.administratorId,
+        email: session.email,
+        clientAddress: clientAddress(bag),
+      },
+      userId,
+      targetId,
+      reason: String(form.get('reason') ?? ''),
+    };
+    if (kind === 'session') await revokeUserSession(input);
+    else await revokeUserApiKey(input);
+
+    revalidatePath(`/admin/users/${userId}`);
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof AdminChangeRefused) {
+      return {
+        ok: false,
+        error:
+          error.code === 'not_found' || error.code === 'reason_required'
+            ? error.code
+            : 'invalid_input',
+      };
+    }
+    console.error(
+      `user ${kind} revocation failed: ${error instanceof Error ? error.message : 'unknown'}`,
+    );
+    return { ok: false, error: 'invalid_input' };
+  }
+}
+
+export async function revokeUserSessionAction(
+  _previous: UserRevokeActionResult | null,
+  form: FormData,
+): Promise<UserRevokeActionResult> {
+  return revoke(form, 'session');
+}
+
+export async function revokeUserApiKeyAction(
+  _previous: UserRevokeActionResult | null,
+  form: FormData,
+): Promise<UserRevokeActionResult> {
+  return revoke(form, 'key');
 }

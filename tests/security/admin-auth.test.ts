@@ -56,6 +56,18 @@ describe('admin capabilities', () => {
     expect(roleAllows('support', 'platformLibraries')).toBe(false);
   });
 
+  /*
+   * Model and retrieval configuration is its own capability: a plan version
+   * is a price, a model entry is a provider endpoint that spends money.
+   */
+  it('names models apart from plans and gives it to the operator only', () => {
+    expect(ADMIN_CAPABILITIES).toContain('models');
+    expect(roleAllows('operator', 'models')).toBe(true);
+    expect(roleAllows('operator', 'plans')).toBe(true);
+    expect(roleAllows('reviewer', 'models')).toBe(false);
+    expect(roleAllows('support', 'models')).toBe(false);
+  });
+
   it('grants nothing at all when no role is assigned', () => {
     expect(capabilitiesForRoles([])).toEqual([]);
   });

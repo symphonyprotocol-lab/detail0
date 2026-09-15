@@ -7,6 +7,8 @@ import {
   Notice,
   PANEL,
   PageHeader,
+  StatusLabel,
+  type StatusTone,
 } from '@/components/dashboard/ui';
 import {
   ArrowRightIcon,
@@ -14,17 +16,52 @@ import {
   CircleCheckIcon,
   CircleDollarSignIcon,
   ClockIcon,
+  GitHubIcon,
   KeyIcon,
+  LinkIcon,
   MailIcon,
+  NotionIcon,
+  ReceiptIcon,
   ShieldCheckIcon,
 } from '@/components/ui/icons';
 import Link from 'next/link';
-import { dashboardCopy } from '@/lib/dashboard/demo-data';
-import { getMessages } from '@/lib/i18n/server';
+import { disconnectGithubAction, disconnectNotionAction } from './actions';
+import { accountProfile, githubConnectionFor, notionConnectionFor } from '@/lib/application/auth';
+import { listBillingDocuments } from '@/lib/application/billing';
+import { countWorkspaceLibraries, largestWorkspaceLibraryBytes } from '@/lib/application/libraries';
+import { isPaymentConnected, periodLastDay, workspacePlanVersion } from '@/lib/application/plans';
+import type { BillingDocumentStatus } from '@/lib/domain/billing';
+import { BYTES_PER_MB, bytesToMb, usdHeadline } from '@/lib/domain/plans';
+import { workspaceInitial } from '@/lib/domain/auth';
+import { workspaceUsage } from '@/lib/http/dashboard';
+import { isGithubConnectOutcome } from '@/lib/domain/github';
+import { isNotionConnectOutcome } from '@/lib/domain/notion';
+import { currentLocale, getMessages } from '@/lib/i18n/server';
+import { fill } from '@/lib/i18n/format';
+import { isNotionOAuthConfigured } from '@/lib/infrastructure/identity/notion';
+import { requireSession } from '@/lib/http/session';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).dashboard.settings.metaTitle };
 }
+
+/** The most recent documents the card lists; the provider's console has the rest. */
+const BILLING_ROWS = 12;
+
+/**
+ * The dot beside a document's status. Money in is live, money owed is
+ * pending, money that failed to arrive is blocked, and a document that no
+ * longer asks for anything -- refunded, voided -- is exempt.
+ */
+const BILLING_STATUS_TONE: Record<BillingDocumentStatus, StatusTone> = {
+  draft: 'pending',
+  open: 'pending',
+  paid: 'live',
+  failed: 'blocked',
+  uncollectible: 'blocked',
+  refunded: 'exempt',
+  void: 'exempt',
+};
 
 /** Card header: icon tile, title and sub-line, with an optional trailing slot. */
 function CardHead({
@@ -39,21 +76,238 @@ function CardHead({
   aside?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2.5 border-b-2 border-line px-5 py-4">
+    <div className="flex items-center gap-2.5 border-b border-line px-5 py-4">
       <IconTile>{icon}</IconTile>
       <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
-        <p className="text-[14px] leading-[1.5] tracking-[-0.025em] text-ink">{title}</p>
-        <p className="truncate text-[11px] tracking-[-0.023em] text-muted">{description}</p>
+        <p className="text-[14px] leading-[1.5] text-ink">{title}</p>
+        <p className="truncate text-[11px] text-muted">{description}</p>
       </div>
       {aside}
     </div>
   );
 }
 
-export default async function DashboardSettingsPage() {
-  const t = await getMessages();
+/**
+ * One provider row of the connections card. Connecting posts to the same
+ * route the wizard uses, landing back here with `?github=` or `?notion=`;
+ * disconnecting is a server action that forgets the sealed token.
+ */
+function ConnectionRow({
+  provider,
+  icon,
+  name,
+  note,
+  connectedAs,
+  connectedAt,
+  unavailable,
+  disconnect,
+  labels,
+  locale,
+}: {
+  provider: 'github' | 'notion';
+  icon: React.ReactNode;
+  name: string;
+  note: string;
+  connectedAs: string | null;
+  connectedAt: Date | null;
+  unavailable: boolean;
+  disconnect: () => Promise<void>;
+  labels: {
+    connectedAs: string;
+    connectedAt: string;
+    notConnected: string;
+    unavailable: string;
+    connect: string;
+    reconnect: string;
+    disconnect: string;
+  };
+  locale: string;
+}) {
+  const connected = connectedAt !== null;
+  const status = unavailable
+    ? labels.unavailable
+    : connected
+      ? [
+          connectedAs ? fill(labels.connectedAs, { name: connectedAs }) : null,
+          fill(labels.connectedAt, { date: connectedAt.toLocaleDateString(locale) }),
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : labels.notConnected;
+  return (
+    <li className="flex flex-wrap items-center gap-3 px-5 py-4">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-ink text-white">
+        {icon}
+      </span>
+      <span className="flex min-w-[200px] flex-1 flex-col gap-[3px]">
+        <span className="flex items-center gap-2 text-[13px] text-ink">
+          {name}
+          <Badge tone={connected ? 'brand' : 'neutral'}>{status}</Badge>
+        </span>
+        <span className="text-[11px] text-muted">{note}</span>
+      </span>
+      <span className="flex items-center gap-2">
+        {/* POST, same-origin, behind the session: the connect route refuses anything else. */}
+        {unavailable ? null : (
+          <form method="post" action={`/api/auth/${provider}/connect`}>
+            <input type="hidden" name="returnTo" value="/dashboard/settings" />
+            <button
+              type="submit"
+              className="h-8 rounded-md bg-brand px-3 text-[11px] font-medium text-white transition-colors hover:bg-brand/90"
+            >
+              {connected ? labels.reconnect : labels.connect}
+            </button>
+          </form>
+        )}
+        {connected ? (
+          <form action={disconnect}>
+            <button
+              type="submit"
+              className="h-8 rounded-md border border-line bg-card px-3 text-[11px] text-steel transition-colors hover:bg-subtle"
+            >
+              {labels.disconnect}
+            </button>
+          </form>
+        ) : null}
+      </span>
+    </li>
+  );
+}
+
+export default async function DashboardSettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ github?: string; notion?: string }>;
+}) {
+  const session = await requireSession('/dashboard/settings');
+  const workspaceId = session.workspace.id;
+  const [
+    t,
+    locale,
+    params,
+    github,
+    notion,
+    profile,
+    planVersion,
+    overview,
+    libraryCount,
+    largestBytes,
+    billing,
+  ] = await Promise.all([
+    getMessages(),
+    currentLocale(),
+    searchParams,
+    githubConnectionFor(session.user.id),
+    notionConnectionFor(session.user.id),
+    accountProfile(session.user.id),
+    workspacePlanVersion(workspaceId),
+    workspaceUsage(workspaceId),
+    countWorkspaceLibraries(workspaceId),
+    largestWorkspaceLibraryBytes(workspaceId),
+    listBillingDocuments({ workspaceId, limit: BILLING_ROWS }),
+  ]);
   const g = t.dashboard.settings;
-  const { account, plan, billingPeriod, usageMeters } = dashboardCopy(t);
+  const number = new Intl.NumberFormat(locale);
+  const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
+
+  /* The session already proved the user row exists; the profile read only
+     adds the join date and linked providers on top of it. */
+  const account = {
+    name: profile?.displayName ?? session.user.displayName,
+    initials: workspaceInitial(profile?.displayName ?? session.user.displayName),
+    email: profile?.email ?? session.user.email,
+    provider:
+      (profile?.providers ?? [])
+        .map((id) => g.providerNames[id as keyof typeof g.providerNames] ?? id)
+        .join(' · ') || '—',
+    joined: profile ? date.format(profile.createdAt) : '—',
+  };
+
+  const planNotes: Record<string, string> = g.planNotes;
+  const plan = {
+    /* The name comes from the same read as the price, the allowance and the
+       limits below it. Printing the session's copy beside this one's figures
+       is what let a lapsed subscription show "Pro" over Free's numbers; now
+       there is nothing left to disagree with. */
+    name: planVersion.planName,
+    price: usdHeadline(planVersion.priceMinor),
+    period: g.planPeriodMonth,
+    note: planNotes[planVersion.planId] ?? '',
+    perks: [
+      fill(g.planPerks.libraries, { count: number.format(planVersion.libraryLimit) }),
+      fill(g.planPerks.librarySize, { mb: number.format(bytesToMb(planVersion.librarySizeBytesLimit)) }),
+      fill(g.planPerks.calls, { count: number.format(planVersion.monthlyCalls) }),
+      fill(g.planPerks.apiKeys, { count: number.format(planVersion.apiKeyLimit) }),
+    ],
+  };
+
+  /*
+   * The window is half-open and stored in UTC; the last day inside it is what
+   * a person calls the end. `periodLastDay` is that subtraction and the UTC
+   * formatter keeps the server's timezone out of it -- the overview screen
+   * prints the same period from the same two, and used to print a different
+   * day for it.
+   */
+  const utcDate = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' });
+  const billingPeriod = fill(g.billingPeriod, {
+    start: utcDate.format(new Date(overview.periodStart)),
+    end: utcDate.format(periodLastDay(new Date(overview.periodEnd))),
+  });
+
+  const percent = (used: number, limit: number) =>
+    limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+  const largestMb = largestBytes / BYTES_PER_MB;
+  const usageMeters = [
+    {
+      ...g.meters.libraries,
+      value: fill(g.meters.libraries.value, {
+        used: number.format(libraryCount),
+        limit: number.format(planVersion.libraryLimit),
+      }),
+      percent: percent(libraryCount, planVersion.libraryLimit),
+    },
+    {
+      ...g.meters.largest,
+      value: fill(g.meters.largest.value, {
+        used: largestMb < 10 ? largestMb.toFixed(1) : number.format(Math.round(largestMb)),
+        limit: number.format(bytesToMb(planVersion.librarySizeBytesLimit)),
+      }),
+      percent: percent(largestBytes, planVersion.librarySizeBytesLimit),
+    },
+    {
+      ...g.meters.calls,
+      value: fill(g.meters.calls.value, {
+        used: number.format(overview.callsThisPeriod),
+        limit: number.format(overview.planAllowance),
+      }),
+      percent: percent(overview.callsThisPeriod, overview.planAllowance),
+    },
+  ];
+
+  const outcome = isGithubConnectOutcome(params.github)
+    ? { provider: g.connectionGithub, code: params.github }
+    : isNotionConnectOutcome(params.notion)
+      ? { provider: g.connectionNotion, code: params.notion }
+      : null;
+  const connectionLabels = {
+    connectedAs: g.connectionConnectedAs,
+    connectedAt: g.connectionConnectedAt,
+    notConnected: g.connectionNotConnected,
+    unavailable: g.connectionUnavailable,
+    connect: g.connectionConnect,
+    reconnect: g.connectionReconnect,
+    disconnect: g.connectionDisconnect,
+  };
+
+  /*
+   * Amounts print in the document's own currency: the mirror keeps whatever
+   * the provider settled in (requirement.md 4.3), and relabelling a franc as
+   * a dollar would be a lie about a receipt.
+   */
+  const money = (minor: number, currency: string) =>
+    new Intl.NumberFormat(locale, { style: 'currency', currency }).format(minor / 100);
+  const issued = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
+  const paymentConnected = isPaymentConnected();
 
   const profileRows = [
     { label: g.email, value: account.email, Icon: MailIcon },
@@ -78,7 +332,7 @@ export default async function DashboardSettingsPage() {
             description={g.profileDescription}
           />
 
-          <div className="flex items-center gap-2.5 border-b-2 border-line px-5 py-4">
+          <div className="flex items-center gap-2.5 border-b border-line px-5 py-4">
             <span
               aria-hidden
               className="flex size-[46px] shrink-0 items-center justify-center rounded-xl bg-ink text-[15px] font-medium text-white"
@@ -86,10 +340,10 @@ export default async function DashboardSettingsPage() {
               {account.initials}
             </span>
             <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-              <span className="text-[14px] tracking-[-0.023em] text-ink">{account.name}</span>
-              <span className="text-[11px] tracking-[-0.023em] text-muted">{account.kind}</span>
+              <span className="text-[14px] text-ink">{account.name}</span>
+              <span className="text-[11px] text-muted">{g.accountKind}</span>
             </span>
-            <span className="text-[11px] tracking-[-0.023em] text-brand">{account.verified}</span>
+            <span className="text-[11px] text-brandink">{g.emailVerified}</span>
           </div>
 
           <dl className="flex-1 px-5">
@@ -97,23 +351,23 @@ export default async function DashboardSettingsPage() {
               <div
                 key={row.label}
                 className={`flex items-center justify-between gap-3 py-3.5 ${
-                  index < profileRows.length - 1 ? 'border-b-2 border-line' : ''
+                  index < profileRows.length - 1 ? 'border-b border-line' : ''
                 }`}
               >
-                <dt className="flex items-center gap-[7px] text-[11px] tracking-[-0.023em] text-muted">
+                <dt className="flex items-center gap-[7px] text-[11px] text-muted">
                   <row.Icon size={14} />
                   {row.label}
                 </dt>
-                <dd className="truncate text-[11px] font-semibold tracking-[-0.023em] text-steel">
+                <dd className="truncate text-[11px] font-medium text-steel">
                   {row.value}
                 </dd>
               </div>
             ))}
           </dl>
 
-          <footer className="flex items-center gap-2 border-t-2 border-line px-5 py-3.5">
+          <footer className="flex items-center gap-2 border-t border-line px-5 py-3.5">
             <ShieldCheckIcon size={14} className="text-muted" />
-            <p className="text-[11px] tracking-[-0.023em] text-muted">{g.providerManaged}</p>
+            <p className="text-[11px] text-muted">{g.providerManaged}</p>
           </footer>
         </article>
 
@@ -126,23 +380,23 @@ export default async function DashboardSettingsPage() {
             aside={<Badge tone="brand">{plan.name}</Badge>}
           />
 
-          <div className="flex flex-col gap-1.5 border-b-2 border-line px-5 py-4">
+          <div className="flex flex-col gap-1.5 border-b border-line px-5 py-4">
             <p className="flex items-baseline gap-1">
-              <span className="text-[26px] leading-[1.2] font-semibold tracking-[-0.03em] text-ink">
+              <span className="text-[26px] leading-[1.2] font-medium text-ink">
                 {plan.price}
               </span>
-              <span className="text-[13px] tracking-[-0.023em] text-muted">{plan.period}</span>
+              <span className="text-[13px] text-muted">{plan.period}</span>
             </p>
-            <p className="text-[11px] tracking-[-0.023em] text-muted">{plan.note}</p>
+            <p className="text-[11px] text-muted">{plan.note}</p>
           </div>
 
           <ul className="flex flex-1 flex-col gap-3 px-5 py-4">
             {plan.perks.map((perk) => (
               <li
                 key={perk}
-                className="flex items-center gap-2 text-[12px] tracking-[-0.023em] text-steel"
+                className="flex items-center gap-2 text-[12px] text-steel"
               >
-                <CircleCheckIcon size={14} className="text-brand" />
+                <CircleCheckIcon size={14} className="text-brandink" />
                 {perk}
               </li>
             ))}
@@ -151,13 +405,61 @@ export default async function DashboardSettingsPage() {
           <div className="px-5 pb-5">
             <Link
               href="/pricing"
-              className="flex h-10 items-center justify-center gap-1.5 rounded-lg bg-brand text-[12px] font-medium tracking-[-0.023em] text-white transition-colors hover:bg-brand/90"
+              className="flex h-10 items-center justify-center gap-1.5 rounded-lg bg-brand text-[12px] font-medium text-white transition-colors hover:bg-brand/90"
             >
               {g.upgradeCta}
               <ArrowRightIcon size={14} />
             </Link>
           </div>
         </article>
+      </section>
+
+      {/* Connected accounts: the grants the wizard imports with. */}
+      <section className={`${PANEL} overflow-hidden p-0.5`}>
+        <CardHead
+          icon={<LinkIcon size={17} />}
+          title={g.connectionsTitle}
+          description={g.connectionsDescription}
+        />
+        {outcome ? (
+          <p
+            className={`border-b border-line px-5 py-3 text-[11px] ${
+              outcome.code === 'connected' ? 'text-brandink' : 'text-rose'
+            }`}
+          >
+            {fill(g.connectionOutcome[outcome.code], { provider: outcome.provider })}
+          </p>
+        ) : null}
+        <ul className="divide-y-2 divide-line">
+          <ConnectionRow
+            provider="github"
+            icon={<GitHubIcon size={17} className="text-white" />}
+            name={g.connectionGithub}
+            note={g.connectionGithubNote}
+            connectedAs={github ? `@${github.login}` : null}
+            connectedAt={github?.connectedAt ?? null}
+            unavailable={false}
+            disconnect={disconnectGithubAction}
+            labels={connectionLabels}
+            locale={locale}
+          />
+          <ConnectionRow
+            provider="notion"
+            icon={<NotionIcon size={17} className="text-white" />}
+            name={g.connectionNotion}
+            note={g.connectionNotionNote}
+            connectedAs={notion ? (notion.workspaceName ?? notion.ownerName) : null}
+            connectedAt={notion?.connectedAt ?? null}
+            unavailable={!isNotionOAuthConfigured()}
+            disconnect={disconnectNotionAction}
+            labels={connectionLabels}
+            locale={locale}
+          />
+        </ul>
+        <footer className="flex items-center gap-2 border-t border-line px-5 py-3.5">
+          <ShieldCheckIcon size={14} className="shrink-0 text-muted" />
+          <p className="text-[11px] text-muted">{g.connectionFootnote}</p>
+        </footer>
       </section>
 
       {/* Current usage -- design source frame `mwiI4`. */}
@@ -171,12 +473,87 @@ export default async function DashboardSettingsPage() {
         <div className="grid gap-6 px-5 py-5 sm:grid-cols-3">
           {usageMeters.map((meter) => (
             <div key={meter.label} className="flex flex-col gap-1">
-              <p className="text-[12px] tracking-[-0.023em] text-steel">{meter.value}</p>
-              <p className="text-[11px] tracking-[-0.023em] text-muted">{meter.label}</p>
+              <p className="text-[12px] text-steel">{meter.value}</p>
+              <p className="text-[11px] text-muted">{meter.label}</p>
               <Meter value={meter.percent} className="mt-2" />
             </div>
           ))}
         </div>
+      </section>
+
+      {/*
+        Billing -- requirement.md 5.2 设置. A read-only mirror of the Payment
+        Provider's documents for this workspace, the same rows the console
+        shows platform-wide; until a provider is connected there are none.
+      */}
+      <section id="billing" className={`${PANEL} overflow-hidden p-0.5`}>
+        <CardHead
+          icon={<ReceiptIcon size={17} />}
+          title={g.billing.title}
+          description={g.billing.description}
+        />
+        {billing.rows.length === 0 ? (
+          <p className="px-5 py-6 text-center text-[12px] text-muted">
+            {g.billing.empty}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] border-collapse text-left">
+              <thead>
+                <tr className="border-b border-line">
+                  {g.billing.columns.map((head) => (
+                    <th
+                      key={head}
+                      scope="col"
+                      className="px-5 py-3 text-[11px] font-normal text-muted"
+                    >
+                      {head}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {billing.rows.map((row, index) => (
+                  <tr
+                    key={row.id}
+                    className={index < billing.rows.length - 1 ? 'border-b border-line' : ''}
+                  >
+                    <td className="px-5 py-3.5 text-[12px] font-medium text-steel">
+                      {row.number}
+                    </td>
+                    <td className="px-5 py-3.5 text-[12px] text-steel">
+                      {g.billing.kinds[row.kind]}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <StatusLabel tone={BILLING_STATUS_TONE[row.status]}>
+                        {g.billing.statuses[row.status]}
+                      </StatusLabel>
+                    </td>
+                    <td className="px-5 py-3.5 text-[12px] text-steel">
+                      {money(row.amountMinor, row.currency)}
+                      {row.refundedMinor > 0 ? (
+                        <span className="block text-[11px] text-muted">
+                          {fill(g.billing.refunded, {
+                            amount: money(row.refundedMinor, row.currency),
+                          })}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-5 py-3.5 text-[12px] text-steel">
+                      {issued.format(row.issuedAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {paymentConnected ? null : (
+          <footer className="flex items-center gap-2 border-t border-line px-5 py-3.5">
+            <ShieldCheckIcon size={14} className="shrink-0 text-muted" />
+            <p className="text-[11px] text-muted">{g.billing.unbilled}</p>
+          </footer>
+        )}
       </section>
 
       <Notice
@@ -184,7 +561,12 @@ export default async function DashboardSettingsPage() {
         icon={<CircleDollarSignIcon size={17} />}
         title={g.billingNoticeTitle}
         body={g.billingNoticeBody}
-        action={<ArrowLink href="/contact">{g.billingNoticeLink}</ArrowLink>}
+        action={
+          <span className="flex flex-wrap items-center gap-4">
+            <ArrowLink href="#billing">{g.billing.noticeLink}</ArrowLink>
+            <ArrowLink href="/contact">{g.billingNoticeLink}</ArrowLink>
+          </span>
+        }
       />
     </div>
   );

@@ -42,6 +42,7 @@ const { createPlatformLibrary, deletePlatformLibrary, getPlatformLibrary, listPl
 const { PlatformLibraryRefused } = await import('@/lib/domain/library');
 const { EMBEDDING_DIMENSIONS } = await import('@/lib/infrastructure/ai/providers');
 const { db, schema } = await import('@/lib/infrastructure/postgres/client');
+const { verifiedDomain } = await import('@/tests/fixtures/verified-domain');
 const { uuidv7 } = await import('@/lib/domain/id');
 
 const workspaces: string[] = [];
@@ -183,6 +184,9 @@ describeWithDb('library deletion', () => {
       await database
         .delete(schema.libraryAlias)
         .where(inArray(schema.libraryAlias.libraryId, libraries));
+      await database
+        .delete(schema.libraryClaim)
+        .where(inArray(schema.libraryClaim.libraryId, libraries));
       await database.delete(schema.source).where(inArray(schema.source.libraryId, libraries));
       await database.delete(schema.library).where(inArray(schema.library.id, libraries));
       await database
@@ -207,6 +211,9 @@ describeWithDb('library deletion', () => {
       await database
         .delete(schema.subscription)
         .where(inArray(schema.subscription.workspaceId, workspaces));
+      await database
+        .delete(schema.domainVerification)
+        .where(inArray(schema.domainVerification.workspaceId, workspaces));
       await database.delete(schema.workspace).where(inArray(schema.workspace.id, workspaces));
     }
     if (planVersions.length > 0) {
@@ -221,7 +228,7 @@ describeWithDb('library deletion', () => {
     const database = db();
     /* A one-library plan: re-creating the id below proves the slot came back. */
     const workspaceId = await workspaceOnPlan(1);
-    const slug = `handbook-${stamp}`;
+    const slug = `handbook-deleted-${stamp}`;
 
     const created = await createWorkspaceLibrary({
       role: 'owner',
@@ -230,12 +237,13 @@ describeWithDb('library deletion', () => {
       visibility: 'private',
       sourceType: 'website',
       location: 'https://docs.example.test/handbook',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://docs.example.test/handbook'),
       slug,
     });
     libraries.push(created.libraryId);
 
     const built = await runOperation({
-      operationId: created.operationId,
+      operationId: created.operationId!,
       dependencies: dependencies(),
     });
     expect(built.status).toBe('succeeded');
@@ -306,6 +314,7 @@ describeWithDb('library deletion', () => {
       visibility: 'private',
       sourceType: 'website',
       location: 'https://docs.example.test/handbook',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://docs.example.test/handbook'),
       slug,
     });
     libraries.push(again.libraryId);
@@ -375,6 +384,7 @@ describeWithDb('library deletion', () => {
       visibility: 'private',
       sourceType: 'openapi',
       location: 'https://api.example.test/openapi.json',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/openapi.json'),
       slug: `not-yours-${stamp}`,
     });
     libraries.push(created.libraryId);
@@ -426,6 +436,7 @@ describeWithDb('library deletion', () => {
       visibility: 'private',
       sourceType: 'website',
       location: 'https://docs.example.test/queued',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://docs.example.test/queued'),
       slug: `queued-${stamp}`,
     });
     libraries.push(created.libraryId);
@@ -441,10 +452,10 @@ describeWithDb('library deletion', () => {
     const [ingest] = await database
       .select({ status: schema.workflowOperation.status })
       .from(schema.workflowOperation)
-      .where(eq(schema.workflowOperation.id, created.operationId));
+      .where(eq(schema.workflowOperation.id, created.operationId!));
     expect(ingest?.status).toBe('cancelled');
     expect(
-      (await runOperation({ operationId: created.operationId, dependencies: dependencies() }))
+      (await runOperation({ operationId: created.operationId!, dependencies: dependencies() }))
         .status,
     ).toBe('lost');
 
@@ -525,11 +536,93 @@ describeWithDb('library deletion', () => {
       visibility: 'private',
       sourceType: 'openapi',
       location: 'https://api.example.test/openapi.json',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://api.example.test/openapi.json'),
       slug: `user-owned-${stamp}`,
     });
     libraries.push(user.libraryId);
     expect(
       await refusalOf(deletePlatformLibrary({ actor, libraryId: user.libraryId, reason: 'no' })),
     ).toBe('not_platform_library');
+  });
+
+  /*
+   * aptos-anchoring-proposal.md 6: deleting a library takes its proof with it.
+   * The root stays on chain -- an append-only ledger has no other option -- but
+   * without the leaf and its path nobody can show which version that root
+   * committed to, which is the whole of what deletion can mean here and why
+   * anchoring a private library was acceptable at all.
+   */
+  it('takes the anchoring proof with the library', async () => {
+    const stamp = Date.now();
+    const database = db();
+    const workspaceId = await workspaceOnPlan(1);
+
+    const created = await createWorkspaceLibrary({
+      role: 'owner',
+      workspaceId,
+      title: 'Anchored handbook',
+      visibility: 'private',
+      sourceType: 'website',
+      location: 'https://docs.example.test/anchored',
+      domainVerificationId: await verifiedDomain(workspaceId, 'https://docs.example.test/anchored'),
+      slug: `anchored-deleted-${stamp}`,
+    });
+    libraries.push(created.libraryId);
+    const built = await runOperation({ operationId: created.operationId!, dependencies: dependencies() });
+    expect(built.status).toBe('succeeded');
+
+    const [version] = await database
+      .select({ id: schema.libraryVersion.id })
+      .from(schema.libraryVersion)
+      .where(eq(schema.libraryVersion.libraryId, created.libraryId));
+
+    /* A confirmed batch, as the workflow would have left one. */
+    const batchId = crypto.randomUUID();
+    const at = new Date('2026-02-01T00:00:00Z');
+    await database.insert(schema.anchorBatch).values({
+      id: batchId,
+      subjectType: 'version',
+      leafSchemaVersion: 1,
+      merkleRoot: 'a'.repeat(64),
+      leafCount: 4,
+      windowStart: at,
+      windowEnd: at,
+      network: 'testnet',
+      txHash: `0x${batchId.replace(/-/g, '')}`,
+      status: 'confirmed',
+      confirmedAt: at,
+    });
+    await database.insert(schema.anchorLeaf).values({
+      id: crypto.randomUUID(),
+      batchId,
+      leafHash: 'b'.repeat(64),
+      leafSchemaVersion: 1,
+      subjectType: 'version',
+      subjectId: version!.id,
+      leafIndex: 1,
+      merkleProof: [`r:${'c'.repeat(64)}`],
+    });
+
+    await deleteWorkspaceLibrary({ workspaceId, role: 'owner', libraryId: created.libraryId });
+    await purgeLibrary({ libraryId: created.libraryId, dependencies: dependencies() });
+
+    const leaves = await database
+      .select({ id: schema.anchorLeaf.id })
+      .from(schema.anchorLeaf)
+      .where(eq(schema.anchorLeaf.subjectId, version!.id));
+    expect(leaves).toHaveLength(0);
+
+    /*
+     * The batch survives untouched, count included. It describes a root that is
+     * on chain committing to four leaves, and lowering the number to match what
+     * this database still holds would make the row disagree with the ledger.
+     */
+    const [batch] = await database
+      .select({ status: schema.anchorBatch.status, leafCount: schema.anchorBatch.leafCount })
+      .from(schema.anchorBatch)
+      .where(eq(schema.anchorBatch.id, batchId));
+    expect(batch).toMatchObject({ status: 'confirmed', leafCount: 4 });
+
+    await database.delete(schema.anchorBatch).where(eq(schema.anchorBatch.id, batchId));
   });
 });

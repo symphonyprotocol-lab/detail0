@@ -7,6 +7,7 @@ import {
   PlatformRefreshControl,
   type PlatformLibraryTarget,
 } from '@/components/admin/platform-library-controls';
+import { PlatformLibraryFiles } from '@/components/admin/platform-library-files';
 import { PlatformProfilePanel } from '@/components/admin/platform-profile-panel';
 import {
   AddPlatformSourceControl,
@@ -28,10 +29,17 @@ import {
   TH,
 } from '@/components/admin/ui';
 import { ChevronLeftIcon, GlobeIcon } from '@/components/ui/icons';
-import { getPlatformLibrary } from '@/lib/application/administration';
+import Link from 'next/link';
+import { getPlatformLibrary, type PlatformLibraryDetail } from '@/lib/application/administration';
+import {
+  documentsPage,
+  documentsPageSize,
+  DOCUMENTS_PAGE_SIZES,
+  listVersionDocuments,
+} from '@/lib/application/libraries';
 import { isIngestionConfigured } from '@/lib/application/ingestion';
 import type { FetchSummary } from '@/lib/domain/ingestion';
-import { isPlatformSourceType, type PlatformSourceType } from '@/lib/domain/library';
+import { isPlatformLibraryType, type PlatformLibraryType } from '@/lib/domain/library';
 import { requireAdminCapability, currentAdminSession } from '@/lib/http/admin';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import { fill } from '@/lib/i18n/format';
@@ -40,10 +48,12 @@ import { bytes, initialsOf, utcInstant, utcStamp } from '../../list-params';
 import {
   addPlatformSourceAction,
   deletePlatformLibraryAction,
+  preparePlatformUploadAction,
   rebuildPlatformLibraryProfileAction,
   refreshPlatformLibraryAction,
   removePlatformSourceAction,
   setPlatformLifecycleAction,
+  updatePlatformFilesAction,
   updatePlatformLibraryAction,
   updatePlatformSourceAction,
 } from '../actions';
@@ -100,17 +110,34 @@ export async function generateMetadata({
  */
 export default async function AdminPlatformLibraryPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ libraryId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [, { libraryId }, t] = await Promise.all([
+  const [, { libraryId }, query, t] = await Promise.all([
     requireAdminCapability('platformLibraries'),
     params,
+    searchParams,
     getMessages(),
   ]);
 
   const record = await loadLibrary(libraryId);
   if (!record) notFound();
+
+  const docsPage = documentsPage(query.docs);
+  const docsSize = documentsPageSize(query.size);
+  const documents = record.currentVersionId
+    ? await listVersionDocuments({
+        libraryId: record.id,
+        versionId: record.currentVersionId,
+        limit: docsSize,
+        offset: (docsPage - 1) * docsSize,
+      })
+    : { documents: [], total: 0 };
+  const docsPages = Math.max(1, Math.ceil(documents.total / docsSize));
+  const docsHref = (page: number, size: number = docsSize) =>
+    `/admin/platform-libraries/${record.id}?docs=${page}&size=${size}#documents`;
 
   const p = t.admin.platformLibraries;
   const d = t.admin.platformLibraryDetail;
@@ -128,7 +155,7 @@ export default async function AdminPlatformLibraryPage({
    * either way, so this only decides which hint the form shows.
    */
   const firstType = record.sources[0]?.type;
-  const sourceType: PlatformSourceType = isPlatformSourceType(firstType) ? firstType : 'github';
+  const sourceType: PlatformLibraryType = isPlatformLibraryType(firstType) ? firstType : 'github';
 
   /* Whether a queued refresh could actually build anything in this deployment. */
   const ingestionReady = isIngestionConfigured();
@@ -255,10 +282,14 @@ export default async function AdminPlatformLibraryPage({
       <Panel>
         <PanelHead
           title={d.sources.title}
-          description={d.sources.description}
+          description={d.sources.namespaceNote}
           action={
             record.lifecycleStatus === 'archived' ? undefined : (
-              <AddPlatformSourceControl action={addPlatformSourceAction} target={target} />
+              <AddPlatformSourceControl
+                action={addPlatformSourceAction}
+                target={target}
+                prepare={preparePlatformUploadAction}
+              />
             )
           }
         />
@@ -271,7 +302,7 @@ export default async function AdminPlatformLibraryPage({
                     {column}
                   </th>
                 ))}
-                <th scope="col" className={`${TH} w-[86px]`}>
+                <th scope="col" className={`${TH} w-[120px]`}>
                   <span className="sr-only">{d.sources.actions}</span>
                 </th>
               </tr>
@@ -286,7 +317,13 @@ export default async function AdminPlatformLibraryPage({
                     <Pill tone="info">{label(p.sourceTypes, source.type)}</Pill>
                   </td>
                   <td className={`${TD} break-all`}>{source.location}</td>
-                  <td className={TD}>{p.refreshPolicies[source.refreshPolicy]}</td>
+                  <td className={TD}>
+                    {p.refreshPolicies[source.refreshPolicy]}
+                    {(source.type === 'website' || source.type === 'llms_txt') &&
+                    source.indexDepth > 0
+                      ? ` · ${d.sourceDialog.indexDepths[source.indexDepth]}`
+                      : ''}
+                  </td>
                   <td className={TD}>
                     {/*
                       * Both controls are offered on every row, including the
@@ -295,11 +332,21 @@ export default async function AdminPlatformLibraryPage({
                       * silently disappears explains nothing.
                       */}
                     <span className="flex items-center gap-1.5">
-                      <EditPlatformSourceControl
-                        action={updatePlatformSourceAction}
+                      <PlatformRefreshControl
+                        action={refreshPlatformLibraryAction}
                         target={target}
-                        source={source}
+                        source={{ id: source.id, location: source.location }}
+                        disabled={record.lifecycleStatus === 'archived'}
                       />
+                      {/* A pdf source has no location to edit: its files are
+                          managed in the panel below. It can still be removed. */}
+                      {source.type === 'pdf' ? null : (
+                        <EditPlatformSourceControl
+                          action={updatePlatformSourceAction}
+                          target={target}
+                          source={source}
+                        />
+                      )}
                       <RemovePlatformSourceControl
                         action={removePlatformSourceAction}
                         target={target}
@@ -314,6 +361,19 @@ export default async function AdminPlatformLibraryPage({
         </TableScroller>
       </Panel>
 
+      {record.files !== null ? (
+        <PlatformLibraryFiles
+          libraryId={record.id}
+          files={record.files}
+          building={record.operations.some(
+            (operation) => operation.status === 'pending' || operation.status === 'running',
+          )}
+          canEdit={record.lifecycleStatus !== 'archived'}
+          action={updatePlatformFilesAction}
+          prepare={preparePlatformUploadAction}
+        />
+      ) : null}
+
       <PlatformProfilePanel
         profile={record.profile}
         target={target}
@@ -321,6 +381,85 @@ export default async function AdminPlatformLibraryPage({
         stamp={utcStamp}
         t={d}
       />
+
+      <div id="documents" className="scroll-mt-4" />
+      <Panel>
+        <PanelHead title={d.documents.title} description={d.documents.description} />
+        <TableScroller>
+          <table className="w-full min-w-[620px] border-collapse text-left">
+            <thead>
+              <tr>
+                {d.documents.columns.map((column) => (
+                  <th key={column} scope="col" className={TH}>
+                    {column}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {documents.documents.length === 0 ? (
+                <Empty columns={d.documents.columns.length} message={d.documents.empty} />
+              ) : null}
+              {documents.documents.map((document) => (
+                <tr key={document.id} className="border-t-2 border-line">
+                  <td className={TD}>
+                    <Link
+                      href={`/admin/platform-libraries/${record.id}/documents/${document.id}`}
+                      title={d.documents.preview}
+                      className="text-brandink hover:text-brand"
+                    >
+                      {document.title}
+                    </Link>
+                  </td>
+                  <td className={`${TD} break-all`}>
+                    <a
+                      href={document.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={d.documents.open}
+                      className="text-muted hover:text-ink"
+                    >
+                      {document.sourceUrl}
+                    </a>
+                  </td>
+                  <td className={TD}>{number(document.chunks)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableScroller>
+        {documents.total > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-line px-4 py-[11px]">
+            <p className="text-[12px] tracking-[-0.023em] text-muted">
+              {fill(d.documents.page, { page: docsPage, pages: docsPages })} ·{' '}
+              {fill(d.documents.showing, { shown: documents.documents.length, total: documents.total })}
+            </p>
+            <span className="flex items-center gap-2">
+              <span className="flex items-center gap-1 text-[11px] text-muted">
+                {d.documents.pageSize}
+                {DOCUMENTS_PAGE_SIZES.map((size) => (
+                  <Link
+                    key={size}
+                    href={docsHref(1, size)}
+                    aria-current={size === docsSize ? 'true' : undefined}
+                    className={`rounded-[5px] px-1.5 py-0.5 ${
+                      size === docsSize ? 'bg-subtle font-semibold text-ink' : 'hover:text-ink'
+                    }`}
+                  >
+                    {size}
+                  </Link>
+                ))}
+              </span>
+              {docsPage > 1 ? (
+                <ConsoleButton href={docsHref(docsPage - 1)}>{t.admin.actions.prev}</ConsoleButton>
+              ) : null}
+              {docsPage < docsPages ? (
+                <ConsoleButton href={docsHref(docsPage + 1)}>{t.admin.actions.next}</ConsoleButton>
+              ) : null}
+            </span>
+          </div>
+        ) : null}
+      </Panel>
 
       <Panel>
         <PanelHead title={d.versions.title} description={d.versions.description} />
@@ -386,7 +525,16 @@ export default async function AdminPlatformLibraryPage({
               ) : null}
               {record.operations.map((operation) => (
                 <tr key={operation.id} className="border-t-2 border-line">
-                  <td className={`${TD} font-mono text-[11px]`}>{operation.operationType}</td>
+                  <td className={TD}>
+                    <span className="flex flex-col gap-0.5">
+                      <span className="font-mono text-[11px]">{operation.operationType}</span>
+                      {/* Who asked: the button, or the drain acting on a policy. */}
+                      <span className="text-[11px] text-muted">
+                        {label(t.admin.refreshQueue.triggers, operation.trigger)}
+                        {operation.sourceId ? ` · ${sourceScope(record, operation.sourceId)}` : ''}
+                      </span>
+                    </span>
+                  </td>
                   <td className={TD}>
                     <span className="flex flex-col items-start gap-1">
                       <Pill tone={operation.status === 'failed' ? 'danger' : 'neutral'}>
@@ -487,6 +635,12 @@ function fetchMethodLabel(t: Dictionary, summary: FetchSummary | null): string {
     rendered: String(summary.rendered),
     total: String(summary.direct + summary.rendered),
   });
+}
+
+/** The one source a refresh named, as its type and location; the id if it is gone. */
+function sourceScope(record: PlatformLibraryDetail, sourceId: string): string {
+  const source = record.sources.find((candidate) => candidate.id === sourceId);
+  return source ? `${source.type} · ${source.location}` : sourceId.slice(0, 8);
 }
 
 function actionLabel(t: Dictionary, action: string): string {

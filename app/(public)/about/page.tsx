@@ -23,28 +23,25 @@ export default async function AboutPage() {
   return (
     <>
       <section>
-        <div className="mx-auto w-full max-w-[918px] px-5 pt-11 pb-14">
+        <div className="mx-auto w-full max-w-[1080px] px-5 pt-11 pb-14">
           <SectionHeading eyebrow="ABOUT" title={a.title} as="h1" size="lg" />
-          <p className="mt-4 max-w-[70ch] text-[15px] leading-[1.75] tracking-[-0.02em] text-muted">
+          <p className="mt-4 max-w-[70ch] text-[15px] leading-[1.75] text-muted">
             {a.lede}
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-2.5">
             <Button href="/libraries" size="md">
               {a.browse}
             </Button>
-            <Button href="/docs" variant="outline" size="md">
-              {a.readDocs}
-            </Button>
           </div>
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-[918px] border-t-2 border-line px-5 pt-12 pb-14">
+      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-14">
         <SectionHeading eyebrow="WHY" title={a.whyTitle} />
         <div className="mt-7 flex flex-col">
           {a.problems.map((item) => (
-            <div key={item.title} className="border-t-2 border-line py-5">
-              <h3 className="text-[15px] font-semibold tracking-[-0.03em] text-ink">
+            <div key={item.title} className="border-t border-line py-5">
+              <h3 className="text-[15px] font-medium text-ink">
                 {item.title}
               </h3>
               <p className="mt-2 max-w-[80ch] text-[13px] leading-[1.75] text-muted">{item.body}</p>
@@ -53,7 +50,7 @@ export default async function AboutPage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-[918px] border-t-2 border-line px-5 pt-12 pb-14">
+      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-14">
         <SectionHeading eyebrow="PRINCIPLES" title={a.principlesTitle} />
         <div className="mt-7 grid gap-4 md:grid-cols-2">
           {a.principles.map(({ title, body }, index) => {
@@ -63,7 +60,7 @@ export default async function AboutPage() {
                 <span className="flex size-9 items-center justify-center rounded-lg bg-brandsoft text-brandink">
                   <Icon size={17} />
                 </span>
-                <h3 className="mt-4 text-[14.5px] font-semibold tracking-[-0.03em] text-ink">
+                <h3 className="mt-4 text-[14.5px] font-medium text-ink">
                   {title}
                 </h3>
                 <p className="mt-2 text-[12.5px] leading-[1.75] text-muted">{body}</p>
@@ -73,14 +70,14 @@ export default async function AboutPage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-[918px] border-t-2 border-line px-5 pt-12 pb-14">
+      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-14">
         <SectionHeading eyebrow="SCOPE" title={a.scopeTitle} />
         <p className="mt-3 text-[13px] text-muted">{a.scopeNote}</p>
         <div className="mt-7 grid gap-x-10 gap-y-6 sm:grid-cols-2">
           {a.scope.map((item) => (
-            <div key={item.title} className="border-t-2 border-line pt-4">
-              <p className="text-[10px] font-[750] tracking-[0.1em] text-brand">{item.kicker}</p>
-              <h3 className="mt-1.5 text-[13.5px] font-semibold tracking-[-0.02em] text-ink">
+            <div key={item.title} className="border-t border-line pt-4">
+              <p className="text-[10px] font-medium tracking-[0.1em] text-brandink">{item.kicker}</p>
+              <h3 className="mt-1.5 text-[13.5px] font-medium text-ink">
                 {item.title}
               </h3>
               <p className="mt-2 text-[12.5px] leading-[1.75] text-muted">{item.body}</p>
@@ -89,14 +86,14 @@ export default async function AboutPage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-[918px] border-t-2 border-line px-5 pt-12 pb-16">
+      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-16">
         <Card className="flex flex-col items-start gap-5 p-7 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3.5">
-            <span className="mt-0.5 text-brand">
+            <span className="mt-0.5 text-brandink">
               <DatabaseIcon size={18} />
             </span>
             <div>
-              <h2 className="text-[17px] font-semibold tracking-[-0.03em] text-ink">
+              <h2 className="text-[17px] font-medium text-ink">
                 {a.contactTitle}
               </h2>
               <p className="mt-2 max-w-[60ch] text-[12.5px] leading-[1.75] text-muted">

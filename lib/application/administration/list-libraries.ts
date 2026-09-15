@@ -5,7 +5,7 @@
  * Ingestion is not built yet (architecture.md 21), so these lists are
  * legitimately empty rather than seeded with something that looks like content.
  */
-import { and, count, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { ref } from './column-ref';
 import { likePattern } from './like-pattern';
@@ -22,7 +22,16 @@ export interface ConsoleLibraryRow {
   visibility: 'public' | 'private';
   lifecycleStatus: string;
   createdAt: Date;
+  /** Whether the current version is indexed, which approval requires. */
+  hasReadyVersion: boolean;
 }
+
+/** Whether `current_version_id` points at a version whose index is ready. */
+const hasReadyVersion = sql<boolean>`exists (
+  select 1 from ${schema.libraryVersion}
+  where ${ref(schema.libraryVersion.id)} = ${ref(schema.library.currentVersionId)}
+    and ${ref(schema.libraryVersion.indexStatus)} = 'ready'
+)`;
 
 /** The one source a library was built from, when it has exactly one. */
 const sourceType = sql<string | null>`(
@@ -42,11 +51,67 @@ const ownerName = sql<string | null>`(
  * request-changes, and the schema spells the last two as `changes_requested`
  * and `suspended`, with `archived` for a library taken out of circulation.
  */
-const REVIEW_STATUSES = {
+export const REVIEW_STATUSES = {
   pending: ['submitted', 'reviewing'],
   approved: ['published'],
   rejected: ['changes_requested', 'suspended', 'archived'],
 } as const;
+
+/**
+ * When a library entered the reviewer's queue.
+ *
+ * `library` keeps no timestamp of the move to `submitted`, and `library_review`
+ * is written on a decision, not a submission. What the tables do hold is
+ * enough: a public library is submitted by the build that lands a version
+ * (`lifecycleAfterBuild`), so the submission is the first version built after
+ * the last decision -- or the first version ever, when nobody has decided
+ * yet. Measured that way, an owner rebuilding their submission every day does
+ * not reset the reviewer's clock, and a resubmission after `changes_requested`
+ * counts from the resubmission rather than from the library's birth.
+ */
+export const waitingSince = sql<Date>`coalesce((
+  select min(${ref(schema.libraryVersion.createdAt)}) from ${schema.libraryVersion}
+  where ${ref(schema.libraryVersion.libraryId)} = ${ref(schema.library.id)}
+    and ${ref(schema.libraryVersion.createdAt)} > coalesce((
+      select max(${ref(schema.libraryReview.decidedAt)}) from ${schema.libraryReview}
+      where ${ref(schema.libraryReview.libraryId)} = ${ref(schema.library.id)}
+    ), '-infinity'::timestamptz)
+), ${ref(schema.library.createdAt)})`;
+
+/** User libraries that still exist; a deleted one is a tombstone (8.4). */
+const LIVE_USER_LIBRARY = and(
+  eq(schema.library.isPlatformLibrary, false),
+  isNull(schema.library.deletedAt),
+)!;
+
+const LIBRARY_ROW = {
+  id: schema.library.id,
+  publicId: schema.library.publicId,
+  title: schema.library.title,
+  storageBytes: schema.library.storageBytes,
+  visibility: schema.library.visibility,
+  lifecycleStatus: schema.library.lifecycleStatus,
+  createdAt: schema.library.createdAt,
+  ownerName,
+  sourceType,
+  hasReadyVersion,
+};
+
+/**
+ * The libraries a reviewer should look at next: those waiting, longest wait
+ * first. One statement, for the overview panel that shows the head of the
+ * queue beside a tile that reports how long its oldest member has waited --
+ * the two have to agree on which library that is.
+ */
+export async function pendingReviewQueue(input: { limit?: number } = {}): Promise<ConsoleLibraryRow[]> {
+  const rows = await db()
+    .select(LIBRARY_ROW)
+    .from(schema.library)
+    .where(and(LIVE_USER_LIBRARY, inArray(schema.library.lifecycleStatus, [...REVIEW_STATUSES.pending])))
+    .orderBy(asc(waitingSince), asc(schema.library.id))
+    .limit(input.limit ?? 5);
+  return rows.map(normalize);
+}
 
 function reviewCondition(filter: LibraryReviewFilter) {
   /*
@@ -72,8 +137,7 @@ export async function listUserLibraries(input: {
   const database = db();
   const term = input.query?.trim();
 
-  /* User libraries that still exist; a deleted one is a tombstone (8.4). */
-  const base = and(eq(schema.library.isPlatformLibrary, false), isNull(schema.library.deletedAt))!;
+  const base = LIVE_USER_LIBRARY;
   const conditions = [
     base,
     term
@@ -84,17 +148,7 @@ export async function listUserLibraries(input: {
 
   const [rows, [totalRow], statusRows, [claimRow]] = await Promise.all([
     database
-      .select({
-        id: schema.library.id,
-        publicId: schema.library.publicId,
-        title: schema.library.title,
-        storageBytes: schema.library.storageBytes,
-        visibility: schema.library.visibility,
-        lifecycleStatus: schema.library.lifecycleStatus,
-        createdAt: schema.library.createdAt,
-        ownerName,
-        sourceType,
-      })
+      .select(LIBRARY_ROW)
       .from(schema.library)
       .where(and(...conditions))
       .orderBy(desc(schema.library.createdAt))
@@ -132,11 +186,22 @@ export type ClaimFilter = 'all' | 'pending' | 'claimed' | 'revoked' | 'disputed'
 
 /**
  * `claim_status` has no `disputed` value, and should not: requirement.md 7.3
- * defines a dispute as a claim opened on a library that already has an owner,
- * which is a fact about the pair rather than a state of the claim. It is
- * derived here so the tab means what the rule says.
+ * defines a dispute as a claim opened on a library that already has *another*
+ * owner, which is a fact about the pair rather than a state of the claim. It
+ * is derived here so the tab means what the rule says.
+ *
+ * The `<>` clause is the whole of it. Without it the queue counts a claim by
+ * the workspace that already owns the library -- and offers a Grant control
+ * that `ruleDispute` then refuses as "not a dispute", which is the console
+ * disagreeing with itself. `isDisputedClaim` is the same predicate in
+ * TypeScript, for every caller that has the rows rather than the query.
  */
-const DISPUTED = sql`${schema.libraryClaim.status} = 'pending' and ${schema.library.ownerWorkspaceId} is not null`;
+const DISPUTED = sql`${schema.libraryClaim.status} = 'pending'
+  and ${schema.library.ownerWorkspaceId} is not null
+  and ${schema.library.ownerWorkspaceId} <> ${schema.libraryClaim.claimantWorkspaceId}`;
+
+/** The same derivation as `DISPUTED`, per row, so the list can mark one. */
+const IS_DISPUTED = sql<boolean>`(${DISPUTED})`;
 
 export interface ConsoleClaimRow {
   id: string;
@@ -147,9 +212,13 @@ export interface ConsoleClaimRow {
   openedAt: Date;
   currentOwner: string | null;
   status: string;
+  /** Pending on a library that already has an owner: an administrator decides it. */
+  disputed: boolean;
 }
 
-export async function listClaims(input: { query?: string; status?: ClaimFilter; limit?: number } = {}): Promise<{
+export async function listClaims(
+  input: { query?: string; status?: ClaimFilter; limit?: number; offset?: number } = {},
+): Promise<{
   rows: ConsoleClaimRow[];
   total: number;
   counts: Record<string, number>;
@@ -184,12 +253,14 @@ export async function listClaims(input: { query?: string; status?: ClaimFilter; 
         openedAt: schema.libraryClaim.createdAt,
         currentOwner: ownerName,
         claimantName: claimant,
+        disputed: IS_DISPUTED,
       })
       .from(schema.libraryClaim)
       .innerJoin(schema.library, eq(schema.library.id, schema.libraryClaim.libraryId))
       .where(where)
       .orderBy(desc(schema.libraryClaim.createdAt))
-      .limit(input.limit ?? 50),
+      .limit(input.limit ?? 50)
+      .offset(input.offset ?? 0),
     database
       .select({ n: count() })
       .from(schema.libraryClaim)
@@ -212,6 +283,7 @@ export async function listClaims(input: { query?: string; status?: ClaimFilter; 
       ...row,
       claimantName: row.claimantName ?? '',
       currentOwner: row.currentOwner,
+      disputed: Boolean(row.disputed),
     })),
     total: totalRow?.n ?? 0,
     counts: {
@@ -252,8 +324,10 @@ function normalize(row: {
   createdAt: Date;
   ownerName: string | null;
   sourceType: string | null;
+  hasReadyVersion: boolean;
 }): ConsoleLibraryRow {
   return {
+    hasReadyVersion: row.hasReadyVersion,
     id: row.id,
     publicId: row.publicId,
     title: row.title,

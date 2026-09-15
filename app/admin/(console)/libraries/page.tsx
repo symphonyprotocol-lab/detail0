@@ -5,7 +5,7 @@ import {
   ConsolePageHeader,
   EmptyRow,
   ExportLink,
-  IconButton,
+  IconLink,
   ListToolbar,
   Panel,
   Pill,
@@ -15,12 +15,15 @@ import {
   TH,
   TitleCell,
 } from '@/components/admin/ui';
-import { EllipsisIcon, EyeIcon } from '@/components/ui/icons';
+import { UserReviewControls } from '@/components/admin/user-library-controls';
+import { EyeIcon } from '@/components/ui/icons';
 import { listUserLibraries, type LibraryReviewFilter } from '@/lib/application/administration';
 import { requireAdminCapability } from '@/lib/http/admin';
 import { fill } from '@/lib/i18n/format';
+import type { LifecycleStatus } from '@/lib/domain';
 import { getMessages } from '@/lib/i18n/server';
-import { bytes, oneOf, PAGE_SIZE, searchTerm, utcStamp } from '../list-params';
+import { bytes, initialsOf, oneOf, PAGE_SIZE, searchTerm, utcStamp } from '../list-params';
+import { reviewUserLibraryAction } from './actions';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getMessages()).admin.libraries.title };
@@ -42,8 +45,11 @@ const LIFECYCLE_TONE: Record<string, 'warn' | 'ok' | 'danger' | 'neutral'> = {
 /**
  * User libraries and the public review queue -- design source frame `zcHnx`.
  *
- * Reads the real `library` table. Ingestion is not built yet
- * (architecture.md 21), so this list is legitimately empty and says why.
+ * Reads the real `library` table. Each row carries the reviewer's verbs that
+ * apply to its state (`UserReviewControls`): a public library that has built
+ * its first version waits here as `submitted`; a private one is never
+ * reviewed and only offers a safety pause. The detail page behind the eye
+ * shows sources, versions and the review history.
  */
 export default async function AdminLibrariesPage({
   searchParams,
@@ -112,7 +118,7 @@ export default async function AdminLibrariesPage({
                     {column}
                   </th>
                 ))}
-                <th scope="col" className={`${TH} w-[96px]`}>
+                <th scope="col" className={`${TH} w-[150px]`}>
                   <span className="sr-only">{t.admin.actions.more}</span>
                 </th>
               </tr>
@@ -143,17 +149,28 @@ export default async function AdminLibrariesPage({
                   </td>
                   <td className={TD}>
                     <Pill tone={LIFECYCLE_TONE[library.lifecycleStatus] ?? 'neutral'}>
-                      {library.lifecycleStatus}
+                      {l.lifecycle[library.lifecycleStatus as keyof typeof l.lifecycle] ??
+                        library.lifecycleStatus}
                     </Pill>
                   </td>
                   <td className={TD}>
                     <span className="flex items-center gap-1.5">
-                      <IconButton label={t.admin.actions.view}>
+                      <IconLink href={`/admin/libraries/${library.id}`} label={l.view}>
                         <EyeIcon size={14} />
-                      </IconButton>
-                      <IconButton label={t.admin.actions.more}>
-                        <EllipsisIcon size={14} />
-                      </IconButton>
+                      </IconLink>
+                      <UserReviewControls
+                        action={reviewUserLibraryAction}
+                        target={{
+                          id: library.id,
+                          publicId: library.publicId,
+                          title: library.title,
+                          initial: initialsOf(library.title),
+                          sourceLabel: library.sourceType ?? '—',
+                        }}
+                        current={library.lifecycleStatus as LifecycleStatus}
+                        visibility={library.visibility}
+                        canApprove={library.hasReadyVersion}
+                      />
                     </span>
                   </td>
                 </tr>

@@ -21,7 +21,7 @@
  * COMMITTED concurrent commits would each read the same count and every one
  * of them would pass a cap they jointly exceed.
  */
-import { and, asc, desc, eq, gte, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lt, lte, or, sql } from 'drizzle-orm';
 import { AppError } from '@/contracts/errors';
 import { uuidv7 } from '@/lib/domain/id';
 import {
@@ -33,6 +33,7 @@ import {
   type LifecycleStatus,
   type Visibility,
 } from '@/lib/domain';
+import { DEFAULT_BUILD_RATES, type BuildRates } from '@/lib/domain/build-billing';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import { PLAN_VERSION_NEWEST_FIRST } from './configuration';
 
@@ -48,6 +49,16 @@ import { PLAN_VERSION_NEWEST_FIRST } from './configuration';
  * any request can plausibly run, so a seat this old is abandoned, not held.
  */
 const RESERVATION_TTL_MS = 15 * 60 * 1000;
+
+/**
+ * How long a build's seat can stay pending. A build is released or committed
+ * by the operation that holds it, but an operation whose worker died -- a
+ * function timeout, an eviction -- never reaches that code, and its seat can
+ * be the workspace's entire remaining balance. Longer than any build can run
+ * (the drain function is capped at five minutes), so a seat this old belongs
+ * to a dead worker. `drainOperations` reaps the operation on the same clock.
+ */
+export const BUILD_RESERVATION_TTL_MS = 60 * 60 * 1000;
 
 export interface QuotaState {
   planAllowanceRemaining: number;
@@ -108,44 +119,14 @@ export async function reserveCall(input: {
      * `commitCall` updates the reservation by id and does not require it to
      * still be pending.
      */
-    await tx
-      .update(schema.usageReservation)
-      .set({ status: 'released' })
-      .where(
-        and(
-          eq(schema.usageReservation.workspaceId, input.workspaceId),
-          eq(schema.usageReservation.status, 'pending'),
-          lt(schema.usageReservation.createdAt, new Date(Date.now() - RESERVATION_TTL_MS)),
-        ),
-      );
+    await sweepAbandonedSeats(tx, input.workspaceId);
 
     const { allowance, periodStart, periodEnd, planVersionId, shareRateBps } = await planWindow(
       tx,
       input.workspaceId,
     );
 
-    const [counted] = await tx
-      .select({
-        events: sql<number>`(
-          select count(*)::int from ${schema.usageEvent}
-          where ${schema.usageEvent.workspaceId} = ${input.workspaceId}
-            and ${schema.usageEvent.createdAt} >= ${periodStart}
-            and ${schema.usageEvent.createdAt} < ${periodEnd}
-        )`,
-        held: sql<number>`(
-          select count(*)::int from ${schema.usageReservation}
-          where ${schema.usageReservation.workspaceId} = ${input.workspaceId}
-            and ${schema.usageReservation.status} = 'pending'
-            and ${schema.usageReservation.createdAt} >= ${periodStart}
-            and ${schema.usageReservation.createdAt} < ${periodEnd}
-        )`,
-        addon: sql<number>`(
-          select coalesce(sum(${schema.addonGrant.callsGranted} - ${schema.addonGrant.callsConsumed}), 0)::int
-          from ${schema.addonGrant}
-          where ${schema.addonGrant.workspaceId} = ${input.workspaceId}
-        )`,
-      })
-      .from(sql`(select 1) as one`);
+    const counted = await countConsumption(tx, input.workspaceId, periodStart, periodEnd);
 
     /*
      * A replay of the same request must not be admitted twice -- or refused
@@ -375,7 +356,86 @@ export async function releaseCall(reservationId: string): Promise<void> {
     );
 }
 
-type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
+export type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
+
+/**
+ * Abandoned seats go back before anything is counted, each kind on its own
+ * clock: a retrieval seat after `RESERVATION_TTL_MS`, a build seat -- held
+ * for as long as the build runs and normally released or committed by the
+ * operation that holds it (`build-quota.ts`) -- after
+ * `BUILD_RESERVATION_TTL_MS`, which only a dead worker's seat reaches.
+ *
+ * Safe under the workspace lock, and safe against a slow request that does
+ * eventually finish: `commitCall` updates the reservation by id and does not
+ * require it to still be pending.
+ */
+export async function sweepAbandonedSeats(tx: Tx, workspaceId: string): Promise<void> {
+  const now = Date.now();
+  await tx
+    .update(schema.usageReservation)
+    .set({ status: 'released' })
+    .where(
+      and(
+        eq(schema.usageReservation.workspaceId, workspaceId),
+        eq(schema.usageReservation.status, 'pending'),
+        or(
+          and(
+            eq(schema.usageReservation.kind, 'retrieval'),
+            lt(schema.usageReservation.createdAt, new Date(now - RESERVATION_TTL_MS)),
+          ),
+          and(
+            eq(schema.usageReservation.kind, 'build'),
+            lt(schema.usageReservation.createdAt, new Date(now - BUILD_RESERVATION_TTL_MS)),
+          ),
+        ),
+      ),
+    );
+}
+
+export interface ConsumptionCount {
+  /** Calls committed in the period, retrieval and build alike, by weight. */
+  events: number;
+  /** Calls held by pending reservations in the period, by weight. */
+  held: number;
+  /** Pack balance, which has no period. */
+  addon: number;
+}
+
+/**
+ * What a workspace has used and is holding. Summed by weight, never counted
+ * by row: a build's event and reservation carry the calls it was priced at
+ * (library-build-billing.md 5.3), and a retrieval's carry 1.
+ */
+export async function countConsumption(
+  tx: Tx,
+  workspaceId: string,
+  periodStart: Date,
+  periodEnd: Date,
+): Promise<ConsumptionCount> {
+  const [counted] = await tx
+    .select({
+      events: sql<number>`(
+        select coalesce(sum(${schema.usageEvent.calls}), 0)::int from ${schema.usageEvent}
+        where ${schema.usageEvent.workspaceId} = ${workspaceId}
+          and ${schema.usageEvent.createdAt} >= ${periodStart}
+          and ${schema.usageEvent.createdAt} < ${periodEnd}
+      )`,
+      held: sql<number>`(
+        select coalesce(sum(${schema.usageReservation.calls}), 0)::int from ${schema.usageReservation}
+        where ${schema.usageReservation.workspaceId} = ${workspaceId}
+          and ${schema.usageReservation.status} = 'pending'
+          and ${schema.usageReservation.createdAt} >= ${periodStart}
+          and ${schema.usageReservation.createdAt} < ${periodEnd}
+      )`,
+      addon: sql<number>`(
+        select coalesce(sum(${schema.addonGrant.callsGranted} - ${schema.addonGrant.callsConsumed}), 0)::int
+        from ${schema.addonGrant}
+        where ${schema.addonGrant.workspaceId} = ${workspaceId}
+      )`,
+    })
+    .from(sql`(select 1) as one`);
+  return { events: counted?.events ?? 0, held: counted?.held ?? 0, addon: counted?.addon ?? 0 };
+}
 
 /**
  * The allowance and the window it applies to. A workspace with a live
@@ -406,16 +466,19 @@ export async function hasPaidSubscription(workspaceId: string): Promise<boolean>
   return paid !== undefined && paid.planId !== 'free';
 }
 
-async function planWindow(
-  tx: Tx,
-  workspaceId: string,
-): Promise<{
+export interface PlanWindow {
   allowance: number;
   periodStart: Date;
   periodEnd: Date;
   planVersionId: string | null;
   shareRateBps: number;
-}> {
+  /** library-build-billing.md 3.3: what a build costs on this version. */
+  buildRates: BuildRates;
+  /** requirement.md 4.1: the per-library content ceiling, which bounds a build's quote. */
+  librarySizeBytesLimit: number;
+}
+
+export async function planWindow(tx: Tx, workspaceId: string): Promise<PlanWindow> {
   const [active] = await tx
     .select({
       planVersionId: schema.subscription.planVersionId,
@@ -436,10 +499,7 @@ async function planWindow(
 
   if (active) {
     const [version] = await tx
-      .select({
-        monthlyCalls: schema.planVersion.monthlyCalls,
-        shareRateBps: schema.planVersion.shareRateBps,
-      })
+      .select(PLAN_WINDOW_COLUMNS)
       .from(schema.planVersion)
       .where(eq(schema.planVersion.id, active.planVersionId));
     return {
@@ -448,15 +508,13 @@ async function planWindow(
       periodEnd: active.periodEnd,
       planVersionId: active.planVersionId,
       shareRateBps: version?.shareRateBps ?? 0,
+      buildRates: buildRatesOf(version),
+      librarySizeBytesLimit: version?.librarySizeBytesLimit ?? 0,
     };
   }
 
   const [free] = await tx
-    .select({
-      id: schema.planVersion.id,
-      monthlyCalls: schema.planVersion.monthlyCalls,
-      shareRateBps: schema.planVersion.shareRateBps,
-    })
+    .select(PLAN_WINDOW_COLUMNS)
     .from(schema.planVersion)
     .where(eq(schema.planVersion.planId, 'free'))
     .orderBy(...PLAN_VERSION_NEWEST_FIRST)
@@ -471,10 +529,36 @@ async function planWindow(
     periodEnd,
     planVersionId: free?.id ?? null,
     shareRateBps: free?.shareRateBps ?? 0,
+    buildRates: buildRatesOf(free),
+    librarySizeBytesLimit: free?.librarySizeBytesLimit ?? 0,
   };
 }
 
-async function oldestGrantWithBalance(tx: Tx, workspaceId: string): Promise<string | null> {
+const PLAN_WINDOW_COLUMNS = {
+  id: schema.planVersion.id,
+  monthlyCalls: schema.planVersion.monthlyCalls,
+  shareRateBps: schema.planVersion.shareRateBps,
+  buildBaseCalls: schema.planVersion.buildBaseCalls,
+  buildTokensPerCall: schema.planVersion.buildTokensPerCall,
+  buildPagesPerCall: schema.planVersion.buildPagesPerCall,
+  librarySizeBytesLimit: schema.planVersion.librarySizeBytesLimit,
+};
+
+/** No version at all (a deployment that skipped the seed) builds at the defaults. */
+function buildRatesOf(
+  version:
+    | { buildBaseCalls: number; buildTokensPerCall: number; buildPagesPerCall: number }
+    | undefined,
+): BuildRates {
+  if (!version) return DEFAULT_BUILD_RATES;
+  return {
+    baseCalls: version.buildBaseCalls,
+    tokensPerCall: version.buildTokensPerCall,
+    pagesPerCall: version.buildPagesPerCall,
+  };
+}
+
+export async function oldestGrantWithBalance(tx: Tx, workspaceId: string): Promise<string | null> {
   const [grant] = await tx
     .select({ id: schema.addonGrant.id })
     .from(schema.addonGrant)

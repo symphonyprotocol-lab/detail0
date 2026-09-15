@@ -53,19 +53,19 @@ export function ProviderSignInButton({
       type="submit"
       disabled={pending}
       aria-busy={pending}
-      className="flex h-[58px] w-full items-center gap-[11px] rounded-[9px] border-2 border-line bg-card px-[14px] text-left transition-colors hover:bg-subtle disabled:cursor-progress disabled:bg-subtle"
+      className="flex h-[58px] w-full items-center gap-[11px] rounded-md border border-line bg-card px-[14px] text-left transition-colors hover:bg-subtle disabled:cursor-progress disabled:bg-subtle"
     >
       <span
         aria-hidden
-        className="flex size-[33px] shrink-0 items-center justify-center rounded-lg border-2 border-line bg-subtle"
+        className="flex size-[33px] shrink-0 items-center justify-center rounded-lg border border-line bg-subtle"
       >
         {icon}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-        <span className="text-[11px] leading-[1.5] font-[650] tracking-[-0.03em] text-ink">
+        <span className="text-[11px] leading-[1.5] font-medium text-ink">
           {name}
         </span>
-        <span className="text-[9px] leading-[1.5] tracking-[-0.03em] text-muted">{hint}</span>
+        <span className="text-[9px] leading-[1.5] text-muted">{hint}</span>
       </span>
       {pending ? (
         /* Static ring under reduced motion; the cursor still reads as busy. */

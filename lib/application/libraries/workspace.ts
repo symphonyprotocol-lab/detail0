@@ -3,9 +3,10 @@
  * rows other flows own: creation goes through the import wizard, review
  * through the console, refresh through the workflow queue.
  */
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
 import type { LifecycleStatus, IndexStatus, Visibility } from '@/lib/domain';
+import { isOwnerPause, UPLOAD_SOURCE_TYPES } from '@/lib/domain/library';
 
 export interface WorkspaceLibraryRow {
   id: string;
@@ -18,6 +19,16 @@ export interface WorkspaceLibraryRow {
   totalChunks: number;
   storageBytes: number;
   updatedAt: string | null;
+  /** True for a library whose source is uploaded files, which has a files page. */
+  hasFiles: boolean;
+  /** The source's type, for the label of that page; null for a library with no source. */
+  sourceType: string | null;
+  /** The latest reviewer's note, when the library is waiting on the owner. */
+  reviewNote: string | null;
+  /** A build is pending or running right now. */
+  building: boolean;
+  /** True when the library is suspended by its owner's own pause, which the owner may lift. */
+  pausedByOwner: boolean;
 }
 
 export async function listWorkspaceLibraries(workspaceId: string): Promise<WorkspaceLibraryRow[]> {
@@ -40,6 +51,78 @@ export async function listWorkspaceLibraries(workspaceId: string): Promise<Works
     .where(OWNED_AND_LIVE(workspaceId))
     .orderBy(desc(schema.library.createdAt));
 
+  /* The latest review row of each library that is sent back or suspended:
+     the note is what the owner has to act on, and the row's stage says
+     whether a suspension is the owner's own pause (`isOwnerPause`). */
+  const blocked = rows.filter(
+    (row) => row.lifecycleStatus === 'changes_requested' || row.lifecycleStatus === 'suspended',
+  );
+  const notes = new Map<string, string>();
+  const ownerPaused = new Set<string>();
+  if (blocked.length > 0) {
+    const reviews = await db()
+      .select({
+        libraryId: schema.libraryReview.libraryId,
+        stage: schema.libraryReview.stage,
+        outcome: schema.libraryReview.outcome,
+        feedback: schema.libraryReview.feedback,
+      })
+      .from(schema.libraryReview)
+      .where(
+        inArray(
+          schema.libraryReview.libraryId,
+          blocked.map((row) => row.id),
+        ),
+      )
+      .orderBy(desc(schema.libraryReview.createdAt));
+    const latest = new Set<string>();
+    for (const review of reviews) {
+      if (!latest.has(review.libraryId)) {
+        latest.add(review.libraryId);
+        if (isOwnerPause(review)) ownerPaused.add(review.libraryId);
+      }
+      if (!notes.has(review.libraryId) && review.feedback[0]) notes.set(review.libraryId, review.feedback[0]);
+    }
+  }
+
+  const building = new Set(
+    rows.length === 0
+      ? []
+      : (
+          await db()
+            .select({ libraryId: schema.workflowOperation.libraryId })
+            .from(schema.workflowOperation)
+            .where(
+              and(
+                inArray(schema.workflowOperation.operationType, ['ingest', 'refresh']),
+                inArray(schema.workflowOperation.status, ['pending', 'running']),
+                inArray(
+                  schema.workflowOperation.libraryId,
+                  rows.map((row) => row.id),
+                ),
+              ),
+            )
+        ).map((operation) => operation.libraryId),
+  );
+
+  const sourceTypes = new Map<string, string>();
+  if (rows.length > 0) {
+    const sources = await db()
+      .select({ libraryId: schema.source.libraryId, type: schema.source.type })
+      .from(schema.source)
+      .where(
+        inArray(
+          schema.source.libraryId,
+          rows.map((row) => row.id),
+        ),
+      )
+      .orderBy(schema.source.id);
+    for (const source of sources) {
+      if (!sourceTypes.has(source.libraryId)) sourceTypes.set(source.libraryId, source.type);
+    }
+  }
+  const uploadTypes: readonly string[] = UPLOAD_SOURCE_TYPES;
+
   return rows.map((row) => ({
     id: row.id,
     publicId: row.publicId,
@@ -51,6 +134,11 @@ export async function listWorkspaceLibraries(workspaceId: string): Promise<Works
     totalChunks: row.totalChunks ?? 0,
     storageBytes: row.storageBytes,
     updatedAt: (row.lastSuccessfulRefreshAt ?? row.createdAt)?.toISOString() ?? null,
+    hasFiles: uploadTypes.includes(sourceTypes.get(row.id) ?? ''),
+    sourceType: sourceTypes.get(row.id) ?? null,
+    reviewNote: notes.get(row.id) ?? null,
+    building: building.has(row.id),
+    pausedByOwner: row.lifecycleStatus === 'suspended' && ownerPaused.has(row.id),
   }));
 }
 
@@ -68,4 +156,13 @@ export async function countWorkspaceLibraries(workspaceId: string): Promise<numb
     .from(schema.library)
     .where(OWNED_AND_LIVE(workspaceId));
   return row?.n ?? 0;
+}
+
+/** The biggest library the workspace owns, in bytes -- what the per-library ceiling is measured against. */
+export async function largestWorkspaceLibraryBytes(workspaceId: string): Promise<number> {
+  const [row] = await db()
+    .select({ bytes: sql<number>`coalesce(max(${schema.library.storageBytes}), 0)::bigint` })
+    .from(schema.library)
+    .where(OWNED_AND_LIVE(workspaceId));
+  return Number(row?.bytes ?? 0);
 }

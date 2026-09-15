@@ -134,10 +134,11 @@ describe('source locations', () => {
 
 describe('the create form', () => {
   it('accepts a complete website library', () => {
-    const draft = draftPlatformLibrary(WEBSITE);
+    const draft = draftPlatformLibrary({ ...WEBSITE, indexDepth: '3' });
     expect(draft.publicId).toBe('/websites/nextjs');
     expect(draft.sourceType).toBe('website');
     expect(draft.refreshPolicy).toBe('daily');
+    expect(draft.indexDepth).toBe(3);
     expect(draft.description).toBeNull();
   });
 
@@ -145,7 +146,8 @@ describe('the create form', () => {
     // Both the id and the location are wrong for `markdown` too; the type is
     // the field that explains them.
     expect(refusal({ ...WEBSITE, sourceType: 'markdown' })).toBe('unsupported_source');
-    expect(refusal({ ...WEBSITE, sourceType: 'pdf' })).toBe('unsupported_source');
+    /* pdf is a library type now (platform-pdf.test.ts); a website id under it is the id's fault. */
+    expect(refusal({ ...WEBSITE, sourceType: 'pdf' })).toBe('invalid_public_id');
     expect(refusal({ ...WEBSITE, sourceType: 'anything' })).toBe('unsupported_source');
   });
 
@@ -328,7 +330,21 @@ describe('sources', () => {
       location: 'https://github.com/vercel/next.js.git',
       refreshPolicy: 'weekly',
     });
-    expect(draft).toEqual({ type: 'github', location: 'vercel/next.js', refreshPolicy: 'weekly' });
+    expect(draft).toEqual({ type: 'github', location: 'vercel/next.js', refreshPolicy: 'weekly', indexDepth: 0, files: [] });
+  });
+
+  it('keeps nested depth for website and llms.txt sources, defaulting to none', () => {
+    const index = draftPlatformSource({
+      type: 'llms_txt',
+      location: 'https://docs.example.test/llms.txt',
+      refreshPolicy: 'daily',
+      indexDepth: '2',
+    });
+    expect(index.indexDepth).toBe(2);
+    expect(draftPlatformSource({ type: 'llms_txt', location: 'https://docs.example.test/llms.txt', refreshPolicy: 'daily' }).indexDepth).toBe(0);
+    expect(draftPlatformSource({ type: 'llms_txt', location: 'https://docs.example.test/llms.txt', refreshPolicy: 'daily', indexDepth: '9' }).indexDepth).toBe(0);
+    expect(draftPlatformSource({ type: 'website', location: 'https://docs.example.test/', refreshPolicy: 'daily', indexDepth: '2' }).indexDepth).toBe(2);
+    expect(draftPlatformSource({ type: 'openapi', location: 'https://docs.example.test/openapi.json', refreshPolicy: 'daily', indexDepth: '2' }).indexDepth).toBe(0);
   });
 
   it('refuses an unusable location, an unknown type and an unknown cadence', () => {

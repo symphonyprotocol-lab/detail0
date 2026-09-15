@@ -1,6 +1,10 @@
 import type { Metadata } from 'next';
 import { MiniTrend } from '@/components/dashboard/mini-trend';
-import { RequestLog, type RequestLogView } from '@/components/dashboard/request-log';
+import {
+  RequestLog,
+  type RequestLogFilterView,
+  type RequestLogView,
+} from '@/components/dashboard/request-log';
 import { PageHeader, StatTile } from '@/components/dashboard/ui';
 import {
   BracesIcon,
@@ -8,7 +12,14 @@ import {
   ClockIcon,
   DatabaseIcon,
 } from '@/components/ui/icons';
-import { listRequests } from '@/lib/application/plans';
+import { listWorkspaceLibraries } from '@/lib/application/libraries';
+import { queryRequests, requestStats } from '@/lib/application/plans';
+import {
+  parseRequestFilter,
+  requestFilterParams,
+  REQUEST_PAGE_SIZE,
+  type RequestEntrypoint,
+} from '@/lib/domain/request-log';
 import { workspaceUsage } from '@/lib/http/dashboard';
 import { requireSession } from '@/lib/http/session';
 import { fill } from '@/lib/i18n/format';
@@ -22,47 +33,61 @@ const TREND_DAYS = 12;
 
 /**
  * The requests screen, on the ledger. architecture.md 6.3 and 11.1: the
- * trend is the rebuilt usage summary, the stats are the events' figures for
- * the current period, and the log lists real requests -- outcome, library,
- * latency, never the query text.
+ * trend is the rebuilt usage summary for the current period, and the log
+ * lists real requests -- outcome, library, latency, returned tokens, the
+ * key's mask, never the query text. Filters
+ * arrive as GET parameters (requirement.md 5.2) and are applied by the
+ * database, so the footer's count is the truth about the whole filtered set.
+ *
+ * The stat strip describes that same filtered set, not the fifty rows this
+ * page happens to hold: success rate and average latency used to be derived
+ * from `log.rows`, which made `?page=2` report a different success rate for
+ * an unchanged filter, and sat them beside two figures that covered the whole
+ * period instead. All four now come from one aggregate over the filter, so
+ * the four tiles, the footer's count and the CSV export all answer the same
+ * question. The trend below is the period, and says so.
  */
-export default async function DashboardRequestsPage() {
-  const [session, { locale, t }] = await Promise.all([
+export default async function DashboardRequestsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [session, { locale, t }, params] = await Promise.all([
     requireSession('/dashboard/requests'),
     translations(),
+    searchParams,
   ]);
   const r = t.dashboard.requests;
+  const filter = parseRequestFilter(params);
 
-  const [overview, requests] = await Promise.all([
+  const [overview, log, matched, libraries] = await Promise.all([
     workspaceUsage(session.workspace.id),
-    listRequests(session.workspace.id),
+    queryRequests(session.workspace.id, filter, REQUEST_PAGE_SIZE),
+    requestStats(session.workspace.id, filter),
+    listWorkspaceLibraries(session.workspace.id),
   ]);
+  const requests = log.rows;
 
-  const served = requests.filter((row) => row.statusCode < 400);
-  const latencies = served
-    .map((row) => row.latencyMs)
-    .filter((value): value is number => value !== null);
-  const averageLatency =
-    latencies.length === 0
-      ? null
-      : Math.round(latencies.reduce((sum, value) => sum + value, 0) / latencies.length);
   const number = new Intl.NumberFormat(locale);
   const stats = [
-    { key: 'calls', value: number.format(overview.callsThisPeriod), label: r.stats.calls },
+    { key: 'calls', value: number.format(matched.total), label: r.stats.calls },
     {
       key: 'success',
       value:
-        requests.length === 0 ? '—' : `${((served.length / requests.length) * 100).toFixed(1)}%`,
+        matched.total === 0 ? '—' : `${((matched.served / matched.total) * 100).toFixed(1)}%`,
       label: r.stats.success,
     },
     {
       key: 'latency',
-      value: averageLatency === null ? '—' : `${number.format(averageLatency)} ms`,
+      value:
+        matched.averageLatencyMs === null
+          ? '—'
+          : `${number.format(matched.averageLatencyMs)} ms`,
       label: r.stats.latency,
     },
     {
       key: 'tokens',
-      value: number.format(overview.returnedTokensThisPeriod),
+      value: number.format(matched.returnedTokens),
       label: r.stats.tokens,
     },
   ];
@@ -77,17 +102,47 @@ export default async function DashboardRequestsPage() {
   });
   const max = Math.max(1, ...bars.map((bar) => bar.value));
 
-  const time = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' });
+  const time = new Intl.DateTimeFormat(locale, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const surfaces = r.filters.entrypoints;
   const entries: RequestLogView[] = requests.map((row) => ({
-    id: row.requestId.slice(0, 14),
+    id: row.requestId,
     time: time.format(new Date(row.createdAt)),
     operation: row.operation,
-    surface: row.entrypoint === 'rest' ? 'REST API' : row.entrypoint === 'web' ? 'Web' : '—',
+    surface:
+      row.entrypoint && row.entrypoint in surfaces
+        ? surfaces[row.entrypoint as RequestEntrypoint]
+        : '—',
     library: row.libraryPublicId ?? '—',
-    key: '—',
+    key: row.apiKeyMasked ?? '—',
     status: row.statusCode,
     latency: row.latencyMs === null ? '—' : `${row.latencyMs} ms`,
+    tokens: row.returnedTokens === null ? '—' : number.format(row.returnedTokens),
   }));
+
+  const query = requestFilterParams(filter, 1);
+  query.delete('page');
+  const filterView: RequestLogFilterView = {
+    q: query.get('q') ?? '',
+    from: query.get('from') ?? '',
+    to: query.get('to') ?? '',
+    status: query.get('status') ?? '',
+    entrypoint: query.get('entrypoint') ?? '',
+    library: query.get('library') ?? '',
+  };
+  const pageHref = (page: number) => {
+    const params = requestFilterParams(filter, page);
+    const text = params.toString();
+    return text ? `/dashboard/requests?${text}` : '/dashboard/requests';
+  };
+  const exportHref = query.toString()
+    ? `/dashboard/export/requests?${query.toString()}`
+    : '/dashboard/export/requests';
+  const pageCount = Math.max(1, Math.ceil(log.total / log.pageSize));
 
   const STAT_ICONS = [BracesIcon, CircleCheckIcon, ClockIcon, DatabaseIcon];
 
@@ -116,7 +171,20 @@ export default async function DashboardRequestsPage() {
         format={(value) => fill(r.trendFormat, { value })}
       />
 
-      <RequestLog entries={entries} />
+      <RequestLog
+        entries={entries}
+        filter={filterView}
+        libraries={libraries.map((library) => ({
+          publicId: library.publicId,
+          title: library.title,
+        }))}
+        total={log.total}
+        page={log.page}
+        pageCount={pageCount}
+        previousHref={pageHref(Math.max(1, log.page - 1))}
+        nextHref={pageHref(log.page + 1)}
+        exportHref={exportHref}
+      />
     </div>
   );
 }
