@@ -1,9 +1,12 @@
 /**
  * Creates or updates one administrator, and enrols their second factor.
  *
- * The console has no self-service sign-up and never will: an administrator is
- * granted, not requested (requirement.md 3.2, 5.3). This script is that grant,
- * run by someone who already holds the database credentials.
+ * An administrator is granted, not requested (requirement.md 3.2, 5.3), and
+ * this script is that grant, run by someone who already holds the database
+ * credentials. The one self-service path is the first administrator of an
+ * empty installation, which `/admin/login` offers until it succeeds; this
+ * script is the way to do the same thing without exposing that page, and the
+ * only way to add an administrator the console itself cannot reach.
  *
  *   npm run admin:create -- --email admin@re0.com --username Yuzhao --role super
  *

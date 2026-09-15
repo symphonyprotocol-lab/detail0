@@ -105,9 +105,13 @@ export {
   revokeAdministratorSessions,
   offerEnrolment,
   completeEnrolment,
+  hasAnyAdministrator,
+  offerBootstrap,
+  bootstrapFirstAdministrator,
   type AdministratorRow,
   type InviteResult,
   type EnrolmentOffer,
+  type BootstrapOffer,
 } from './manage-administrators';
 export {
   activeLlmConfig,

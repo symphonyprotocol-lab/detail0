@@ -1935,6 +1935,28 @@ export const en: Dictionary = {
       mismatch: 'Those two passwords do not match.',
       done: 'Enrolment complete. Sign in with your new password.',
     },
+    bootstrap: {
+      title: 'Register the first administrator',
+      subtitle:
+        'This installation has no administrator yet. Once one exists this page goes back to being the sign-in, and this form is gone.',
+      emailLabel: 'Administrator email',
+      usernameLabel: 'Display name',
+      secretLabel: 'Two-factor secret',
+      secretHelp:
+        'Scan the code below with an authenticator app. The secret is fixed by the server, so reloading this page will not change it.',
+      qrAlt: 'Two-factor enrolment QR code',
+      secretManual: 'Or enter it by hand',
+      passwordLabel: 'Choose a password',
+      passwordHelp: 'At least 12 characters.',
+      confirmLabel: 'Type it again',
+      mfaLabel: 'Enter the 6-digit code your app shows',
+      mfaHelp: 'The first administrator does not get to skip the second factor either.',
+      submit: 'Register as super administrator',
+      pending: 'Registering…',
+      mismatch: 'Those two passwords do not match.',
+      done: 'Registered, and this form is now closed. Sign in with the password you just set.',
+      signIn: 'Go to sign-in',
+    },
     overview: {
       title: 'Overview',
       description: 'Users, review queue and subscription health at a glance.',
@@ -3098,6 +3120,8 @@ export const en: Dictionary = {
         reason_required: 'A reason is required; it goes into the audit log.',
         already_enrolled: 'That account has already finished enrolment.',
         not_enrolled: 'Only an active administrator who finished enrolment has a second factor to reset.',
+        bootstrap_closed:
+          'This installation already has an administrator, so first-administrator registration is closed. Ask one of them to invite you.',
       },
       matrixTitle: 'Role permissions',
       matrixSubtitle: 'What each preset role can reach',

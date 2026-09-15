@@ -104,19 +104,19 @@
 
 ## 环境准备
 
-`development` / `preview` / `production` **三套环境完全隔离**，各自独立拥有：
+`development` / `preview` / `production` 共用同一个 Neon Project，库按环境分支：**production 用主分支；每个预览部署自动建一个 `preview/<git 分支>` 子分支（主分支的写时复制，部署销毁时回收）；本地开发连常驻的 `dev` 子分支**（在 Neon Console 建子分支时 Auto-delete 要改成 Never）。预览分支上的新迁移由 `vercel.json` 的 `buildCommand` 在构建前执行，只在 `VERCEL_ENV=preview` 时触发；生产的迁移不在构建里跑。对象存储跟着一起分：`recall0-blob` 只连 Production，`recall0-blob-preview` 连 Preview，`recall0-blob-dev` 连 Development。其余外部依赖仍按环境隔离：
 
-- Neon Project 或分支
-- Vercel Blob Store
 - Upstash Database 与 REST Token
 - OAuth Client、Payment Environment 和 Provider Key
 - LLM Provider Key
 - Aptos 账户与 Anchor Signer 私钥（非生产使用 Testnet）
 - Workflow 名称与 Webhook Secret
 
+反过来，凡是加密或哈希落库内容的 Secret，三套环境必须取同一个值：`SESSION_SIGNING_SECRET`（GitHub / Notion 授权令牌的封装、管理员邀请哈希与 TOTP 种子）、`API_KEY_HASH_SECRET`、`CREDENTIAL_ENCRYPTION_KEY`。各持一份的话，一个环境写下的行在另一个环境打不开。
+
 **禁止把 Production 数据复制到 Preview**——私有知识库里是用户授权的 Notion 页面与私有仓库内容，测试数据必须脱敏或由 Fixture 生成。
 
-对象存储用 Vercel Blob：在 Vercel 项目的 Storage 里为每个环境各建一个 Blob Store 并连接到项目，`BLOB_READ_WRITE_TOKEN` 会自动注入；本地用 `vercel env pull` 拉取。所有对象都以私有方式写入。Dashboard 的 PDF 导入向导由浏览器直接上传到 Blob（服务端只签发限定路径、类型和大小的 Client Token），不经过应用，也就不受请求体大小限制，不需要额外的 CORS 配置。Blob 没有生命周期规则，向导中途放弃的上传会留在 `uploads/` 前缀下，由 drain 每次收尾时清理超过 24 小时且未被引用的对象，也可以用 `npm run uploads:purge` 手动跑。未设置 `BLOB_READ_WRITE_TOKEN` 时，代码退回 `OBJECT_STORE_*` 描述的 S3 兼容 Bucket，那时 Bucket 要允许来自应用 Origin 的跨域 `PUT`。
+对象存储用 Vercel Blob：每个环境一个私有 Store，各自连到对应环境，`BLOB_READ_WRITE_TOKEN` 会自动注入；本地用 `vercel env pull` 拉取。分开是必须的而不是讲究——预览分支是主分支的写时复制，行里的 Key 指向生产对象，共用一个 Store 时在预览里删掉一个知识库就会删掉生产的文件。代价是预览里那些从生产复制来的行读不到对象（Store 里没有），这在预览分支换成 schema-only 之后自然消失。Dashboard 的 PDF 导入向导由浏览器直接上传到 Blob（服务端只签发限定路径、类型和大小的 Client Token），不经过应用，也就不受请求体大小限制，不需要额外的 CORS 配置。Blob 没有生命周期规则，向导中途放弃的上传会留在 `uploads/` 前缀下，由 drain 每次收尾时清理超过 24 小时且未被引用的对象，也可以用 `npm run uploads:purge` 手动跑。未设置 `BLOB_READ_WRITE_TOKEN` 时，代码退回 `OBJECT_STORE_*` 描述的 S3 兼容 Bucket，那时 Bucket 要允许来自应用 Origin 的跨域 `PUT`。
 
 构建任务在建库、改文件、后台刷新等动作的响应返回后立即执行（`after(runOperation)`），所以本地开发不需要额外进程；`vercel.json` 里的 Cron 每 10 分钟调用一次 `/api/cron/drain`（需要 `CRON_SECRET`）作为兜底，负责重试失败任务和清扫废弃上传。这个 Cron 同时也是平台知识库的自动刷新调度：每次先按各来源的刷新策略（每日 / 每周）把到期的来源排入队列，再执行队列。队列的实时状态、最近完成的记录和各来源的下次刷新时间在管理后台的「刷新队列」页（`/admin/refresh-queue`）查看。本地没有 Cron，可以用 `npx tsx` 调 `scheduleDueRefreshes()` 和 `drainOperations()`，或直接在后台按「排队刷新」。
 
@@ -139,7 +139,7 @@ npm run dev
 
 | 变量 | 说明 |
 | --- | --- |
-| `DATABASE_URL` / `DATABASE_URL_UNPOOLED` | Neon 分支的连接池端点与直连端点，后者用于迁移 |
+| `DATABASE_URL` / `DATABASE_URL_UNPOOLED` | 共享 Neon Project 的连接池端点与直连端点，后者用于迁移 |
 | `APP_BASE_URL` | 本地固定 `http://localhost:3000`，回调 URL 由它拼出 |
 | `SESSION_SIGNING_SECRET` | 至少 32 字符，用于会话摘要和 OAuth 状态 Cookie 的加密 |
 | `GITHUB_OAUTH_CLIENT_ID` / `_SECRET` | GitHub OAuth App |
@@ -160,13 +160,33 @@ http://localhost:3000/api/auth/github/callback/connect
 
 向导导入 Notion 页面时同样先绑定账号：需要一个 Notion **public integration**（`NOTION_OAUTH_CLIENT_ID` / `_SECRET`），登记的 Redirect URI 为 `http://localhost:3000/api/auth/notion/callback/connect`。用户在 Notion 授权页选择共享给 re0 的页面，向导只列这些页面，之后的刷新也用同一份授权读取；令牌加密存于 `notion_connection` 表。管理后台的平台 Notion 知识库仍用 `NOTION_INGESTION_TOKEN`（internal integration）。
 
+`npm run db:migrate` 打的是 `.env.local` 里的那条串，也就是 `dev` 分支——本地迁移不再碰生产。主分支（production 与 preview 共用）的迁移要显式指向它：
+
+```bash
+DATABASE_URL_UNPOOLED='<主分支直连串>' npm run db:migrate
+```
+
+顺序按 [architecture.md](./architecture.md) 第 19.2 节排：主分支先迁移，再发布依赖新 Schema 的代码。
+
 `0002_seed_plans.sql` 会写入 Free 和 Pro 的 Plan Version——首次登录要在同一个事务里创建 Free 订阅，因此迁移必须先于任何流量执行。
+
+### 后台的首位管理员
+
+环境里一个管理员都没有时，`/admin/login` 显示的不是登录表单，而是首位超级管理员的注册表单：填邮箱和显示名、设密码、扫码绑定两步验证并输入当前验证码。注册成功后这个表单就消失，之后管理员只能由现有管理员邀请（requirement.md 3.2）。
+
+开放与否由写入时的数据库状态判定，不由页面判定——插入语句自带 `where not exists (select 1 from administrator)`，并用 advisory lock 串行化并发请求，所以绕过页面直接调 Server Action 得到的是同一个拒绝。
+
+**新环境上线后要第一时间完成这一步**：在它完成之前，任何能打开那个页面的人都能成为超级管理员。不希望这个页面对外出现过哪怕一次，就在放流量之前用脚本在数据库侧建好第一个管理员：
+
+```bash
+ADMIN_PASSWORD='...' npm run admin:create -- --email admin@re0.io --username Yuzhao --role super
+```
 
 测试：
 
 ```bash
 npm test                                                   # 域与安全用例，不需要数据库
-TEST_DATABASE_URL='postgres://...' npx vitest run tests/integration   # 会写库，只指向可丢弃的分支
+TEST_DATABASE_URL='postgres://...' npx vitest run tests/integration   # 会写库，只指向可丢弃的库，绝不是共享的那个
 ```
 
 ### 本地 Firecrawl（网站源的渲染回退）

@@ -271,6 +271,8 @@ export const ADMIN_CHANGE_ERRORS = [
   'weak_password',
   'reason_required',
   'already_enrolled',
+  /** Registering the first administrator, on an installation that has one. */
+  'bootstrap_closed',
   /** A settlement period that is not a past `YYYY-MM`. */
   'period_invalid',
   /** MFA can only be reset on an active, enrolled account. */
