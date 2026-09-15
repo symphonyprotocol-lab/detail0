@@ -327,7 +327,7 @@ ANCHOR_LEAF_SALT_SECRET
 
 锚定 Workflow 与 [architecture.md](./architecture.md) 第 8.1 节的 Ingestion Workflow 使用同一套持久化执行机制，不新增执行引擎，但有**自己的 Cron 入口** `/api/cron/anchor`（每 15 分钟），不搭在队列 drain 上——按第 4.1 节的旁路定位，删掉那个路由与 `vercel.json` 里的一行就移除整套调度。15 分钟不是锚定频率：一小时一个 Version 批次、一天一个 Audit 批次由 Workflow 自己决定，这个频率是为了**确认**上一轮提交的交易，好让第 4.8 节的两小时 SLO 宽裕而不是紧绷。
 
-沿用 [architecture.md](./architecture.md) 第 19.1 节的约束：Secret 不进入前端 Bundle，三套环境各持一份、不共用任何一项。
+沿用 [architecture.md](./architecture.md) 第 19.1 节的约束：Secret 不进入前端 Bundle；本表各项都属于「三套环境各持一份」的默认情形，19.1 为共享 Neon 与 Blob 开的两类例外与锚定无关。
 
 开发与 CI 使用 Localnet 或 Testnet，配置来自独立环境，遵循 [architecture.md](./architecture.md) 第 3.2 节的环境隔离；生产环境只允许指向 mainnet。
 

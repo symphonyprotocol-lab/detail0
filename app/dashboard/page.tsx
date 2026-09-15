@@ -181,11 +181,11 @@ export default async function DashboardOverviewPage() {
             key={stat.label}
             /* One divider between columns: every odd cell when wrapped to two, every cell but the first on wide. */
             className={`flex flex-col pr-[18px] ${
-              index % 2 === 1 ? 'border-l-2 border-line pl-5' : 'pl-1'
-            } ${index === 0 ? 'md:border-l-0 md:pl-1' : 'md:border-l-2 md:border-line md:pl-5'}`}
+              index % 2 === 1 ? 'border-l border-line pl-5' : 'pl-1'
+            } ${index === 0 ? 'md:border-l-0 md:pl-1' : 'md:border-l md:border-line md:pl-5'}`}
           >
             <p className="text-[11px] tracking-[0.03em] text-muted">{stat.label}</p>
-            <p className="mt-1.5 text-[20px] leading-[1.5] font-semibold tracking-[-0.02em] text-ink">
+            <p className="mt-1.5 text-[20px] leading-[1.5] font-medium text-ink">
               {stat.value}
             </p>
             {stat.quota ? (
@@ -196,7 +196,7 @@ export default async function DashboardOverviewPage() {
                 />
               </div>
             ) : (
-              <p className="mt-1 text-[12px] tracking-[-0.023em] text-muted">{stat.caption}</p>
+              <p className="mt-1 text-[12px] text-muted">{stat.caption}</p>
             )}
           </article>
         ))}
@@ -207,12 +207,12 @@ export default async function DashboardOverviewPage() {
         <article className={`${PANEL} flex flex-col gap-2 p-[30px]`}>
           <p className="text-[11px] tracking-[0.03em] text-muted">{o.live.planTitle}</p>
           <p className="flex items-baseline gap-2">
-            <span className="text-[22px] leading-[1.4] font-semibold tracking-[-0.02em] text-ink">
+            <span className="text-[22px] leading-[1.4] font-medium text-ink">
               {plan.planName}
             </span>
-            <span className="text-[13px] tracking-[-0.023em] text-muted">{planPrice}</span>
+            <span className="text-[13px] text-muted">{planPrice}</span>
           </p>
-          <p className="text-[12px] tracking-[-0.023em] text-steel">
+          <p className="text-[12px] text-steel">
             {fill(o.live.planAllowance, { calls: number.format(plan.monthlyCalls) })}
           </p>
           <div className="mt-auto pt-2">
@@ -223,15 +223,15 @@ export default async function DashboardOverviewPage() {
         <article className={`${PANEL} flex flex-col gap-2 p-[30px]`}>
           <p className="text-[11px] tracking-[0.03em] text-muted">{o.live.costTitle}</p>
           <p className="flex items-baseline gap-2">
-            <span className="text-[22px] leading-[1.4] font-semibold tracking-[-0.02em] text-ink">
+            <span className="text-[22px] leading-[1.4] font-medium text-ink">
               {usdHeadline(cost.totalMinor)}
             </span>
-            <span className="text-[13px] tracking-[-0.023em] text-muted">{costPeriod}</span>
+            <span className="text-[13px] text-muted">{costPeriod}</span>
           </p>
-          <p className="text-[12px] tracking-[-0.023em] text-steel">{costBreakdown}</p>
+          <p className="text-[12px] text-steel">{costBreakdown}</p>
           {/* Said plainly: without a provider this is arithmetic, not an invoice. */}
           {billing.paymentConnected ? null : (
-            <p className="text-[12px] tracking-[-0.023em] text-amber">{o.live.costUnbilled}</p>
+            <p className="text-[12px] text-amber">{o.live.costUnbilled}</p>
           )}
           <div className="mt-auto pt-2">
             <ArrowLink href="/dashboard/settings#billing">{o.live.costLink}</ArrowLink>
@@ -243,14 +243,14 @@ export default async function DashboardOverviewPage() {
       <section className={`${PANEL} flex flex-col gap-3.5 p-[30px]`}>
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div className="flex flex-col gap-[5px]">
-            <h2 className="text-[16px] leading-[1.5] tracking-[-0.025em] text-ink">
+            <h2 className="text-[16px] leading-[1.5] text-ink">
               {o.usageTitle}
             </h2>
-            <p className="text-[13px] leading-[1.5] tracking-[-0.023em] text-muted">
+            <p className="text-[13px] leading-[1.5] text-muted">
               {o.usageSubtitle}
             </p>
           </div>
-          <span className="inline-flex h-[29px] items-center rounded-[7px] border-2 border-publine px-[11px]">
+          <span className="inline-flex h-[29px] items-center rounded-md border border-publine px-[11px]">
             <ArrowLink href="/pricing">{o.usageUpgrade}</ArrowLink>
           </span>
         </div>
@@ -273,12 +273,12 @@ export default async function DashboardOverviewPage() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[520px] border-collapse text-left">
             <thead>
-              <tr className="border-b-2 border-line">
+              <tr className="border-b border-line">
                 {o.keyColumns.map((head, index) => (
                   <th
                     key={head}
                     scope="col"
-                    className={`pb-[9px] text-[11px] font-normal tracking-[-0.023em] text-muted ${
+                    className={`pb-[9px] text-[11px] font-normal text-muted ${
                       index === 0 ? 'w-[29%]' : index === 3 ? 'w-[19%]' : 'w-[26%]'
                     }`}
                   >
@@ -289,19 +289,19 @@ export default async function DashboardOverviewPage() {
             </thead>
             <tbody>
               {keys.map((key) => (
-                <tr key={key.id} className="border-b-2 border-line">
-                  <td className="py-3.5 text-[12px] font-semibold tracking-[-0.023em] text-steel">
+                <tr key={key.id} className="border-b border-line">
+                  <td className="py-3.5 text-[12px] font-medium text-steel">
                     {key.name}
                   </td>
                   <td className="py-3.5">
-                    <code className="inline-flex items-center rounded-[5px] bg-mutedbg px-1.5 py-1 font-mono text-[11px] tracking-[-0.023em] text-steel">
+                    <code className="inline-flex items-center rounded-md bg-mutedbg px-1.5 py-1 font-mono text-[11px] text-steel">
                       {key.masked}
                     </code>
                   </td>
-                  <td className="py-3.5 text-[12px] tracking-[-0.023em] text-steel">
+                  <td className="py-3.5 text-[12px] text-steel">
                     {date.format(new Date(key.createdAt))}
                   </td>
-                  <td className="py-3.5 text-[12px] tracking-[-0.023em] text-steel">
+                  <td className="py-3.5 text-[12px] text-steel">
                     {key.lastUsedAt ? dateTime.format(new Date(key.lastUsedAt)) : '—'}
                   </td>
                 </tr>
@@ -328,21 +328,21 @@ export default async function DashboardOverviewPage() {
           description={o.installDescription}
         />
         <div className="flex h-[52px] items-center gap-2.5 rounded-lg bg-terminal px-3.5">
-          <TerminalIcon size={16} className="text-brand" />
-          <code className="flex-1 truncate font-mono text-[13px] tracking-[-0.023em] text-white">
+          <TerminalIcon size={16} className="text-brandink" />
+          <code className="flex-1 truncate font-mono text-[13px] text-white">
             {install}
           </code>
           <CopyButton
             value={install}
             label={o.installCommandLabel}
-            className="text-[#aebec0] hover:bg-white/10"
+            className="text-faint hover:bg-white/10"
           />
         </div>
-        <div className="flex h-[44px] items-center gap-2.5 rounded-lg bg-[#f1f5f4] px-3.5">
-          <span className="shrink-0 text-[11px] tracking-[-0.023em] text-muted">
+        <div className="flex h-[44px] items-center gap-2.5 rounded-lg bg-subtle px-3.5">
+          <span className="shrink-0 text-[11px] text-muted">
             {o.live.mcpEndpointLabel}
           </span>
-          <code className="flex-1 truncate font-mono text-[12px] tracking-[-0.023em] text-steel">
+          <code className="flex-1 truncate font-mono text-[12px] text-steel">
             {endpoint}
           </code>
           <CopyButton
@@ -351,7 +351,7 @@ export default async function DashboardOverviewPage() {
             className="text-muted hover:bg-mutedbg"
           />
         </div>
-        <p className="text-[12px] tracking-[-0.023em] text-muted">
+        <p className="text-[12px] text-muted">
           {fill(o.live.keyPlaceholderNote, { placeholder: API_KEY_PLACEHOLDER })}
         </p>
       </section>

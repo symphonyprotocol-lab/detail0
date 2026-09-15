@@ -55,7 +55,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 const PAGER =
-  'inline-flex h-[29px] items-center rounded-[6px] border-2 border-line bg-card px-2.5 text-[11px] font-medium text-ink hover:bg-subtle';
+  'inline-flex h-[29px] items-center rounded-md border border-line bg-card px-2.5 text-[11px] font-medium text-ink hover:bg-subtle';
 
 /** The list's tile colours, so the delete dialog shows the same tile here. */
 const TILE_COLORS = ['#0f9d77', '#5865f2', '#d97706', '#0ea5e9', '#9333ea', '#e11d48'];
@@ -166,14 +166,14 @@ export default async function DashboardLibraryPage({
         <div className="flex min-w-0 flex-col gap-[5px]">
           <Link
             href="/dashboard/libraries"
-            className="text-[12px] tracking-[-0.023em] text-brandink transition-colors hover:text-brand"
+            className="text-[12px] text-brandink transition-colors hover:text-brandink"
           >
             {d.back}
           </Link>
-          <h1 className="mt-1.5 truncate text-[25px] leading-[1.5] font-[650] tracking-[-0.045em] text-ink">
+          <h1 className="mt-1.5 truncate text-[25px] leading-[1.5] font-medium text-ink">
             {library.title}
           </h1>
-          <p className="flex flex-wrap items-center gap-2 text-[13px] leading-[1.5] tracking-[-0.023em] text-muted">
+          <p className="flex flex-wrap items-center gap-2 text-[13px] leading-[1.5] text-muted">
             <span>{library.publicId}</span>
             <Badge tone={library.visibility === 'public' ? 'public' : 'private'}>
               {library.visibility === 'public' ? l.scopePublic : l.scopePrivate}
@@ -185,7 +185,7 @@ export default async function DashboardLibraryPage({
           {routable ? (
             <Link
               href={`/libraries${library.publicId}`}
-              className="inline-flex h-[35px] items-center gap-1.5 rounded-[7px] border-2 border-line bg-card px-3 text-[12px] font-medium text-ink hover:bg-subtle"
+              className="inline-flex h-[35px] items-center gap-1.5 rounded-md border border-line bg-card px-3 text-[12px] font-medium text-ink hover:bg-subtle"
             >
               {d.actions.publicPage}
               <ArrowRightIcon size={14} />
@@ -194,7 +194,7 @@ export default async function DashboardLibraryPage({
           {library.source && library.source.fileCount !== null ? (
             <Link
               href={`/dashboard/libraries/${library.id}/files`}
-              className="inline-flex h-[35px] items-center gap-1.5 rounded-[7px] border-2 border-line bg-card px-3 text-[12px] font-medium text-ink hover:bg-subtle"
+              className="inline-flex h-[35px] items-center gap-1.5 rounded-md border border-line bg-card px-3 text-[12px] font-medium text-ink hover:bg-subtle"
             >
               <FileTextIcon size={14} />
               {library.source.type === 'markdown' ? l.manage.filesMarkdown : d.actions.files}
@@ -219,7 +219,7 @@ export default async function DashboardLibraryPage({
                   affordable: quote.affordable,
                 })}
               />
-              <span className="max-w-[260px] text-right text-[11px] leading-[1.5] tracking-[-0.023em] text-muted">
+              <span className="max-w-[260px] text-right text-[11px] leading-[1.5] text-muted">
                 {fill(d.actions.rebuildNote, { calls: number.format(quote.maxCalls) })}
               </span>
             </div>
@@ -240,28 +240,28 @@ export default async function DashboardLibraryPage({
       </header>
 
       {!canEdit ? (
-        <p className="rounded-[8px] border-2 border-line bg-subtle px-3.5 py-2.5 text-[11px] tracking-[-0.023em] text-muted">
+        <p className="rounded-md border border-line bg-subtle px-3.5 py-2.5 text-[11px] text-muted">
           {m.readOnly}
         </p>
       ) : null}
       {canEdit && library.lifecycleStatus === 'suspended' && !library.pausedByOwner ? (
-        <p className="rounded-[8px] border-2 border-line bg-subtle px-3.5 py-2.5 text-[11px] tracking-[-0.023em] text-muted">
+        <p className="rounded-md border border-line bg-subtle px-3.5 py-2.5 text-[11px] text-muted">
           {m.pausedByReviewer}
         </p>
       ) : null}
 
       <section
-        className={`flex flex-wrap items-center gap-4 rounded-[10px] border-2 px-[19px] py-4 ${
-          banner.tone === 'live' ? 'border-publine bg-[#ebf5f5]' : 'border-line bg-card'
+        className={`flex flex-wrap items-center gap-4 rounded-md border px-[19px] py-4 ${
+          banner.tone === 'live' ? 'border-publine bg-brandsoft' : 'border-line bg-card'
         }`}
       >
         <IconTile tone="card">{banner.icon}</IconTile>
         <div className="flex min-w-[220px] flex-1 flex-col gap-1">
-          <p className="flex items-center gap-2 text-[13px] leading-[1.4] font-bold tracking-[-0.023em] text-ink">
+          <p className="flex items-center gap-2 text-[13px] leading-[1.4] font-medium text-ink">
             {banner.title}
             <StatusLabel tone={banner.tone}>{statusLabels[banner.tone]}</StatusLabel>
           </p>
-          <p className="text-[11px] leading-[1.5] tracking-[-0.023em] text-muted">{banner.body}</p>
+          <p className="text-[11px] leading-[1.5] text-muted">{banner.body}</p>
         </div>
       </section>
 
@@ -269,7 +269,7 @@ export default async function DashboardLibraryPage({
           expected time and the reviewer's feedback. */}
       {pipeline ? (
         <section className={`${PANEL} flex flex-col gap-3 p-6`}>
-          <h2 className="text-[15px] font-semibold tracking-[-0.025em] text-ink">{l.manage.pipeline.title}</h2>
+          <h2 className="text-[15px] font-medium text-ink">{l.manage.pipeline.title}</h2>
           <ReviewPipeline
             entries={pipeline}
             note={library.reviews.find((review) => review.feedback[0])?.feedback[0] ?? null}
@@ -294,18 +294,18 @@ export default async function DashboardLibraryPage({
             key={String(key)}
             className="flex items-center gap-3 border-b border-line/70 py-3.5 sm:[&:nth-last-child(-n+2)]:border-b-0"
           >
-            <span className="text-brand">{icon}</span>
+            <span className="text-brandink">{icon}</span>
             <span className="flex min-w-0 flex-col gap-0.5">
-              <dt className="text-[11px] tracking-[-0.023em] text-muted">{key}</dt>
-              <dd className="truncate text-[15px] font-semibold tracking-[-0.025em] text-ink">{value}</dd>
+              <dt className="text-[11px] text-muted">{key}</dt>
+              <dd className="truncate text-[15px] font-medium text-ink">{value}</dd>
             </span>
           </div>
         ))}
       </dl>
 
       <section className={`${PANEL} p-6`}>
-        <h2 className="text-[15px] font-semibold tracking-[-0.025em] text-ink">{d.basics.title}</h2>
-        <dl className="mt-3 grid grid-cols-1 gap-x-8 gap-y-2 text-[12px] tracking-[-0.023em] sm:grid-cols-2">
+        <h2 className="text-[15px] font-medium text-ink">{d.basics.title}</h2>
+        <dl className="mt-3 grid grid-cols-1 gap-x-8 gap-y-2 text-[12px] sm:grid-cols-2">
           {[
             [d.basics.publicId, library.publicId],
             [d.basics.visibility, library.visibility === 'public' ? l.scopePublic : l.scopePrivate],
@@ -323,7 +323,7 @@ export default async function DashboardLibraryPage({
             [d.basics.description, library.description ?? d.basics.none],
           ].map(([key, value]) => (
             <div key={key} className="flex flex-col gap-0.5 border-b border-line/70 py-2 last:border-b-0">
-              <dt className="text-[10px] font-semibold tracking-[0.02em] text-muted">{key}</dt>
+              <dt className="text-[10px] font-medium tracking-[0.02em] text-muted">{key}</dt>
               <dd className="break-all text-ink">{value}</dd>
             </div>
           ))}
@@ -358,8 +358,8 @@ export default async function DashboardLibraryPage({
 
       <section className={`${PANEL} p-0.5`}>
         <div className="px-6 py-4">
-          <h2 className="text-[15px] font-semibold tracking-[-0.025em] text-ink">{d.queue.title}</h2>
-          <p className="mt-0.5 text-[11px] tracking-[-0.023em] text-muted">{d.queue.description}</p>
+          <h2 className="text-[15px] font-medium text-ink">{d.queue.title}</h2>
+          <p className="mt-0.5 text-[11px] text-muted">{d.queue.description}</p>
         </div>
         <Table
           columns={d.queue.columns}
@@ -389,8 +389,8 @@ export default async function DashboardLibraryPage({
 
       <section id="documents" className={`${PANEL} scroll-mt-4 p-0.5`}>
         <div className="px-6 py-4">
-          <h2 className="text-[15px] font-semibold tracking-[-0.025em] text-ink">{d.documents.title}</h2>
-          <p className="mt-0.5 text-[11px] tracking-[-0.023em] text-muted">{d.documents.description}</p>
+          <h2 className="text-[15px] font-medium text-ink">{d.documents.title}</h2>
+          <p className="mt-0.5 text-[11px] text-muted">{d.documents.description}</p>
         </div>
         <Table
           columns={d.documents.columns}
@@ -399,7 +399,7 @@ export default async function DashboardLibraryPage({
             <Link
               key="t"
               href={`/dashboard/libraries/${library.id}/documents/${document.id}`}
-              className="text-brandink hover:text-brand"
+              className="text-brandink hover:text-brandink"
             >
               {document.title}
             </Link>,
@@ -416,8 +416,8 @@ export default async function DashboardLibraryPage({
           ])}
         />
         {documents.total > 0 ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-line px-6 py-3">
-            <p className="text-[11px] tracking-[-0.023em] text-muted">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-6 py-3">
+            <p className="text-[11px] text-muted">
               {fill(d.documents.page, { page: docsPage, pages: docsPages })} ·{' '}
               {fill(d.documents.showing, { shown: documents.documents.length, total: documents.total })}
             </p>
@@ -429,8 +429,8 @@ export default async function DashboardLibraryPage({
                     key={size}
                     href={docsHref(1, size)}
                     aria-current={size === docsSize ? 'true' : undefined}
-                    className={`rounded-[5px] px-1.5 py-0.5 ${
-                      size === docsSize ? 'bg-subtle font-semibold text-ink' : 'hover:text-ink'
+                    className={`rounded-md px-1.5 py-0.5 ${
+                      size === docsSize ? 'bg-subtle font-medium text-ink' : 'hover:text-ink'
                     }`}
                   >
                     {size}
@@ -454,7 +454,7 @@ export default async function DashboardLibraryPage({
 
       <section className={`${PANEL} p-0.5`}>
         <div className="px-6 py-4">
-          <h2 className="text-[15px] font-semibold tracking-[-0.025em] text-ink">{d.versions.title}</h2>
+          <h2 className="text-[15px] font-medium text-ink">{d.versions.title}</h2>
         </div>
         <Table
           columns={d.versions.columns}
@@ -477,7 +477,7 @@ export default async function DashboardLibraryPage({
       {library.visibility === 'public' || library.reviews.length > 0 ? (
         <section className={`${PANEL} p-0.5`}>
           <div className="px-6 py-4">
-            <h2 className="text-[15px] font-semibold tracking-[-0.025em] text-ink">{d.reviews.title}</h2>
+            <h2 className="text-[15px] font-medium text-ink">{d.reviews.title}</h2>
           </div>
           <Table
             columns={d.reviews.columns}
@@ -507,9 +507,9 @@ function Table({
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[560px] border-collapse text-left text-[12px] tracking-[-0.023em]">
+      <table className="w-full min-w-[560px] border-collapse text-left text-[12px]">
         <thead>
-          <tr className="bg-subtle text-[11px] font-semibold text-muted">
+          <tr className="bg-subtle text-[11px] font-medium text-muted">
             {columns.map((column) => (
               <th key={column} scope="col" className="px-6 py-3">
                 {column}
@@ -519,14 +519,14 @@ function Table({
         </thead>
         <tbody>
           {rows.length === 0 ? (
-            <tr className="border-t-2 border-line">
+            <tr className="border-t border-line">
               <td colSpan={columns.length} className="px-6 py-8 text-center text-[13px] text-muted">
                 {empty}
               </td>
             </tr>
           ) : null}
           {rows.map((cells, index) => (
-            <tr key={index} className="border-t-2 border-line">
+            <tr key={index} className="border-t border-line">
               {cells.map((cell, column) => (
                 <td key={column} className="px-6 py-3 align-middle text-ink">
                   {cell}

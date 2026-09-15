@@ -40,20 +40,20 @@ import { fill } from '@/lib/i18n/format';
  */
 
 const FIELD =
-  'h-9 w-full rounded-[7px] border-2 border-line bg-card px-2.5 text-[12px] tracking-[-0.023em] text-ink placeholder:text-muted/70 focus:border-brand focus:outline-none';
+  'h-9 w-full rounded-md border border-line bg-card px-2.5 text-[12px] text-ink placeholder:text-muted/70 focus:border-brand focus:outline-none';
 const AREA =
-  'min-h-[72px] w-full rounded-[7px] border-2 border-line bg-card px-2.5 py-2 font-mono text-[11.5px] leading-[1.6] tracking-[-0.01em] text-ink placeholder:text-muted/70 focus:border-brand focus:outline-none';
+  'min-h-[72px] w-full rounded-md border border-line bg-card px-2.5 py-2 font-mono text-[11.5px] leading-[1.6] text-ink placeholder:text-muted/70 focus:border-brand focus:outline-none';
 const PRIMARY =
-  'inline-flex h-[35px] items-center gap-1.5 rounded-[7px] bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40';
+  'inline-flex h-[35px] items-center gap-1.5 rounded-md bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40';
 const SECONDARY =
-  'inline-flex h-[35px] items-center gap-1.5 rounded-[7px] border-2 border-line bg-card px-3 text-[12px] font-medium text-ink transition-colors hover:bg-subtle disabled:opacity-40';
+  'inline-flex h-[35px] items-center gap-1.5 rounded-md border border-line bg-card px-3 text-[12px] font-medium text-ink transition-colors hover:bg-subtle disabled:opacity-40';
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">{label}</span>
+      <span className="text-[11px] font-medium text-steel">{label}</span>
       {children}
-      {hint ? <span className="text-[10px] tracking-[-0.023em] text-muted">{hint}</span> : null}
+      {hint ? <span className="text-[10px] text-muted">{hint}</span> : null}
     </label>
   );
 }
@@ -62,7 +62,7 @@ function ResultLine({ ok, children }: { ok: boolean; children: React.ReactNode }
   return (
     <p
       role={ok ? 'status' : 'alert'}
-      className={`flex items-start gap-1.5 text-[11.5px] leading-[1.5] tracking-[-0.023em] ${
+      className={`flex items-start gap-1.5 text-[11.5px] leading-[1.5] ${
         ok ? 'text-brandink' : 'text-rose'
       }`}
     >
@@ -99,7 +99,7 @@ export function ReviewPipeline({
         {entries.map((entry, index) => (
           <li
             key={entry.step}
-            className={`flex items-center gap-1.5 ${compact ? 'text-[10.5px]' : 'text-[12px]'} tracking-[-0.023em]`}
+            className={`flex items-center gap-1.5 ${compact ? 'text-[10.5px]' : 'text-[12px]'}`}
           >
             <span
               aria-hidden
@@ -125,12 +125,12 @@ export function ReviewPipeline({
         ))}
       </ol>
       {reviewActive ? (
-        <p className={`${compact ? 'text-[10.5px]' : 'text-[11px]'} tracking-[-0.023em] text-muted`}>
+        <p className={`${compact ? 'text-[10.5px]' : 'text-[11px]'} text-muted`}>
           {p.expected}
         </p>
       ) : null}
       {note ? (
-        <p className={`${compact ? 'text-[10.5px]' : 'text-[11px]'} leading-[1.5] tracking-[-0.023em] text-rose`}>
+        <p className={`${compact ? 'text-[10.5px]' : 'text-[11px]'} leading-[1.5] text-rose`}>
           {fill(p.feedback, { note })}
         </p>
       ) : null}
@@ -187,10 +187,10 @@ export function OwnerActionButton({
   return (
     <div className="flex flex-col items-end gap-1.5">
       {confirming ? (
-        <form action={formAction} className="flex max-w-[300px] flex-col gap-2 rounded-[8px] border-2 border-line bg-subtle p-2.5">
+        <form action={formAction} className="flex max-w-[300px] flex-col gap-2 rounded-md border border-line bg-subtle p-2.5">
           <input type="hidden" name="libraryId" value={libraryId} />
           <input type="hidden" name="action" value={verb} />
-          <p className="text-[11px] leading-[1.5] tracking-[-0.023em] text-steel">{confirmText}</p>
+          <p className="text-[11px] leading-[1.5] text-steel">{confirmText}</p>
           <span className="flex justify-end gap-2">
             <button type="button" onClick={() => setConfirming(false)} disabled={pending} className={SECONDARY}>
               {m.cancel}
@@ -272,8 +272,8 @@ export function LibraryMetadataForm({
     <form action={formAction} id={formId} className={`${PANEL} flex flex-col gap-4 p-6`}>
       <input type="hidden" name="libraryId" value={libraryId} />
       <div className="flex flex-col gap-[3px]">
-        <h2 className="text-[15px] font-semibold tracking-[-0.025em] text-ink">{m.title}</h2>
-        <p className="text-[11px] tracking-[-0.023em] text-muted">{m.description}</p>
+        <h2 className="text-[15px] font-medium text-ink">{m.title}</h2>
+        <p className="text-[11px] text-muted">{m.description}</p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label={m.titleLabel}>
@@ -288,7 +288,7 @@ export function LibraryMetadataForm({
           </Field>
         </div>
         <div className="flex flex-col gap-1.5 sm:col-span-2">
-          <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">{m.visibilityLabel}</span>
+          <span className="text-[11px] font-medium text-steel">{m.visibilityLabel}</span>
           <input type="hidden" name="visibility" value={visibility} />
           <div className="grid gap-2.5 sm:grid-cols-2">
             {(['public', 'private'] as const).map((option) => (
@@ -297,18 +297,18 @@ export function LibraryMetadataForm({
                 type="button"
                 onClick={() => setVisibility(option)}
                 aria-pressed={visibility === option}
-                className={`rounded-[8px] border-2 px-3 py-2.5 text-left text-[12px] tracking-[-0.023em] transition-colors ${
-                  visibility === option ? 'border-brand bg-[#f0f8f8] text-ink' : 'border-line bg-card text-steel hover:bg-subtle'
+                className={`rounded-md border px-3 py-2.5 text-left text-[12px] transition-colors ${
+                  visibility === option ? 'border-brand bg-brandsoft text-ink' : 'border-line bg-card text-steel hover:bg-subtle'
                 }`}
               >
                 {option === 'public' ? m.visibilityPublic : m.visibilityPrivate}
               </button>
             ))}
           </div>
-          <span className="text-[10px] leading-[1.5] tracking-[-0.023em] text-muted">{m.visibilityNote}</span>
+          <span className="text-[10px] leading-[1.5] text-muted">{m.visibilityNote}</span>
         </div>
       </div>
-      <footer className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-line pt-4">
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
         <span className="min-w-0 flex-1">
           {state ? (
             <ResultLine ok={state.ok}>
@@ -365,9 +365,9 @@ export function ParseScopeForm({
   if (!scoped && !cadence) {
     return (
       <section className={`${PANEL} flex flex-col gap-2 p-6`}>
-        <h2 className="text-[15px] font-semibold tracking-[-0.025em] text-ink">{m.title}</h2>
-        <p className="text-[11px] tracking-[-0.023em] text-muted">{m.unsupported}</p>
-        <p className="text-[11px] tracking-[-0.023em] text-muted">{m.refreshPolicyHint}</p>
+        <h2 className="text-[15px] font-medium text-ink">{m.title}</h2>
+        <p className="text-[11px] text-muted">{m.unsupported}</p>
+        <p className="text-[11px] text-muted">{m.refreshPolicyHint}</p>
       </section>
     );
   }
@@ -376,8 +376,8 @@ export function ParseScopeForm({
     <form action={formAction} className={`${PANEL} flex flex-col gap-4 p-6`}>
       <input type="hidden" name="libraryId" value={libraryId} />
       <div className="flex flex-col gap-[3px]">
-        <h2 className="text-[15px] font-semibold tracking-[-0.025em] text-ink">{m.title}</h2>
-        <p className="text-[11px] leading-[1.5] tracking-[-0.023em] text-muted">
+        <h2 className="text-[15px] font-medium text-ink">{m.title}</h2>
+        <p className="text-[11px] leading-[1.5] text-muted">
           {scoped ? m.description : m.unsupported}
         </p>
       </div>
@@ -428,7 +428,7 @@ export function ParseScopeForm({
           </Field>
         ) : null}
       </div>
-      <footer className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-line pt-4">
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
         <span className="min-w-0 flex-1">
           {state ? (
             <ResultLine ok={state.ok}>

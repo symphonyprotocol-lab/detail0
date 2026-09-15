@@ -39,17 +39,17 @@ export default async function DashboardLibraryFilesPage({
         <div className="flex flex-col gap-[5px]">
           <Link
             href="/dashboard/libraries"
-            className="text-[12px] tracking-[-0.023em] text-brandink transition-colors hover:text-brand"
+            className="text-[12px] text-brandink transition-colors hover:text-brandink"
           >
             {f.back}
           </Link>
-          <h1 className="mt-1.5 text-[25px] leading-[1.5] font-[650] tracking-[-0.045em] text-ink">
+          <h1 className="mt-1.5 text-[25px] leading-[1.5] font-medium text-ink">
             {view.kind === 'markdown' ? f.markdown.title : f.title}
           </h1>
-          <p className="text-[13px] leading-[1.5] tracking-[-0.023em] text-muted">
+          <p className="text-[13px] leading-[1.5] text-muted">
             {fill(f.description, { title: view.library.title })}
           </p>
-          <p className="text-[11px] tracking-[-0.023em] text-muted">{view.library.publicId}</p>
+          <p className="text-[11px] text-muted">{view.library.publicId}</p>
         </div>
       </header>
 

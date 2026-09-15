@@ -30,11 +30,11 @@ export async function LibraryTable({
   const { table } = (await getMessages()).catalog;
 
   return (
-    <div className="overflow-hidden rounded-[9px] border-2 border-line bg-card/60 p-0.5">
+    <div className="overflow-hidden rounded-md border border-line bg-card/60 p-0.5">
       <div className="overflow-x-auto">
         <div className="min-w-[884px]">
           <div
-            className={`grid ${COLS} h-10 items-center border-b-2 border-line bg-subtle/60 text-[10px] font-[650] tracking-[0.04em] text-muted`}
+            className={`grid ${COLS} h-10 items-center border-b border-line bg-subtle/60 text-[10px] font-medium tracking-[0.04em] text-muted`}
           >
             <span>{table.name}</span>
             <span>{table.libraryId}</span>
@@ -47,8 +47,8 @@ export async function LibraryTable({
             <Link
               key={entry.libraryId}
               href={`/libraries${entry.libraryId}`}
-              className={`grid ${COLS} h-[66px] items-center text-[12px] tracking-[-0.015em] text-steel transition-colors hover:bg-subtle/85 ${
-                i === entries.length - 1 ? '' : 'border-b-2 border-line'
+              className={`grid ${COLS} h-[66px] items-center text-[12px] text-steel transition-colors hover:bg-subtle/85 ${
+                i === entries.length - 1 ? '' : 'border-b border-line'
               }`}
             >
               <span className={`flex min-w-0 items-center gap-2.5 ${entry.nestedUnder ? 'pl-7' : ''}`}>
@@ -60,11 +60,11 @@ export async function LibraryTable({
                     ↳
                   </span>
                 ) : null}
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-[7px] border-2 border-brandline bg-brandsoft text-brand">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-brandline bg-brandsoft text-brandink">
                   <ShieldCheckIcon size={17} />
                 </span>
                 <span className="flex min-w-0 flex-col gap-[3px]">
-                  <span className="truncate font-[650] text-ink">{entry.title}</span>
+                  <span className="truncate font-medium text-ink">{entry.title}</span>
                   <span className="truncate text-[10px] text-muted">
                     {entry.nestedUnder
                       ? fill(table.nestedUnder, { parent: entry.nestedUnder })
@@ -73,13 +73,13 @@ export async function LibraryTable({
                 </span>
               </span>
               <span className="truncate">{entry.libraryId}</span>
-              <span className="flex items-center gap-[5px] font-[650] text-brandink">
+              <span className="flex items-center gap-[5px] font-medium text-brandink">
                 <BadgeCheckIcon size={15} />
                 {entry.trustScore}
               </span>
               <span>{entry.chunks}</span>
               <span>{entry.updated}</span>
-              <span className="flex items-center gap-[5px] font-semibold text-brand">
+              <span className="flex items-center gap-[5px] font-medium text-brandink">
                 {table.public}
                 <ArrowUpRightIcon size={14} />
               </span>

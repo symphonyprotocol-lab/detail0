@@ -32,7 +32,7 @@ export default async function DashboardPoliciesPage() {
         title={p.title}
         description={p.description}
         action={
-          <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-brandsoft px-3 text-[11px] tracking-[-0.023em] text-brandink">
+          <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-brandsoft px-3 text-[11px] text-brandink">
             <ShieldCheckIcon size={14} />
             {p.guardBadge}
           </span>

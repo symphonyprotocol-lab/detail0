@@ -36,7 +36,7 @@ export function RebuildLibraryButton({
       <button
         type="submit"
         disabled={disabled || pending}
-        className="inline-flex h-[35px] items-center gap-1.5 rounded-[7px] border-2 border-line bg-card px-3 text-[12px] font-medium text-ink transition-colors hover:bg-subtle disabled:opacity-40"
+        className="inline-flex h-[35px] items-center gap-1.5 rounded-md border border-line bg-card px-3 text-[12px] font-medium text-ink transition-colors hover:bg-subtle disabled:opacity-40"
       >
         {pending ? <SpinnerIcon size={14} /> : <RefreshIcon size={14} />}
         {pending ? a.rebuilding : a.rebuild}
@@ -44,7 +44,7 @@ export function RebuildLibraryButton({
       {state ? (
         <span
           role="status"
-          className={`max-w-[260px] text-right text-[11px] leading-[1.5] tracking-[-0.023em] ${
+          className={`max-w-[260px] text-right text-[11px] leading-[1.5] ${
             state.ok ? 'text-brandink' : 'text-rose'
           }`}
         >
@@ -100,14 +100,14 @@ export function RebuildLibraryControl({
         aria-label={m.refresh}
         title={m.refresh}
         disabled={disabled || pending}
-        className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-[6px] border-2 border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-ink disabled:opacity-40"
+        className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-md border border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-ink disabled:opacity-40"
       >
         {pending ? <SpinnerIcon size={14} className="motion-safe:animate-spin" /> : <RefreshIcon size={14} />}
       </button>
       {message ? (
         <span
           role="status"
-          className={`absolute top-full right-0 z-10 mt-1 flex w-max max-w-[240px] items-start gap-1.5 rounded-[6px] border-2 border-line bg-card px-2 py-1.5 text-left text-[10.5px] leading-[1.45] tracking-[-0.023em] shadow-[0_4px_10px_rgba(45,45,83,0.06)] ${
+          className={`absolute top-full right-0 z-10 mt-1 flex w-max max-w-[240px] items-start gap-1.5 rounded-md border border-line bg-card px-2 py-1.5 text-left text-[10.5px] leading-[1.45] shadow-md ${
             state?.ok ? 'text-brandink' : 'text-rose'
           }`}
         >

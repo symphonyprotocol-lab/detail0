@@ -163,7 +163,7 @@ export default async function DashboardApiKeysPage() {
         <div className="overflow-x-auto">
           <div className="min-w-[600px]">
             <div
-              className={`${GRID} border-t-2 border-line bg-subtle px-5 py-[11px] text-[11px] font-semibold tracking-[-0.023em] text-muted`}
+              className={`${GRID} border-t border-line bg-subtle px-5 py-[11px] text-[11px] font-medium text-muted`}
             >
               {k.columns.map((column) => (
                 <span key={column}>{column}</span>
@@ -172,22 +172,22 @@ export default async function DashboardApiKeysPage() {
             </div>
 
             {keys.map((key) => (
-              <div key={key.id} className={`${GRID} border-t-2 border-line px-5 py-5`}>
+              <div key={key.id} className={`${GRID} border-t border-line px-5 py-5`}>
                 <span className="flex min-w-0 items-center gap-2.5">
                   <IconTile>
                     <KeyIcon size={15} />
                   </IconTile>
                   <span className="flex min-w-0 flex-col gap-1">
-                    <span className="truncate text-[13px] tracking-[-0.023em] text-ink">
+                    <span className="truncate text-[13px] text-ink">
                       {key.name}
                     </span>
-                    <span className="truncate text-[10px] tracking-[-0.023em] text-muted">
+                    <span className="truncate text-[10px] text-muted">
                       {key.environment} · {fill(k.createdAt, { date: date.format(new Date(key.createdAt)) })}
                     </span>
                   </span>
                 </span>
 
-                <code className="inline-flex w-fit items-center rounded-[5px] bg-mutedbg px-[7px] py-[5px] font-mono text-[11px] tracking-[-0.023em] text-steel">
+                <code className="inline-flex w-fit items-center rounded-md bg-mutedbg px-[7px] py-[5px] font-mono text-[11px] text-steel">
                   {key.masked}
                 </code>
 
@@ -204,7 +204,7 @@ export default async function DashboardApiKeysPage() {
                     {key.lastUsedAt ? dateTime.format(new Date(key.lastUsedAt)) : k.neverUsed}
                   </StatusLabel>
                   {idle.has(key.id) ? (
-                    <span className="text-[10px] tracking-[-0.023em] text-amber">
+                    <span className="text-[10px] text-amber">
                       {k.scoped.idleBadge}
                     </span>
                   ) : null}
@@ -222,7 +222,7 @@ export default async function DashboardApiKeysPage() {
             ))}
 
             {keys.length === 0 ? (
-              <p className="border-t-2 border-line px-5 py-10 text-center text-[13px] text-muted">
+              <p className="border-t border-line px-5 py-10 text-center text-[13px] text-muted">
                 {k.empty}
               </p>
             ) : null}
@@ -238,7 +238,7 @@ export default async function DashboardApiKeysPage() {
           * the page no longer lets the reader infer a sandbox that would
           * otherwise be a free hole through the plan's allowance.
           */}
-        <p className="border-t-2 border-line px-5 py-3 text-[10.5px] leading-[1.6] tracking-[-0.023em] text-muted">
+        <p className="border-t border-line px-5 py-3 text-[10.5px] leading-[1.6] text-muted">
           {k.scoped.environmentNote}
         </p>
       </section>
@@ -254,27 +254,27 @@ export default async function DashboardApiKeysPage() {
             {recent.map((entry) => (
               <li
                 key={entry.requestId}
-                className="flex items-center gap-4 border-t-2 border-line py-2.5"
+                className="flex items-center gap-4 border-t border-line py-2.5"
               >
                 <span
                   aria-hidden
                   className={`size-[7px] shrink-0 rounded-full ${entry.statusCode < 400 ? 'bg-brand' : 'bg-rose'}`}
                 />
                 <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                  <span className="truncate text-[12px] font-bold tracking-[-0.023em] text-ink">
+                  <span className="truncate text-[12px] font-medium text-ink">
                     {entry.libraryPublicId ?? entry.operation}
                   </span>
-                  <span className="truncate text-[10px] tracking-[-0.023em] text-muted">
+                  <span className="truncate text-[10px] text-muted">
                     {entry.operation} · {entry.statusCode}
                   </span>
                 </span>
-                <span className="shrink-0 text-[10px] tracking-[-0.023em] text-muted">
+                <span className="shrink-0 text-[10px] text-muted">
                   {dateTime.format(new Date(entry.createdAt))}
                 </span>
               </li>
             ))}
             {recent.length === 0 ? (
-              <li className="border-t-2 border-line py-6 text-center text-[12px] text-muted">
+              <li className="border-t border-line py-6 text-center text-[12px] text-muted">
                 {k.activityEmpty}
               </li>
             ) : null}
@@ -285,10 +285,10 @@ export default async function DashboardApiKeysPage() {
           <IconTile>
             <ShieldCheckIcon size={17} />
           </IconTile>
-          <p className="mt-3 text-[15px] leading-[1.4] tracking-[-0.025em] text-ink">
+          <p className="mt-3 text-[15px] leading-[1.4] text-ink">
             {k.leastPrivilegeTitle}
           </p>
-          <p className="mt-1.5 text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">
+          <p className="mt-1.5 text-[11px] leading-[1.6] text-muted">
             {k.leastPrivilegeBody}
           </p>
         </article>

@@ -13,7 +13,7 @@ import {
 import { useI18n } from '@/lib/i18n/client';
 
 const FIELD =
-  'h-9 rounded-[7px] border-2 border-line bg-card px-2.5 text-[12px] tracking-[-0.023em] text-ink placeholder:text-muted/70 focus:border-brand focus:outline-none';
+  'h-9 rounded-md border border-line bg-card px-2.5 text-[12px] text-ink placeholder:text-muted/70 focus:border-brand focus:outline-none';
 
 /**
  * Key creation, and the one moment the plaintext exists. architecture.md 5.1:
@@ -35,7 +35,7 @@ export function ApiKeyCreate({
 
   return (
     <section className={`${PANEL} flex flex-col gap-3 p-[22px]`}>
-      <p className="text-[14px] tracking-[-0.023em] text-ink">{k.create.title}</p>
+      <p className="text-[14px] text-ink">{k.create.title}</p>
       {/* `onSubmit` via submitOn, not `action=`: React resets an uncontrolled
           form when a function action settles, which would clear the typed name
           on a refused create. */}
@@ -48,7 +48,7 @@ export function ApiKeyCreate({
             placeholder={k.create.namePlaceholder}
             className={`${FIELD} min-w-[220px] flex-1`}
           />
-          <label className="flex items-center gap-1.5 text-[11px] tracking-[-0.023em] text-muted">
+          <label className="flex items-center gap-1.5 text-[11px] text-muted">
             {s.environment}
             <select name="environment" defaultValue="live" className={`${FIELD} pr-6`}>
               {API_KEY_ENVIRONMENTS.map((environment) => (
@@ -61,20 +61,20 @@ export function ApiKeyCreate({
           <button
             type="submit"
             disabled={pending}
-            className="h-9 shrink-0 rounded-[7px] bg-brand px-4 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-60"
+            className="h-9 shrink-0 rounded-md bg-brand px-4 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-60"
           >
             {k.create.submit}
           </button>
         </div>
 
         <fieldset className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          <legend className="float-left mr-1 text-[11px] tracking-[-0.023em] text-muted">
+          <legend className="float-left mr-1 text-[11px] text-muted">
             {s.scopes}
           </legend>
           {API_KEY_SCOPES.map((scope) => (
             <label
               key={scope}
-              className="flex items-center gap-1.5 text-[12px] tracking-[-0.023em] text-ink"
+              className="flex items-center gap-1.5 text-[12px] text-ink"
             >
               <input
                 type="checkbox"
@@ -88,7 +88,7 @@ export function ApiKeyCreate({
             </label>
           ))}
           <label
-            className="flex items-center gap-1.5 text-[12px] tracking-[-0.023em] text-muted"
+            className="flex items-center gap-1.5 text-[12px] text-muted"
             title={s.managementScope}
           >
             <input type="checkbox" disabled className="size-3.5" />
@@ -99,7 +99,7 @@ export function ApiKeyCreate({
       </form>
 
       {state && !state.ok ? (
-        <p className="text-[12px] tracking-[-0.023em] text-rose">
+        <p className="text-[12px] text-rose">
           {state.error === 'limit'
             ? k.create.errorLimit
             : state.error === 'invalid'
@@ -113,12 +113,12 @@ export function ApiKeyCreate({
       ) : null}
 
       {state?.ok && state.key ? (
-        <div className="flex flex-col gap-2 rounded-lg border-2 border-publine bg-pubsoft/40 p-3">
-          <p className="text-[12px] font-semibold tracking-[-0.023em] text-ink">
+        <div className="flex flex-col gap-2 rounded-lg border border-publine bg-pubsoft/40 p-3">
+          <p className="text-[12px] font-medium text-ink">
             {k.create.once}
           </p>
           <div className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded-[5px] bg-card px-2 py-1.5 font-mono text-[11.5px] text-steel">
+            <code className="min-w-0 flex-1 truncate rounded-md bg-card px-2 py-1.5 font-mono text-[11.5px] text-steel">
               {state.key}
             </code>
             <CopyButton value={state.key} label={k.create.copy} className="text-steel hover:bg-mutedbg" />

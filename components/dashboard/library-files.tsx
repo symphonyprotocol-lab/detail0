@@ -82,16 +82,16 @@ export function LibraryFiles({
       <input type="hidden" name="remove" value={JSON.stringify([...removed])} />
 
       {building ? (
-        <p className="flex items-center gap-2 rounded-[7px] bg-brandsoft px-3 py-2 text-[12px] tracking-[-0.023em] text-brandink">
+        <p className="flex items-center gap-2 rounded-md bg-brandsoft px-3 py-2 text-[12px] text-brandink">
           <RefreshIcon size={14} />
           {f.building}
         </p>
       ) : null}
 
       <section className="flex flex-col gap-2">
-        <h2 className="text-[11px] font-semibold tracking-[-0.023em] text-steel">{f.currentTitle}</h2>
+        <h2 className="text-[11px] font-medium text-steel">{f.currentTitle}</h2>
         {files.length === 0 ? (
-          <p className="text-[12px] tracking-[-0.023em] text-muted">
+          <p className="text-[12px] text-muted">
             {md?.currentEmpty ?? f.currentEmpty}
           </p>
         ) : (
@@ -101,7 +101,7 @@ export function LibraryFiles({
               return (
                 <li
                   key={file.id}
-                  className={`flex items-center gap-2 rounded-[6px] bg-subtle px-2.5 py-1.5 text-[12px] tracking-[-0.023em] ${
+                  className={`flex items-center gap-2 rounded-md bg-subtle px-2.5 py-1.5 text-[12px] ${
                     dropped ? 'opacity-60' : ''
                   }`}
                 >
@@ -146,22 +146,22 @@ export function LibraryFiles({
       ) : null}
 
       {state && !state.ok ? (
-        <p className="text-[12px] tracking-[-0.023em] text-rose">
+        <p className="text-[12px] text-rose">
           {f.errors[state.error ?? 'unavailable']}
         </p>
       ) : null}
       {state?.ok ? (
-        <p className="text-[12px] tracking-[-0.023em] text-brandink">
+        <p className="text-[12px] text-brandink">
           {state.queued ? f.savedQueued : f.savedNoBuild}
         </p>
       ) : null}
 
       {canEdit ? (
-        <footer className="flex items-center justify-end border-t-2 border-line pt-4">
+        <footer className="flex items-center justify-end border-t border-line pt-4">
           <button
             type="submit"
             disabled={!canSave}
-            className="inline-flex h-[35px] items-center gap-1.5 rounded-[7px] bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40"
+            className="inline-flex h-[35px] items-center gap-1.5 rounded-md bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40"
           >
             {pending ? f.pending : remaining > 0 ? f.submit : f.submitNoBuild}
           </button>

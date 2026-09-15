@@ -19,11 +19,13 @@ export const en: Dictionary = {
   nav: {
     pricing: 'Pricing',
     playground: 'Playground',
+    github: 'Source on GitHub',
     signIn: 'Sign in',
     dashboard: 'Open dashboard',
     signOut: 'Sign out',
     language: 'Interface language',
     menu: 'Menu',
+    theme: 'Switch between light and dark',
   },
 
   footer: {
@@ -47,6 +49,7 @@ export const en: Dictionary = {
       'Every result keeps its citation',
       'One rule set for API and MCP',
     ],
+    directoryEyebrow: 'Knowledge directory',
     directoryTitle: 'Browse specialist libraries and take only the context you need',
     submitLibrary: 'Submit a library',
     searchPlaceholder: 'Search by name, domain or Library ID…',
@@ -59,6 +62,19 @@ export const en: Dictionary = {
     ctaTitle: 'Less guessing from your agent, more grounding.',
     ctaPricing: 'See pricing',
     ctaBrowse: 'Browse the library directory',
+    connect: {
+      promptTab: 'Prompt',
+      mcpTab: 'MCP endpoint',
+      cliTab: 'CLI',
+      /* Addressed to the model, not to the reader: it is pasted into a client
+         that can edit its own MCP configuration, and the model does the rest. */
+      prompt:
+        'Add an MCP server named "re0" at {url} using HTTP transport, then confirm it is connected and list the tools it exposes.',
+      promptCopy: 'Copy prompt',
+      promptNote:
+        'Paste it into Claude, Codex, Cursor or any client that can edit its own MCP config, and let the model do the setup.',
+      mcpNote: 'Paste the endpoint into any client that takes an MCP server URL.',
+    },
     cli: {
       title: 'Or connect every client at once with the CLI',
       command: 'npx @symphonyprotocollab/re0 setup',

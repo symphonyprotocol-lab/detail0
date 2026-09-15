@@ -48,16 +48,16 @@ export default async function LoginPage({
   return (
     <section className="flex flex-1 items-center justify-center">
       <div className="mx-auto flex w-full max-w-[1080px] flex-col items-center gap-5 px-5 py-[66px]">
-        <div className="w-full max-w-[430px] rounded-[14px] bg-card/85 pt-9 shadow-[0_2px_6px_rgba(3,26,30,0.05),0_26px_70px_-14px_rgba(3,26,30,0.22)] backdrop-blur-sm">
+        <div className="w-full max-w-[430px] rounded-lg bg-card/85 pt-9 shadow-md backdrop-blur-sm">
           <div className="flex justify-center px-[30px]">
             <Wordmark />
           </div>
 
           <div className="mt-[23px] flex flex-col gap-[9px] px-[30px]">
-            <h1 className="text-center text-[28px] leading-[1.5] font-[650] tracking-[-0.045em] text-ink">
+            <h1 className="text-center text-[28px] leading-[1.5] font-medium text-ink">
               {l.title}
             </h1>
-            <p className="mx-auto max-w-[310px] text-center text-[11px] leading-[1.65] tracking-[-0.03em] text-muted">
+            <p className="mx-auto max-w-[310px] text-center text-[11px] leading-[1.65] text-muted">
               {l.subtitle}
             </p>
           </div>
@@ -65,7 +65,7 @@ export default async function LoginPage({
           {error ? (
             <p
               role="alert"
-              className="mt-4 mx-[30px] flex items-start gap-2 rounded-[7px] bg-warnsoft p-2.5 text-[9px] leading-[1.5] tracking-[-0.03em] text-warn"
+              className="mt-4 mx-[30px] flex items-start gap-2 rounded-md bg-warnsoft p-2.5 text-[9px] leading-[1.5] text-warn"
             >
               <CircleXIcon size={15} className="mt-px" />
               {l.errors[error]}
@@ -82,13 +82,13 @@ export default async function LoginPage({
           </div>
 
           <div className="mt-5 px-[30px]">
-            <p className="flex items-start gap-2 rounded-[7px] bg-mutedbg p-2.5 text-[9px] leading-[1.5] tracking-[-0.03em] text-muted">
-              <ShieldCheckIcon size={15} className="mt-px text-brand" />
+            <p className="flex items-start gap-2 rounded-md bg-mutedbg p-2.5 text-[9px] leading-[1.5] text-muted">
+              <ShieldCheckIcon size={15} className="mt-px text-brandink" />
               {l.passwordNote}
             </p>
           </div>
 
-          <p className="mt-4 px-[30px] text-center text-[8px] leading-[1.5] tracking-[-0.03em] text-muted">
+          <p className="mt-4 px-[30px] text-center text-[8px] leading-[1.5] text-muted">
             {l.termsLead}
             <Link href="/legal" className="mx-0.5 text-brandink hover:underline">
               {l.termsLink}
@@ -96,8 +96,8 @@ export default async function LoginPage({
             {l.termsTail}
           </p>
 
-          <p className="mt-[22px] flex items-center justify-center gap-1.5 border-t-2 border-line pt-[18px] pb-4 text-[9px] leading-[1.5] tracking-[-0.03em] text-muted">
-            <LockKeyholeIcon size={13} className="text-brand" />
+          <p className="mt-[22px] flex items-center justify-center gap-1.5 border-t border-line pt-[18px] pb-4 text-[9px] leading-[1.5] text-muted">
+            <LockKeyholeIcon size={13} className="text-brandink" />
             {l.autoCreate}
           </p>
         </div>
@@ -108,9 +108,9 @@ export default async function LoginPage({
             return (
               <li
                 key={label}
-                className="flex items-center gap-[5px] text-[9px] leading-[1.5] tracking-[-0.03em] text-muted"
+                className="flex items-center gap-[5px] text-[9px] leading-[1.5] text-muted"
               >
-                <PerkIcon size={14} className="text-brand" />
+                <PerkIcon size={14} className="text-brandink" />
                 {label}
               </li>
             );

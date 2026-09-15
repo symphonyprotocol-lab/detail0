@@ -142,7 +142,7 @@ export default async function ClaimPage({ searchParams }: Search) {
           <>
             {missing ? null : (
               <Card className="flex flex-col items-start gap-3 p-5">
-                <h2 className="text-[15px] font-semibold tracking-[-0.02em] text-ink">
+                <h2 className="text-[15px] font-medium text-ink">
                   {c.pickTitle}
                 </h2>
                 <p className="max-w-[70ch] text-[12.5px] leading-[1.7] text-muted">{c.pickBody}</p>
@@ -153,8 +153,8 @@ export default async function ClaimPage({ searchParams }: Search) {
             )}
 
             <Card className="overflow-hidden">
-              <div className="border-b-2 border-line px-4 py-3">
-                <h2 className="text-[13.5px] font-semibold tracking-[-0.02em] text-ink">
+              <div className="border-b border-line px-4 py-3">
+                <h2 className="text-[13.5px] font-medium text-ink">
                   {c.yourClaims}
                 </h2>
               </div>
@@ -169,7 +169,7 @@ export default async function ClaimPage({ searchParams }: Search) {
                           <th
                             key={column || `col-${index}`}
                             scope="col"
-                            className="border-b-2 border-line px-4 py-2.5 text-[11px] font-semibold tracking-[0.02em] text-muted"
+                            className="border-b border-line px-4 py-2.5 text-[11px] font-medium tracking-[0.02em] text-muted"
                           >
                             {column}
                           </th>
@@ -218,7 +218,7 @@ export default async function ClaimPage({ searchParams }: Search) {
                           <td className="px-4 py-3 text-right">
                             <Link
                               href={`/libraries/claim?claim=${encodeURIComponent(row.id)}`}
-                              className="text-[12px] font-medium text-brand hover:underline"
+                              className="text-[12px] font-medium text-brandink hover:underline"
                             >
                               {c.open}
                             </Link>

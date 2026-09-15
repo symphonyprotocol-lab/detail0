@@ -119,7 +119,7 @@ function Toggle({
         on ? 'justify-end bg-brand' : 'justify-start bg-mutedbg'
       }`}
     >
-      <span className="size-4 rounded-full bg-card shadow-[0_1px_3px_rgba(10,35,38,0.18)]" />
+      <span className="size-4 rounded-full bg-card shadow-md" />
     </button>
   );
 }
@@ -137,8 +137,8 @@ function ListChip({
   disabled: boolean;
 }) {
   return (
-    <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[#f1f5f4] py-1 pr-1.5 pl-2">
-      <span className="text-[13px] tracking-[-0.023em] text-steel">{value}</span>
+    <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-subtle py-1 pr-1.5 pl-2">
+      <span className="text-[13px] text-steel">{value}</span>
       {disabled ? null : (
         <button
           type="button"
@@ -226,18 +226,18 @@ function ListEditor({
   const pastedCount = pasting ? parsePolicyList(pasted).entries.length : 0;
 
   return (
-    <section className="flex flex-col gap-2 border-t-2 border-line px-6 pt-[19px]">
+    <section className="flex flex-col gap-2 border-t border-line px-6 pt-[19px]">
       <div className="flex flex-col gap-[5px]">
-        <h3 className="flex items-center gap-[7px] text-[13px] tracking-[-0.023em] text-ink">
-          <span className="text-brand">{icon}</span>
+        <h3 className="flex items-center gap-[7px] text-[13px] text-ink">
+          <span className="text-brandink">{icon}</span>
           {title}
         </h3>
-        <p className="text-[11px] tracking-[-0.023em] text-muted">{description}</p>
+        <p className="text-[11px] text-muted">{description}</p>
       </div>
 
       {disabled ? null : (
         <div className="flex flex-wrap gap-1.5">
-          <label className="flex h-[38px] min-w-[220px] flex-1 items-center gap-[7px] rounded-[7px] border-2 border-line px-3 focus-within:border-brand">
+          <label className="flex h-[38px] min-w-[220px] flex-1 items-center gap-[7px] rounded-md border border-line px-3 focus-within:border-brand">
             <ListChecksIcon size={13} className="text-muted" />
             <input
               value={entry}
@@ -253,14 +253,14 @@ function ListEditor({
               }}
               placeholder={p.listPlaceholder}
               aria-label={title}
-              className="min-w-0 flex-1 bg-transparent text-[11px] tracking-[-0.023em] text-ink placeholder:text-muted/50 focus:outline-none"
+              className="min-w-0 flex-1 bg-transparent text-[11px] text-ink placeholder:text-muted/50 focus:outline-none"
             />
           </label>
           <button
             type="button"
             onClick={addOne}
             disabled={entry.trim().length === 0}
-            className="h-[38px] rounded-[7px] border-2 border-brand bg-brand px-[11px] text-[11px] font-semibold text-white transition-colors hover:bg-brand/90 disabled:opacity-60"
+            className="h-[38px] rounded-md border border-brand bg-brand px-[11px] text-[11px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-60"
           >
             {p.add}
           </button>
@@ -268,7 +268,7 @@ function ListEditor({
             type="button"
             onClick={() => setPasting((current) => !current)}
             aria-pressed={pasting}
-            className="inline-flex h-[38px] items-center gap-1.5 rounded-[7px] border-2 border-line bg-card px-[13px] text-[11px] font-semibold text-steel transition-colors hover:bg-subtle"
+            className="inline-flex h-[38px] items-center gap-1.5 rounded-md border border-line bg-card px-[13px] text-[11px] font-medium text-steel transition-colors hover:bg-subtle"
           >
             <ListChecksIcon size={13} />
             {e.csvPaste}
@@ -276,7 +276,7 @@ function ListEditor({
           <button
             type="button"
             onClick={() => fileInput.current?.click()}
-            className="inline-flex h-[38px] items-center gap-1.5 rounded-[7px] border-2 border-line bg-card px-[13px] text-[11px] font-semibold text-steel transition-colors hover:bg-subtle"
+            className="inline-flex h-[38px] items-center gap-1.5 rounded-md border border-line bg-card px-[13px] text-[11px] font-medium text-steel transition-colors hover:bg-subtle"
           >
             <UploadIcon size={13} />
             {e.csvImport}
@@ -298,14 +298,14 @@ function ListEditor({
             onChange={(event) => setPasted(event.target.value)}
             placeholder={e.csvPastePlaceholder}
             rows={4}
-            className="w-full rounded-[7px] border-2 border-line px-3 py-2 font-mono text-[11px] tracking-[-0.023em] text-ink placeholder:text-muted/50 focus:border-brand focus:outline-none"
+            className="w-full rounded-md border border-line px-3 py-2 font-mono text-[11px] text-ink placeholder:text-muted/50 focus:border-brand focus:outline-none"
           />
           <div className="flex gap-1.5">
             <button
               type="button"
               onClick={() => addMany(pasted)}
               disabled={pastedCount === 0}
-              className="h-[34px] rounded-[7px] border-2 border-brand bg-brand px-[11px] text-[11px] font-semibold text-white transition-colors hover:bg-brand/90 disabled:opacity-60"
+              className="h-[34px] rounded-md border border-brand bg-brand px-[11px] text-[11px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-60"
             >
               {fill(e.csvApply, { count: pastedCount })}
             </button>
@@ -315,7 +315,7 @@ function ListEditor({
                 setPasting(false);
                 setPasted('');
               }}
-              className="h-[34px] rounded-[7px] border-2 border-line bg-card px-[11px] text-[11px] text-steel transition-colors hover:bg-subtle"
+              className="h-[34px] rounded-md border border-line bg-card px-[11px] text-[11px] text-steel transition-colors hover:bg-subtle"
             >
               {e.csvCancel}
             </button>
@@ -323,7 +323,7 @@ function ListEditor({
         </div>
       ) : null}
 
-      <p className={`text-[10px] tracking-[-0.023em] ${note ? 'text-rose' : 'text-muted'}`}>
+      <p className={`text-[10px] ${note ? 'text-rose' : 'text-muted'}`}>
         {note ?? (disabled ? '' : e.entryHint)}
       </p>
 
@@ -481,10 +481,10 @@ export function PolicyEditor({
       <section className={`${PANEL} overflow-hidden p-0.5`}>
         <div className="flex flex-wrap items-start justify-between gap-[18px] px-6 py-5">
           <div className="flex flex-col gap-[5px]">
-            <h2 className="text-[15px] leading-[1.5] tracking-[-0.025em] text-ink">
+            <h2 className="text-[15px] leading-[1.5] text-ink">
               {p.sourcesTitle}
             </h2>
-            <p className="text-[12px] tracking-[-0.023em] text-muted">{p.sourcesDescription}</p>
+            <p className="text-[12px] text-muted">{p.sourcesDescription}</p>
           </div>
           <Badge tone="brand">
             {fill(p.enabledBadge, { on: enabledGroups.length, total: totalGroups })}
@@ -494,7 +494,7 @@ export function PolicyEditor({
         <div className="px-6 pb-4">
           {SOURCE_GROUPS.map((group) => (
             <div key={group.title}>
-              <p className="pt-3 pb-[7px] text-[11px] font-bold tracking-[0.04em] text-muted">
+              <p className="pt-3 pb-[7px] text-[11px] font-medium tracking-[0.04em] text-muted">
                 {e[group.title]}
               </p>
               {group.items.map((id) => {
@@ -502,14 +502,14 @@ export function PolicyEditor({
                 const on = sourceGroupEnabled(draft, id);
                 return (
                   <div key={id} className="flex items-center gap-2.5 py-[15px]">
-                    <span className="flex size-[34px] shrink-0 items-center justify-center rounded-lg bg-[#f4f8f7] text-brand">
+                    <span className="flex size-[34px] shrink-0 items-center justify-center rounded-lg bg-subtle text-brandink">
                       <Icon size={17} />
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col gap-1">
-                      <span className="text-[13px] tracking-[-0.023em] text-ink">
+                      <span className="text-[13px] text-ink">
                         {e.sources[id].name}
                       </span>
-                      <span className="text-[11px] tracking-[-0.023em] text-muted">
+                      <span className="text-[11px] text-muted">
                         {e.sources[id].note}
                       </span>
                     </span>
@@ -530,10 +530,10 @@ export function PolicyEditor({
       {/* Library filter -- design source `yOmm8`. */}
       <section className={`${PANEL} overflow-hidden p-0.5`}>
         <div className="flex flex-col gap-[5px] px-6 py-5">
-          <h2 className="text-[15px] leading-[1.5] tracking-[-0.025em] text-ink">
+          <h2 className="text-[15px] leading-[1.5] text-ink">
             {p.filterTitle}
           </h2>
-          <p className="text-[12px] tracking-[-0.023em] text-muted">{p.filterDescription}</p>
+          <p className="text-[12px] text-muted">{p.filterDescription}</p>
         </div>
 
         <div className="flex flex-wrap gap-[9px] px-6 pb-[18px]">
@@ -549,20 +549,20 @@ export function PolicyEditor({
               disabled={disabled}
               onClick={() => edit((current) => ({ ...current, mode: option.id }))}
               aria-pressed={mode === option.id}
-              className={`flex min-w-[240px] flex-1 items-center gap-[9px] rounded-[9px] border-2 p-[13px_15px] text-left transition-colors disabled:cursor-not-allowed ${
-                mode === option.id ? 'border-brand bg-[#f0f8f8]' : 'border-line bg-[#fbfdfd] hover:bg-subtle'
+              className={`flex min-w-[240px] flex-1 items-center gap-[9px] rounded-md border p-[13px_15px] text-left transition-colors disabled:cursor-not-allowed ${
+                mode === option.id ? 'border-brand bg-brandsoft' : 'border-line bg-subtle hover:bg-subtle'
               }`}
             >
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-card text-brand">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-card text-brandink">
                 <option.Icon size={16} />
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="text-[12px] font-bold tracking-[-0.023em] text-steel">
+                <span className="text-[12px] font-medium text-steel">
                   {option.title}
                 </span>
-                <span className="text-[10px] tracking-[-0.023em] text-muted">{option.note}</span>
+                <span className="text-[10px] text-muted">{option.note}</span>
               </span>
-              {mode === option.id ? <CircleCheckIcon size={15} className="text-brand" /> : null}
+              {mode === option.id ? <CircleCheckIcon size={15} className="text-brandink" /> : null}
             </button>
           ))}
         </div>
@@ -572,12 +572,12 @@ export function PolicyEditor({
             {FILTER_GROUPS.map((group, groupIndex) => (
               <div key={group.title ?? groupIndex}>
                 {group.title ? (
-                  <h3 className="flex items-center gap-1.5 pt-3 pb-[7px] text-[11px] font-bold tracking-[0.04em] text-muted">
+                  <h3 className="flex items-center gap-1.5 pt-3 pb-[7px] text-[11px] font-medium tracking-[0.04em] text-muted">
                     <BadgeCheckIcon size={13} />
                     {e[group.title]}
                   </h3>
                 ) : null}
-                <div className="overflow-hidden rounded-lg border-2 border-line p-0.5">
+                <div className="overflow-hidden rounded-lg border border-line p-0.5">
                   {group.rows.map((row, index) => {
                     const current = optionValue(draft.quality, row);
                     const presets =
@@ -590,10 +590,10 @@ export function PolicyEditor({
                       <label
                         key={row.id}
                         className={`flex h-12 items-center justify-between gap-[18px] pr-2.5 pl-[13px] ${
-                          index > 0 ? 'border-t-2 border-line' : ''
+                          index > 0 ? 'border-t border-line' : ''
                         }`}
                       >
-                        <span className="flex items-center gap-2 text-[12px] font-semibold tracking-[-0.023em] text-steel">
+                        <span className="flex items-center gap-2 text-[12px] font-medium text-steel">
                           <row.Icon size={14} className="text-muted" />
                           {e.filters[row.id as FilterLabelKey]}
                         </span>
@@ -601,7 +601,7 @@ export function PolicyEditor({
                           value={current}
                           disabled={disabled}
                           onChange={(event) => setQuality(row.field, event.target.value, row)}
-                          className="h-[30px] w-[125px] rounded-md border-2 border-line bg-card px-1.5 text-[11px] tracking-[-0.023em] text-steel focus:outline-none disabled:opacity-70"
+                          className="h-[30px] w-[125px] rounded-md border border-line bg-card px-1.5 text-[11px] text-steel focus:outline-none disabled:opacity-70"
                         >
                           {row.kind === 'flag' ? (
                             <>
@@ -627,7 +627,7 @@ export function PolicyEditor({
                 </div>
               </div>
             ))}
-            <p className="text-[10px] tracking-[-0.023em] text-muted">{e.metricsNote}</p>
+            <p className="text-[10px] text-muted">{e.metricsNote}</p>
           </div>
         ) : null}
 
@@ -635,7 +635,7 @@ export function PolicyEditor({
           {mode === 'select' ? (
             <>
               {draft.allowedLibraries.length === 0 ? (
-                <p className="mx-6 rounded-lg border-2 border-dashed border-line px-4 py-6 text-center text-[12px] text-muted">
+                <p className="mx-6 rounded-lg border border-dashed border-line px-4 py-6 text-center text-[12px] text-muted">
                   {e.selectEmpty}
                 </p>
               ) : null}
@@ -671,25 +671,25 @@ export function PolicyEditor({
           ) : null}
         </div>
 
-        <footer className="mx-4 mb-4 flex flex-col gap-3 rounded-[10px] border-2 border-line bg-card/96 p-3.5 shadow-[0_4px_10px_rgba(45,45,83,0.12)]">
+        <footer className="mx-4 mb-4 flex flex-col gap-3 rounded-md border border-line bg-card/96 p-3.5 shadow-md">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex min-w-[240px] flex-1 items-center justify-between gap-4 rounded-lg border-2 border-[#8ed5cf] bg-[#ecf6f6] px-[15px] py-0.5">
-              <span className="text-[12px] tracking-[-0.023em] text-brandink">{p.reachable}</span>
-              <span className="inline-flex items-center gap-2 text-[18px] leading-[1.5] font-semibold tracking-[-0.025em] text-brandink">
-                {counting ? <SpinnerIcon size={14} className="animate-spin text-brand" /> : null}
+            <div className="flex min-w-[240px] flex-1 items-center justify-between gap-4 rounded-lg border border-brandline bg-brandsoft px-[15px] py-0.5">
+              <span className="text-[12px] text-brandink">{p.reachable}</span>
+              <span className="inline-flex items-center gap-2 text-[18px] leading-[1.5] font-medium text-brandink">
+                {counting ? <SpinnerIcon size={14} className="animate-spin text-brandink" /> : null}
                 {dirty && draftReachable === 'unavailable' && !counting
                   ? e.countUnavailable
                   : number.format(shownReachable)}
               </span>
             </div>
-            <p className="text-[10px] tracking-[-0.023em] text-muted">{dirty ? p.dirty : p.clean}</p>
+            <p className="text-[10px] text-muted">{dirty ? p.dirty : p.clean}</p>
             {canEdit ? (
               <>
                 <button
                   type="button"
                   onClick={discard}
                   disabled={!dirty || applying}
-                  className="h-[34px] rounded-[7px] border-2 border-line bg-card px-[11px] text-[11px] text-steel transition-colors hover:bg-subtle disabled:opacity-60"
+                  className="h-[34px] rounded-md border border-line bg-card px-[11px] text-[11px] text-steel transition-colors hover:bg-subtle disabled:opacity-60"
                 >
                   {p.discard}
                 </button>
@@ -697,7 +697,7 @@ export function PolicyEditor({
                   type="button"
                   onClick={apply}
                   disabled={!dirty || applying}
-                  className="inline-flex h-[34px] items-center gap-1.5 rounded-[7px] border-2 border-brand bg-brand px-[11px] text-[11px] text-white transition-colors hover:bg-brand/90 disabled:opacity-60"
+                  className="inline-flex h-[34px] items-center gap-1.5 rounded-md border border-brand bg-brand px-[11px] text-[11px] text-white transition-colors hover:bg-brand/90 disabled:opacity-60"
                 >
                   {applying ? <SpinnerIcon size={12} className="animate-spin" /> : null}
                   {applying ? e.applying : p.apply}
@@ -707,7 +707,7 @@ export function PolicyEditor({
           </div>
           <p
             role={outcome && outcome !== 'applied' ? 'alert' : 'status'}
-            className={`text-[10px] tracking-[-0.023em] ${
+            className={`text-[10px] ${
               outcome && outcome !== 'applied' ? 'text-rose' : 'text-muted'
             }`}
           >

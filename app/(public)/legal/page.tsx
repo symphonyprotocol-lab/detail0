@@ -25,9 +25,9 @@ function Article({ id, title, children }: { id: string; title: string; children:
   return (
     <section
       id={id}
-      className="scroll-mt-[78px] border-t-2 border-line px-5 pt-11 pb-3 last:pb-14"
+      className="scroll-mt-[78px] border-t border-line px-5 pt-11 pb-3 last:pb-14"
     >
-      <h2 className="text-[21px] leading-[1.3] font-[650] tracking-[-0.04em] text-ink">{title}</h2>
+      <h2 className="text-[21px] leading-[1.3] font-medium text-ink">{title}</h2>
       <div className="mt-4 flex max-w-[80ch] flex-col gap-3.5 text-[13px] leading-[1.8] text-muted">
         {children}
       </div>
@@ -66,7 +66,7 @@ export default async function LegalPage() {
         </p>
 
         <Card className="mt-7 p-6">
-          <p className="text-[11px] font-[750] tracking-[0.1em] text-brand">{g.contents}</p>
+          <p className="text-[11px] font-medium tracking-[0.1em] text-brandink">{g.contents}</p>
           <ul className="mt-4 grid gap-x-8 gap-y-3 sm:grid-cols-2">
             {toc.map(({ section, id, n }) => (
               <li key={id}>
@@ -159,7 +159,7 @@ export default async function LegalPage() {
         </Clause>
       </Article>
 
-      <section className="border-t-2 border-line px-5 pt-8 pb-16">
+      <section className="border-t border-line px-5 pt-8 pb-16">
         <p className="text-[12px] leading-[1.8] text-faint">{g.footnote}</p>
       </section>
     </div>

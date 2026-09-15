@@ -45,9 +45,9 @@ export interface ClaimView {
 }
 
 const BUTTON =
-  'inline-flex h-10 items-center justify-center gap-2 rounded-full px-[18px] text-[14px] font-medium tracking-[-0.029em] transition-colors disabled:opacity-60';
+  'inline-flex h-10 items-center justify-center gap-2 rounded-full px-[18px] text-[14px] font-medium transition-colors disabled:opacity-60';
 const PRIMARY = `${BUTTON} bg-brand text-onbrand hover:bg-brand/90`;
-const OUTLINE = `${BUTTON} border-2 border-line bg-card text-ink hover:bg-subtle`;
+const OUTLINE = `${BUTTON} border border-line bg-card text-ink hover:bg-subtle`;
 
 /**
  * The claim flow -- requirement.md 7.3.3, one screen for both halves.
@@ -161,7 +161,7 @@ function StartPanel({
       {target.ownedBySelf ? null : (
         <Card className="flex flex-col gap-3 p-4">
           <div>
-            <h2 className="text-[15px] font-semibold tracking-[-0.02em] text-ink">{c.methodTitle}</h2>
+            <h2 className="text-[15px] font-medium text-ink">{c.methodTitle}</h2>
             <p className="mt-1 text-[12px] text-muted">{c.methodBody}</p>
           </div>
 
@@ -170,7 +170,7 @@ function StartPanel({
             {target.methods.map((option, index) => (
               <label
                 key={option}
-                className={`flex cursor-pointer items-start gap-3 rounded-lg border-2 p-3 transition-colors ${
+                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
                   method === option ? 'border-brand bg-brandsoft/40' : 'border-line bg-card hover:bg-subtle'
                 }`}
               >
@@ -184,7 +184,7 @@ function StartPanel({
                 />
                 <span className="flex min-w-0 flex-col gap-1">
                   <span
-                    className={`text-[13px] tracking-[-0.02em] text-ink ${index === 0 ? 'font-bold' : 'font-medium'}`}
+                    className={`text-[13px] text-ink ${index === 0 ? 'font-medium' : 'font-medium'}`}
                   >
                     {c.methods[option].name}
                   </span>
@@ -255,7 +255,7 @@ function ClaimPanel({
     <div className="flex flex-col gap-4">
       <Card className="flex flex-col gap-2.5 p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-[15px] font-semibold tracking-[-0.02em] text-ink">{c.statusTitle}</h2>
+          <h2 className="text-[15px] font-medium text-ink">{c.statusTitle}</h2>
           <Chip tone={statusTone}>{c.statuses[status]}</Chip>
           {disputed && status === 'pending' ? <Chip tone="warn">{t.admin.claimDetail.disputedBadge}</Chip> : null}
         </div>
@@ -280,7 +280,7 @@ function ClaimPanel({
 
       {status === 'pending' ? (
         <Card className="flex flex-col gap-3 p-4">
-          <h2 className="text-[15px] font-semibold tracking-[-0.02em] text-ink">{c.challengeTitle}</h2>
+          <h2 className="text-[15px] font-medium text-ink">{c.challengeTitle}</h2>
 
           {claim.method === 'github_permission' ? (
             <>
@@ -292,7 +292,7 @@ function ClaimPanel({
           ) : (
             <>
               {token ? (
-                <div className="flex flex-col gap-2 rounded-lg border-2 border-warn/40 bg-warnsoft p-3">
+                <div className="flex flex-col gap-2 rounded-lg border border-warn/40 bg-warnsoft p-3">
                   <p className="text-[12px] leading-[1.6] text-warn">{c.tokenOnce}</p>
                   <TokenField label={c.tokenLabel} value={token} copy={c.copy} copied={c.copied} />
                 </div>
@@ -364,11 +364,11 @@ function ClaimPanel({
         <Card className="flex flex-col gap-2 border-warn/40 p-4">
           <div className="flex flex-wrap items-center gap-2">
             <CircleXIcon size={16} className="text-warn" />
-            <h2 className="text-[14px] font-semibold tracking-[-0.02em] text-ink">{c.failureTitle}</h2>
+            <h2 className="text-[14px] font-medium text-ink">{c.failureTitle}</h2>
             <Chip tone="warn">{c.reasons[shownReason].label}</Chip>
           </div>
           <p className="font-mono text-[11px] text-muted">{fill(c.failureCode, { code: shownReason })}</p>
-          <p className="text-[12px] font-semibold text-ink">{c.nextStep}</p>
+          <p className="text-[12px] font-medium text-ink">{c.nextStep}</p>
           <p className="text-[12.5px] leading-[1.7] text-muted">{c.reasons[shownReason].next}</p>
           {shownReason === 'challenge_expired' || status !== 'pending' ? (
             <Link
@@ -383,7 +383,7 @@ function ClaimPanel({
 
       {checks.length > 0 ? (
         <Card className="flex flex-col gap-2 p-4">
-          <h2 className="text-[14px] font-semibold tracking-[-0.02em] text-ink">{c.checksTitle}</h2>
+          <h2 className="text-[14px] font-medium text-ink">{c.checksTitle}</h2>
           <ul className="flex flex-col gap-1.5">
             {checks.map((check) => (
               <li key={check.key} className="flex items-center justify-between gap-3 text-[12px]">
@@ -411,7 +411,7 @@ function ClaimPanel({
 function Fact({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-      <span className="text-[11px] font-semibold tracking-[0.04em] text-muted uppercase">{label}</span>
+      <span className="text-[11px] font-medium tracking-[0.04em] text-muted uppercase">{label}</span>
       <span className={`text-right text-[12.5px] text-ink ${mono ? 'font-mono text-[11.5px]' : 'font-medium'}`}>
         {value}
       </span>
@@ -446,10 +446,10 @@ function TokenField({
   const [done, setDone] = useState(false);
   return (
     <div className="flex items-center gap-2">
-      <span className="w-[52px] shrink-0 text-[10.5px] font-semibold tracking-[0.04em] text-muted uppercase">
+      <span className="w-[52px] shrink-0 text-[10.5px] font-medium tracking-[0.04em] text-muted uppercase">
         {label}
       </span>
-      <code className="min-w-0 flex-1 truncate rounded-md border-2 border-line bg-card px-2.5 py-1.5 font-mono text-[11.5px] text-steel">
+      <code className="min-w-0 flex-1 truncate rounded-md border border-line bg-card px-2.5 py-1.5 font-mono text-[11.5px] text-steel">
         {value}
       </code>
       <button
@@ -460,7 +460,7 @@ function TokenField({
             () => setDone(false),
           );
         }}
-        className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border-2 border-line bg-card px-2 text-[11px] text-ink hover:bg-subtle"
+        className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-line bg-card px-2 text-[11px] text-ink hover:bg-subtle"
       >
         <CopyIcon size={12} />
         {done ? copied : copy}

@@ -123,20 +123,20 @@ export function LibraryList({
 
   return (
     <section className={`${PANEL} overflow-hidden p-0.5`}>
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b-2 border-line px-[18px] pt-3.5 pb-4">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line px-[18px] pt-3.5 pb-4">
         <div className="flex min-w-[220px] flex-1 items-center">
           <SearchField placeholder={l.searchPlaceholder} value={term} onChange={setTerm} />
         </div>
-        <div className="flex flex-wrap gap-0 rounded-[7px] bg-mutedbg p-[3px]">
+        <div className="flex flex-wrap gap-0 rounded-md bg-mutedbg p-[3px]">
           {filters.map((option) => (
             <button
               key={option.id}
               type="button"
               onClick={() => setFilter(option.id)}
               aria-pressed={filter === option.id}
-              className={`h-[29px] rounded-[5px] px-[9px] text-[11px] tracking-[-0.023em] transition-colors ${
+              className={`h-[29px] rounded-md px-[9px] text-[11px] transition-colors ${
                 filter === option.id
-                  ? 'bg-card text-ink shadow-[0_4px_10px_rgba(45,45,83,0.06)]'
+                  ? 'bg-card text-ink shadow-md'
                   : 'text-muted hover:text-ink'
               }`}
             >
@@ -147,7 +147,7 @@ export function LibraryList({
       </div>
 
       {!deleteAction && !rebuildAction ? (
-        <p className="border-b-2 border-line px-[18px] py-2.5 text-[11px] tracking-[-0.023em] text-muted">
+        <p className="border-b border-line px-[18px] py-2.5 text-[11px] text-muted">
           {m.readOnly}
         </p>
       ) : null}
@@ -155,7 +155,7 @@ export function LibraryList({
       <div className="overflow-x-auto">
         <div className="min-w-[620px]">
           <div
-            className={`grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center bg-subtle px-[18px] py-3 text-[11px] font-semibold tracking-[-0.023em] text-muted ${controlPad}`}
+            className={`grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center bg-subtle px-[18px] py-3 text-[11px] font-medium text-muted ${controlPad}`}
           >
             {l.columns.map((column) => (
               <span key={column}>{column}</span>
@@ -178,10 +178,10 @@ export function LibraryList({
                     {library.initial}
                   </span>
                   <span className="flex min-w-0 flex-col gap-1">
-                    <span className="flex items-center gap-1 text-[13px] tracking-[-0.023em] text-ink">
+                    <span className="flex items-center gap-1 text-[13px] text-ink">
                       <span className="truncate">{library.title}</span>
                     </span>
-                    <span className="truncate text-[10px] tracking-[-0.023em] text-muted">
+                    <span className="truncate text-[10px] text-muted">
                       {library.slug}
                       {library.version ? ` · ${library.version}` : ''}
                     </span>
@@ -194,20 +194,20 @@ export function LibraryList({
                   </Badge>
                 </span>
 
-                <span className="text-[12px] tracking-[-0.023em] text-steel">
+                <span className="text-[12px] text-steel">
                   {number.format(library.chunks)}
                 </span>
 
                 <StatusLabel tone={library.status}>{library.statusLabel}</StatusLabel>
 
-                <span className="text-[12px] tracking-[-0.023em] text-muted">{library.updated}</span>
+                <span className="text-[12px] text-muted">{library.updated}</span>
 
                 <ArrowRightIcon size={14} className="text-muted" />
               </>
             );
             /* Room on the right for the controls, which sit beside the row
                rather than inside it -- see DeleteLibraryControl. */
-            const rowClass = `grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center border-t-2 border-line px-[18px] py-[19px] ${controlPad}`;
+            const rowClass = `grid grid-cols-[minmax(0,1fr)_104px_74px_94px_92px_18px] items-center border-t border-line px-[18px] py-[19px] ${controlPad}`;
 
             return (
               <div key={library.id} className="relative">
@@ -224,7 +224,7 @@ export function LibraryList({
                     {library.pipeline ? (
                       <ReviewPipeline entries={library.pipeline} note={library.note} compact />
                     ) : (
-                      <p className="text-[10.5px] leading-[1.5] tracking-[-0.023em] text-rose">
+                      <p className="text-[10.5px] leading-[1.5] text-rose">
                         {library.note}
                       </p>
                     )}
@@ -237,7 +237,7 @@ export function LibraryList({
                         href={library.filesHref}
                         aria-label={library.filesLabel ?? l.files}
                         title={library.filesLabel ?? l.files}
-                        className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-[6px] border-2 border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-ink"
+                        className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-md border border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-ink"
                       >
                         <FileTextIcon size={14} />
                       </Link>
@@ -268,7 +268,7 @@ export function LibraryList({
           })}
 
           {rows.length === 0 ? (
-            <p className="border-t-2 border-line px-[18px] py-10 text-center text-[13px] text-muted">
+            <p className="border-t border-line px-[18px] py-10 text-center text-[13px] text-muted">
               {l.empty}
             </p>
           ) : null}

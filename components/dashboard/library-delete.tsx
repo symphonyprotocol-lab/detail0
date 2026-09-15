@@ -62,7 +62,7 @@ export function DeleteLibraryControl({
           aria-label={label}
           title={label}
           onClick={() => setOpen(true)}
-          className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-[6px] border-2 border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-rose"
+          className="inline-flex size-[30px] shrink-0 items-center justify-center rounded-md border border-line bg-card text-muted transition-colors hover:bg-subtle hover:text-rose"
         >
           <TrashIcon size={14} />
         </button>
@@ -70,7 +70,7 @@ export function DeleteLibraryControl({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="inline-flex h-[35px] items-center gap-1.5 rounded-[7px] border-2 border-line bg-card px-3 text-[12px] font-medium text-ink transition-colors hover:bg-subtle hover:text-rose"
+          className="inline-flex h-[35px] items-center gap-1.5 rounded-md border border-line bg-card px-3 text-[12px] font-medium text-ink transition-colors hover:bg-subtle hover:text-rose"
         >
           <TrashIcon size={14} />
           {label}
@@ -94,7 +94,7 @@ export function DeleteLibraryControl({
 }
 
 const BUTTON =
-  'inline-flex h-9 items-center gap-1.5 rounded-[7px] px-3.5 text-[12px] font-medium tracking-[-0.023em] transition-colors disabled:opacity-60';
+  'inline-flex h-9 items-center gap-1.5 rounded-md px-3.5 text-[12px] font-medium transition-colors disabled:opacity-60';
 
 function DeleteDialog({
   action,
@@ -125,7 +125,7 @@ function DeleteDialog({
           <button
             type="button"
             onClick={() => onClose(true)}
-            className={`${BUTTON} border-2 border-line bg-card text-ink hover:bg-subtle`}
+            className={`${BUTTON} border border-line bg-card text-ink hover:bg-subtle`}
           >
             {r.close}
           </button>
@@ -135,7 +135,7 @@ function DeleteDialog({
               type="button"
               onClick={() => onClose(false)}
               disabled={dismissBlocked}
-              className={`${BUTTON} border-2 border-line bg-card text-ink hover:bg-subtle`}
+              className={`${BUTTON} border border-line bg-card text-ink hover:bg-subtle`}
             >
               {r.cancel}
             </button>
@@ -159,7 +159,7 @@ function DeleteDialog({
       }
     >
       {done ? (
-        <p className="flex items-start gap-2 text-[12px] leading-[1.6] tracking-[-0.023em] text-pubink">
+        <p className="flex items-start gap-2 text-[12px] leading-[1.6] text-pubink">
           <CircleCheckIcon size={15} className="mt-px shrink-0" />
           {fill(r.done, { publicId: state?.publicId ?? target.publicId })}
         </p>
@@ -170,14 +170,14 @@ function DeleteDialog({
           {state?.error ? (
             <p
               role="alert"
-              className="flex items-start gap-2 rounded-[8px] bg-errsoft p-2.5 text-[11px] leading-[1.5] text-err"
+              className="flex items-start gap-2 rounded-md bg-errsoft p-2.5 text-[11px] leading-[1.5] text-err"
             >
               <CircleXIcon size={15} className="mt-px shrink-0" />
               {r.errors[state.error]}
             </p>
           ) : null}
 
-          <div className="flex items-center gap-2.5 rounded-[8px] border-2 border-line bg-subtle px-2.5 py-2.5">
+          <div className="flex items-center gap-2.5 rounded-md border border-line bg-subtle px-2.5 py-2.5">
             <span
               aria-hidden
               className="flex size-[30px] shrink-0 items-center justify-center rounded-lg text-[12px] font-medium text-white"
@@ -186,10 +186,10 @@ function DeleteDialog({
               {target.initial}
             </span>
             <span className="flex min-w-0 flex-col gap-[3px]">
-              <span className="truncate text-[12px] font-medium tracking-[-0.023em] text-ink">
+              <span className="truncate text-[12px] font-medium text-ink">
                 {target.title}
               </span>
-              <span className="truncate text-[11px] tracking-[-0.023em] text-muted">
+              <span className="truncate text-[11px] text-muted">
                 {target.publicId}
               </span>
             </span>
@@ -199,7 +199,7 @@ function DeleteDialog({
             {r.consequences.map((line) => (
               <li
                 key={line}
-                className="flex items-start gap-1.5 text-[11px] leading-[1.55] tracking-[-0.023em] text-steel"
+                className="flex items-start gap-1.5 text-[11px] leading-[1.55] text-steel"
               >
                 <span aria-hidden className="mt-px text-rose">
                   •
@@ -210,7 +210,7 @@ function DeleteDialog({
           </ul>
 
           <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">
+            <span className="text-[11px] font-medium text-steel">
               {r.confirmLabel}
             </span>
             <input
@@ -222,9 +222,9 @@ function DeleteDialog({
               spellCheck={false}
               placeholder={target.publicId}
               aria-label={r.confirmLabel}
-              className="h-9 w-full rounded-[7px] border-2 border-line bg-card px-2.5 font-mono text-[12px] tracking-[-0.023em] text-ink placeholder:text-faint focus:border-rose focus:outline-none"
+              className="h-9 w-full rounded-md border border-line bg-card px-2.5 font-mono text-[12px] text-ink placeholder:text-faint focus:border-rose focus:outline-none"
             />
-            <span className="text-[11px] leading-[1.45] tracking-[-0.023em] text-faint">
+            <span className="text-[11px] leading-[1.45] text-faint">
               {fill(r.confirmHint, { publicId: target.publicId })}
             </span>
           </label>

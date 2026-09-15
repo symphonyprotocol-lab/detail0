@@ -43,6 +43,23 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       suppressHydrationWarning
       className={`${inter.variable} ${jetbrains.variable}`}
     >
+      <head>
+        {/*
+          The reader's theme choice, applied before the first paint.
+          Without it the page renders on the system preference and then
+          corrects itself once React hydrates, which is a full-page flash
+          on every navigation for anyone who has picked the non-system
+          side. It only ever writes an attribute the CSS already
+          understands (see app/globals.css), and stays silent when nothing
+          is stored, which is what leaves the default following the system.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var t=localStorage.getItem('re0-theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}",
+          }}
+        />
+      </head>
       <body className="font-sans antialiased">
         {children}
         <script src="/vendor/webmcp/webmcp.js" async data-re0-webmcp="true" />

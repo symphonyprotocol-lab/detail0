@@ -125,7 +125,7 @@ export default async function CatalogPage({ searchParams }: Search) {
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <form
           method="get"
-          className="flex h-[46px] min-w-0 flex-1 items-center gap-2.5 rounded-lg border-2 border-line bg-card px-4 shadow-[0_4px_10px_rgba(45,45,83,0.06)]"
+          className="flex h-[46px] min-w-0 flex-1 items-center gap-2.5 rounded-lg border border-line bg-card px-4 shadow-md"
         >
           <span aria-hidden className="text-muted">
             ⌕
@@ -139,12 +139,12 @@ export default async function CatalogPage({ searchParams }: Search) {
           {recent ? <input type="hidden" name="sort" value="recent" /> : null}
           <button
             type="submit"
-            className="rounded border-2 border-line bg-mutedbg px-1.5 py-0.5 text-[11px] text-muted"
+            className="rounded border border-line bg-mutedbg px-1.5 py-0.5 text-[11px] text-muted"
           >
             ⏎
           </button>
         </form>
-        <div className="flex h-[46px] items-center gap-1 rounded-lg border-2 border-line bg-card p-1">
+        <div className="flex h-[46px] items-center gap-1 rounded-lg border border-line bg-card p-1">
           <Link
             href={directoryHref({ sort: 'popular', query, page: 1 })}
             className={`rounded-md px-3 py-1.5 text-[12px] font-medium ${
@@ -195,23 +195,23 @@ export default async function CatalogPage({ searchParams }: Search) {
             {page > 1 ? (
               <Link
                 href={directoryHref({ sort: order, query, page: page - 1 })}
-                className="rounded-md border-2 border-line bg-card px-3 py-1.5 font-medium text-ink hover:bg-subtle"
+                className="rounded-md border border-line bg-card px-3 py-1.5 font-medium text-ink hover:bg-subtle"
               >
                 {c.previous}
               </Link>
             ) : (
-              <span className="rounded-md border-2 border-line px-3 py-1.5 text-faint">{c.previous}</span>
+              <span className="rounded-md border border-line px-3 py-1.5 text-faint">{c.previous}</span>
             )}
             <span className="px-1 text-muted">{fill(c.directory.page, { page, pages })}</span>
             {page < pages ? (
               <Link
                 href={directoryHref({ sort: order, query, page: page + 1 })}
-                className="rounded-md border-2 border-line bg-card px-3 py-1.5 font-medium text-ink hover:bg-subtle"
+                className="rounded-md border border-line bg-card px-3 py-1.5 font-medium text-ink hover:bg-subtle"
               >
                 {c.next}
               </Link>
             ) : (
-              <span className="rounded-md border-2 border-line px-3 py-1.5 text-faint">{c.next}</span>
+              <span className="rounded-md border border-line px-3 py-1.5 text-faint">{c.next}</span>
             )}
           </nav>
         ) : null}

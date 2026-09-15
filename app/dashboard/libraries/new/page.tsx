@@ -101,16 +101,16 @@ export default async function DashboardAddLibraryPage({
         <header className="flex flex-col gap-[5px]">
           <Link
             href="/dashboard/libraries"
-            className="text-[12px] tracking-[-0.023em] text-brandink transition-colors hover:text-brand"
+            className="text-[12px] text-brandink transition-colors hover:text-brandink"
           >
             {n.back}
           </Link>
-          <h1 className="mt-1.5 text-[25px] leading-[1.5] font-[650] tracking-[-0.045em] text-ink">
+          <h1 className="mt-1.5 text-[25px] leading-[1.5] font-medium text-ink">
             {n.denied.title}
           </h1>
         </header>
         <section className={`${PANEL} p-6`}>
-          <p className="text-[13px] leading-[1.5] tracking-[-0.023em] text-muted">{n.denied.body}</p>
+          <p className="text-[13px] leading-[1.5] text-muted">{n.denied.body}</p>
         </section>
       </div>
     );
@@ -136,14 +136,14 @@ export default async function DashboardAddLibraryPage({
         <div className="flex flex-col gap-[5px]">
           <Link
             href="/dashboard/libraries"
-            className="text-[12px] tracking-[-0.023em] text-brandink transition-colors hover:text-brand"
+            className="text-[12px] text-brandink transition-colors hover:text-brandink"
           >
             {n.back}
           </Link>
-          <h1 className="mt-1.5 text-[25px] leading-[1.5] font-[650] tracking-[-0.045em] text-ink">
+          <h1 className="mt-1.5 text-[25px] leading-[1.5] font-medium text-ink">
             {n.title}
           </h1>
-          <p className="text-[13px] leading-[1.5] tracking-[-0.023em] text-muted">
+          <p className="text-[13px] leading-[1.5] text-muted">
             {n.description}
           </p>
         </div>
@@ -166,10 +166,10 @@ export default async function DashboardAddLibraryPage({
       {/* Build cost -- library-build-billing.md 8. */}
       <aside className={`${PANEL} flex flex-col gap-3 p-6`}>
         <div className="flex flex-col gap-[3px]">
-          <p className="text-[15px] leading-[1.4] tracking-[-0.025em] text-ink">{cost.title}</p>
-          <p className="text-[11px] leading-[1.5] tracking-[-0.023em] text-muted">{cost.description}</p>
+          <p className="text-[15px] leading-[1.4] text-ink">{cost.title}</p>
+          <p className="text-[11px] leading-[1.5] text-muted">{cost.description}</p>
         </div>
-        <ul className="flex flex-col gap-1.5 text-[12px] tracking-[-0.023em] text-ink">
+        <ul className="flex flex-col gap-1.5 text-[12px] text-ink">
           <li>
             {fill(cost.formula, {
               base: number.format(quote.rates.baseCalls),

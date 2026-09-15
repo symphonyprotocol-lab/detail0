@@ -33,7 +33,7 @@ function GlobeIcon() {
       strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="shrink-0 text-brand"
+      className="shrink-0 text-brandink"
     >
       <path d="m5 8 6 6" />
       <path d="m4 14 6-6 3-4" />
@@ -85,7 +85,7 @@ function CheckIcon() {
 
 const TRIGGER = {
   link: 'flex items-center gap-1 text-[13px] text-muted transition-colors hover:text-ink disabled:opacity-60',
-  pill: 'flex h-[34px] items-center gap-[7px] rounded-lg border-2 border-line bg-card px-3 text-[12px] font-semibold tracking-[-0.023em] text-steel transition-colors hover:bg-subtle disabled:opacity-60',
+  pill: 'flex h-[34px] items-center gap-[7px] rounded-lg border border-line bg-card px-3 text-[12px] font-medium text-steel transition-colors hover:bg-subtle disabled:opacity-60',
 } as const;
 
 export function LocaleSwitcher({ variant = 'link' }: { variant?: 'link' | 'pill' }) {
@@ -148,7 +148,7 @@ export function LocaleSwitcher({ variant = 'link' }: { variant?: 'link' | 'pill'
         <div
           role="menu"
           aria-label={t.nav.language}
-          className="absolute right-0 z-40 mt-2 w-[136px] rounded-lg border-2 border-line bg-card p-1 shadow-[0_18px_60px_rgba(3,26,30,0.12)]"
+          className="absolute right-0 z-40 mt-2 w-[136px] rounded-lg border border-line bg-card p-1 shadow-md"
         >
           {LOCALES.map((option) => {
             const active = option === locale;
@@ -160,7 +160,7 @@ export function LocaleSwitcher({ variant = 'link' }: { variant?: 'link' | 'pill'
                 aria-checked={active}
                 lang={HTML_LANG[option]}
                 onClick={() => choose(option)}
-                className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-[13px] tracking-[-0.023em] transition-colors ${
+                className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-[13px] transition-colors ${
                   active ? 'bg-brandsoft font-medium text-brandink' : 'text-steel hover:bg-subtle'
                 }`}
               >

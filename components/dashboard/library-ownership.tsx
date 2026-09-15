@@ -71,9 +71,9 @@ export function LibraryOwnership({
 
   return (
     <section className={`${PANEL} overflow-hidden`}>
-      <div className="flex flex-col gap-1 border-b-2 border-line px-[18px] py-3.5">
-        <h2 className="text-[14px] font-semibold tracking-[-0.023em] text-ink">{o.panelTitle}</h2>
-        <p className="text-[11.5px] leading-[1.55] tracking-[-0.023em] text-muted">
+      <div className="flex flex-col gap-1 border-b border-line px-[18px] py-3.5">
+        <h2 className="text-[14px] font-medium text-ink">{o.panelTitle}</h2>
+        <p className="text-[11.5px] leading-[1.55] text-muted">
           {o.panelSubtitle}
         </p>
       </div>
@@ -85,13 +85,13 @@ export function LibraryOwnership({
           {rows.map((row) => (
             <li
               key={row.id}
-              className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2.5 border-t-2 border-line px-[18px] py-[15px] first:border-t-0"
+              className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2.5 border-t border-line px-[18px] py-[15px] first:border-t-0"
             >
               <span className="flex min-w-[200px] flex-1 flex-col gap-1">
-                <span className="truncate text-[13px] tracking-[-0.023em] text-ink">
+                <span className="truncate text-[13px] text-ink">
                   {row.title}
                 </span>
-                <span className="truncate font-mono text-[10.5px] tracking-[-0.023em] text-muted">
+                <span className="truncate font-mono text-[10.5px] text-muted">
                   {row.publicId}
                 </span>
                 <Detail row={row} />
@@ -153,14 +153,14 @@ function Detail({ row }: { row: LibraryOwnershipRow }) {
 
   if (row.kind === 'claimed' && row.claimedAt) {
     return (
-      <span className="text-[11px] tracking-[-0.023em] text-muted">
+      <span className="text-[11px] text-muted">
         {fill(o.claimedOn, { when: row.claimedAt })}
       </span>
     );
   }
   if (row.kind === 'pending' && row.remainingDays !== null) {
     return (
-      <span className="text-[11px] tracking-[-0.023em] text-muted">
+      <span className="text-[11px] text-muted">
         {fill(o.pendingRemaining, { days: row.remainingDays })}
       </span>
     );
@@ -172,7 +172,7 @@ function Detail({ row }: { row: LibraryOwnershipRow }) {
         <span className="font-mono text-[10.5px] text-muted">
           {fill(t.claim.failureCode, { code: row.failureReason })}
         </span>
-        <span className="max-w-[62ch] text-[11px] leading-[1.55] tracking-[-0.023em] text-steel">
+        <span className="max-w-[62ch] text-[11px] leading-[1.55] text-steel">
           {reason.label} — {reason.next}
         </span>
       </span>
@@ -182,7 +182,7 @@ function Detail({ row }: { row: LibraryOwnershipRow }) {
 }
 
 const LINK =
-  'inline-flex h-8 shrink-0 items-center rounded-[7px] border-2 border-line bg-card px-3 text-[11.5px] font-medium tracking-[-0.023em] text-ink transition-colors hover:bg-subtle';
+  'inline-flex h-8 shrink-0 items-center rounded-md border border-line bg-card px-3 text-[11.5px] font-medium text-ink transition-colors hover:bg-subtle';
 
 /** Where the row goes next: into its open claim, or into a new one. */
 function Entry({ row }: { row: LibraryOwnershipRow }) {
@@ -209,7 +209,7 @@ function Entry({ row }: { row: LibraryOwnershipRow }) {
 /* ----------------------------------------------------------------- release */
 
 const BUTTON =
-  'inline-flex h-9 items-center gap-1.5 rounded-[7px] px-3.5 text-[12px] font-medium tracking-[-0.023em] transition-colors disabled:opacity-60';
+  'inline-flex h-9 items-center gap-1.5 rounded-md px-3.5 text-[12px] font-medium transition-colors disabled:opacity-60';
 
 /**
  * Give the library up -- requirement.md 7.3.5.
@@ -235,7 +235,7 @@ function ReleaseControl({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex h-8 shrink-0 items-center rounded-[7px] border-2 border-line bg-card px-3 text-[11.5px] font-medium tracking-[-0.023em] text-muted transition-colors hover:bg-subtle hover:text-rose"
+        className="inline-flex h-8 shrink-0 items-center rounded-md border border-line bg-card px-3 text-[11.5px] font-medium text-muted transition-colors hover:bg-subtle hover:text-rose"
       >
         {t.dashboard.libraries.ownership.release}
       </button>
@@ -284,7 +284,7 @@ function ReleaseDialog({
           <button
             type="button"
             onClick={onClose}
-            className={`${BUTTON} border-2 border-line bg-card text-ink hover:bg-subtle`}
+            className={`${BUTTON} border border-line bg-card text-ink hover:bg-subtle`}
           >
             {r.close}
           </button>
@@ -294,7 +294,7 @@ function ReleaseDialog({
               type="button"
               onClick={onClose}
               disabled={dismissBlocked}
-              className={`${BUTTON} border-2 border-line bg-card text-ink hover:bg-subtle`}
+              className={`${BUTTON} border border-line bg-card text-ink hover:bg-subtle`}
             >
               {r.cancel}
             </button>
@@ -318,7 +318,7 @@ function ReleaseDialog({
       }
     >
       {done ? (
-        <p className="flex items-start gap-2 text-[12px] leading-[1.6] tracking-[-0.023em] text-pubink">
+        <p className="flex items-start gap-2 text-[12px] leading-[1.6] text-pubink">
           <CircleCheckIcon size={15} className="mt-px shrink-0" />
           {fill(r.done, { publicId: state?.publicId ?? target.publicId })}
         </p>
@@ -329,18 +329,18 @@ function ReleaseDialog({
           {state?.error ? (
             <p
               role="alert"
-              className="flex items-start gap-2 rounded-[8px] bg-errsoft p-2.5 text-[11px] leading-[1.5] text-err"
+              className="flex items-start gap-2 rounded-md bg-errsoft p-2.5 text-[11px] leading-[1.5] text-err"
             >
               <CircleXIcon size={15} className="mt-px shrink-0" />
               {r.errors[state.error]}
             </p>
           ) : null}
 
-          <div className="flex min-w-0 flex-col gap-[3px] rounded-[8px] border-2 border-line bg-subtle px-2.5 py-2.5">
-            <span className="truncate text-[12px] font-medium tracking-[-0.023em] text-ink">
+          <div className="flex min-w-0 flex-col gap-[3px] rounded-md border border-line bg-subtle px-2.5 py-2.5">
+            <span className="truncate text-[12px] font-medium text-ink">
               {target.title}
             </span>
-            <span className="truncate text-[11px] tracking-[-0.023em] text-muted">
+            <span className="truncate text-[11px] text-muted">
               {target.publicId}
             </span>
           </div>
@@ -349,7 +349,7 @@ function ReleaseDialog({
             {r.consequences.map((line) => (
               <li
                 key={line}
-                className="flex items-start gap-1.5 text-[11px] leading-[1.55] tracking-[-0.023em] text-steel"
+                className="flex items-start gap-1.5 text-[11px] leading-[1.55] text-steel"
               >
                 <span aria-hidden className="mt-px text-rose">
                   •
@@ -360,7 +360,7 @@ function ReleaseDialog({
           </ul>
 
           <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">
+            <span className="text-[11px] font-medium text-steel">
               {r.confirmLabel}
             </span>
             <input
@@ -372,9 +372,9 @@ function ReleaseDialog({
               spellCheck={false}
               placeholder={target.publicId}
               aria-label={r.confirmLabel}
-              className="h-9 w-full rounded-[7px] border-2 border-line bg-card px-2.5 font-mono text-[12px] tracking-[-0.023em] text-ink placeholder:text-faint focus:border-rose focus:outline-none"
+              className="h-9 w-full rounded-md border border-line bg-card px-2.5 font-mono text-[12px] text-ink placeholder:text-faint focus:border-rose focus:outline-none"
             />
-            <span className="text-[11px] leading-[1.45] tracking-[-0.023em] text-faint">
+            <span className="text-[11px] leading-[1.45] text-faint">
               {fill(r.confirmHint, { publicId: target.publicId })}
             </span>
           </label>

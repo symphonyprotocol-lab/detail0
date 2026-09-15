@@ -35,7 +35,7 @@ export function DirectorySearch({
       action="/libraries"
       method="get"
       role="search"
-      className="flex h-[46px] min-w-0 flex-1 items-center gap-2.5 rounded-lg border-2 border-line bg-card/60 px-[15px] py-0.5 shadow-[0_4px_10px_rgba(45,45,83,0.06)] focus-within:border-brand"
+      className="flex h-12 min-w-0 flex-1 items-center gap-2.5 rounded-md border border-line bg-field px-4 focus-within:shadow-focus"
     >
       <SearchIcon size={18} className="text-muted" />
       <input
@@ -45,11 +45,11 @@ export function DirectorySearch({
         maxLength={200}
         placeholder={placeholder}
         aria-label={placeholder}
-        className="min-w-0 flex-1 bg-transparent text-[13px] tracking-[-0.025em] text-ink outline-none placeholder:text-muted/70"
+        className="min-w-0 flex-1 bg-transparent text-body text-ink outline-none placeholder:text-faint"
       />
       <kbd
         aria-hidden
-        className="flex h-[34px] shrink-0 items-center rounded-[5px] border-2 border-line bg-mutedbg px-1.5 text-[16px] text-muted"
+        className="flex h-8 shrink-0 items-center rounded-md border border-line bg-subtle px-2.5 text-caption text-muted"
       >
         ⌘ K
       </kbd>

@@ -49,7 +49,7 @@ export function ApiKeyRotate({
           disabled={pending}
           aria-label={fill(s.rotate, { name })}
           title={fill(s.rotate, { name })}
-          className="inline-flex size-[26px] items-center justify-center rounded-md text-muted transition-colors hover:bg-mutedbg hover:text-brand disabled:opacity-50"
+          className="inline-flex size-[26px] items-center justify-center rounded-md text-muted transition-colors hover:bg-mutedbg hover:text-brandink disabled:opacity-50"
         >
           <svg
             aria-hidden
@@ -82,14 +82,14 @@ export function ApiKeyRotate({
           className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4"
         >
           <div className={`${PANEL} flex w-full max-w-[520px] flex-col gap-3 p-[22px]`}>
-            <p className="text-[15px] font-semibold tracking-[-0.023em] text-ink">
+            <p className="text-[15px] font-medium text-ink">
               {s.rotatedTitle} · {state.name}
             </p>
-            <p className="text-[12px] leading-[1.6] tracking-[-0.023em] text-muted">
+            <p className="text-[12px] leading-[1.6] text-muted">
               {s.rotatedBody}
             </p>
-            <div className="flex items-center gap-2 rounded-lg border-2 border-publine bg-pubsoft/40 p-3">
-              <code className="min-w-0 flex-1 truncate rounded-[5px] bg-card px-2 py-1.5 font-mono text-[11.5px] text-steel">
+            <div className="flex items-center gap-2 rounded-lg border border-publine bg-pubsoft/40 p-3">
+              <code className="min-w-0 flex-1 truncate rounded-md bg-card px-2 py-1.5 font-mono text-[11.5px] text-steel">
                 {state.key}
               </code>
               <CopyButton
@@ -101,7 +101,7 @@ export function ApiKeyRotate({
             <button
               type="button"
               onClick={() => router.refresh()}
-              className="h-9 self-end rounded-[7px] bg-brand px-4 text-[12px] font-medium text-white transition-colors hover:bg-brand/90"
+              className="h-9 self-end rounded-md bg-brand px-4 text-[12px] font-medium text-white transition-colors hover:bg-brand/90"
             >
               {s.rotateDone}
             </button>

@@ -189,7 +189,7 @@ export function PdfUploadField({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">{label}</span>
+      <span className="text-[11px] font-medium text-steel">{label}</span>
       <input
         ref={picker}
         type="file"
@@ -202,11 +202,11 @@ export function PdfUploadField({
           void state.pick(files);
         }}
       />
-      <div className="flex flex-col gap-1.5 rounded-[7px] border-2 border-dashed border-line bg-card p-2.5">
+      <div className="flex flex-col gap-1.5 rounded-md border border-dashed border-line bg-card p-2.5">
         {state.uploads.map((upload) => (
           <div
             key={upload.id}
-            className="flex items-center gap-2 rounded-[6px] bg-subtle px-2.5 py-1.5 text-[12px] tracking-[-0.023em]"
+            className="flex items-center gap-2 rounded-md bg-subtle px-2.5 py-1.5 text-[12px]"
           >
             {upload.status === 'uploading' ? <SpinnerIcon size={14} /> : <FileTextIcon size={14} />}
             <span className="min-w-0 flex-1 truncate text-ink">{upload.name}</span>
@@ -228,7 +228,7 @@ export function PdfUploadField({
           type="button"
           onClick={() => picker.current?.click()}
           disabled={state.uploads.length >= room}
-          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[6px] text-[12px] text-steel transition-colors hover:bg-subtle disabled:opacity-40"
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md text-[12px] text-steel transition-colors hover:bg-subtle disabled:opacity-40"
         >
           <UploadIcon size={14} />
           {state.uploads.length === 0
@@ -241,7 +241,7 @@ export function PdfUploadField({
         </button>
       </div>
       {state.error ? (
-        <span className="text-[11px] tracking-[-0.023em] text-rose">
+        <span className="text-[11px] text-rose">
           {state.error === 'too_large'
             ? fill(w.errorFileTooLarge, { size: formatBytes(UPLOAD_LIMITS.maxFileBytes) })
             : state.error === 'invalid'
@@ -253,7 +253,7 @@ export function PdfUploadField({
                   : w.errorUploadUnavailable}
         </span>
       ) : null}
-      <span className="text-[10px] tracking-[-0.023em] text-muted">{hint}</span>
+      <span className="text-[10px] text-muted">{hint}</span>
     </div>
   );
 }

@@ -114,7 +114,7 @@ export type CheckVerification = (input: {
 }) => Promise<CheckDomainVerificationResult>;
 
 const FIELD =
-  'h-9 w-full rounded-[7px] border-2 border-line bg-card px-2.5 text-[12px] tracking-[-0.023em] text-ink placeholder:text-muted/70 focus:border-brand focus:outline-none';
+  'h-9 w-full rounded-md border border-line bg-card px-2.5 text-[12px] text-ink placeholder:text-muted/70 focus:border-brand focus:outline-none';
 
 /* --------------------------------------------------------------- the draft */
 
@@ -233,9 +233,9 @@ const NOTION_CONNECT_FORM_ID = 'notion-connect';
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">{label}</span>
+      <span className="text-[11px] font-medium text-steel">{label}</span>
       {children}
-      {hint ? <span className="text-[10px] tracking-[-0.023em] text-muted">{hint}</span> : null}
+      {hint ? <span className="text-[10px] text-muted">{hint}</span> : null}
     </label>
   );
 }
@@ -498,8 +498,8 @@ export function ImportWizard({
           <ShieldCheckIcon size={18} />
         </IconTile>
         <div className="flex flex-col gap-[3px]">
-          <p className="text-[15px] leading-[1.4] tracking-[-0.025em] text-ink">{n.reviewTitle}</p>
-          <p className="text-[11px] tracking-[-0.023em] text-muted">{n.reviewDescription}</p>
+          <p className="text-[15px] leading-[1.4] text-ink">{n.reviewTitle}</p>
+          <p className="text-[11px] text-muted">{n.reviewDescription}</p>
         </div>
       </div>
 
@@ -519,13 +519,13 @@ export function ImportWizard({
               {index + 1}
             </span>
             <span
-              className={`text-[12px] tracking-[-0.023em] ${
+              className={`text-[12px] ${
                 entry.state === 'pending' ? 'text-muted' : 'text-ink'
               }`}
             >
               {pl.steps[entry.step]}
             </span>
-            <span className="text-[10px] leading-[1.5] tracking-[-0.023em] text-muted">
+            <span className="text-[10px] leading-[1.5] text-muted">
               {pl.notes[entry.step]}
             </span>
             <span className="sr-only">{pl.states[entry.state]}</span>
@@ -533,11 +533,11 @@ export function ImportWizard({
         ))}
       </ol>
 
-      <p className="text-[11px] leading-[1.5] tracking-[-0.023em] text-muted">
+      <p className="text-[11px] leading-[1.5] text-muted">
         {state?.ok ? n.pipeline.afterSubmit : n.pipeline.beforeSubmit}
       </p>
 
-      <p className="flex items-center gap-1.5 border-t-2 border-line pt-3.5 text-[11px] tracking-[-0.023em] text-muted">
+      <p className="flex items-center gap-1.5 border-t border-line pt-3.5 text-[11px] text-muted">
         <LockIcon size={13} />
         {visibility === 'private' ? n.pipeline.privateFlow : n.privateSkips}
       </p>
@@ -550,10 +550,10 @@ export function ImportWizard({
     return (
       <>
         <section className={`${PANEL} flex flex-col items-start gap-3 p-8`}>
-          <p className="text-[17px] font-semibold tracking-[-0.03em] text-ink">
+          <p className="text-[17px] font-medium text-ink">
             {awaitingFiles ? w.createdTitle : w.queuedTitle}
           </p>
-          <p className="max-w-[60ch] text-[12.5px] leading-[1.7] tracking-[-0.023em] text-muted">
+          <p className="max-w-[60ch] text-[12.5px] leading-[1.7] text-muted">
             {fill(
               awaitingFiles ? (isMarkdown ? md.createdBodyNoFiles : w.createdBodyNoFiles) : w.queuedBody,
               { id: state.publicId ?? '' },
@@ -563,7 +563,7 @@ export function ImportWizard({
             href={
               awaitingFiles ? `/dashboard/libraries/${state.libraryId}/files` : '/dashboard/libraries'
             }
-            className="mt-2 inline-flex h-[35px] items-center gap-1.5 rounded-[7px] bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand/90"
+            className="mt-2 inline-flex h-[35px] items-center gap-1.5 rounded-md bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand/90"
           >
             {awaitingFiles ? (isMarkdown ? md.createdCtaFiles : w.createdCtaFiles) : w.queuedCta}
             <ArrowRightIcon size={14} />
@@ -580,7 +580,7 @@ export function ImportWizard({
           all -- an empty form has no draft to claim. */}
       <div className="flex flex-wrap items-center justify-end gap-2">
         {restored ? (
-          <span className="text-[11px] tracking-[-0.023em] text-muted">{n.draft.restored}</span>
+          <span className="text-[11px] text-muted">{n.draft.restored}</span>
         ) : null}
         {savedStamp ? (
           <>
@@ -588,7 +588,7 @@ export function ImportWizard({
             <button
               type="button"
               onClick={discardDraft}
-              className="text-[11px] tracking-[-0.023em] text-muted underline-offset-2 hover:text-ink hover:underline"
+              className="text-[11px] text-muted underline-offset-2 hover:text-ink hover:underline"
             >
               {n.draft.discard}
             </button>
@@ -625,7 +625,7 @@ export function ImportWizard({
               </span>
               <span
                 aria-current={index === step ? 'step' : undefined}
-                className={`text-[11px] tracking-[-0.023em] whitespace-nowrap ${
+                className={`text-[11px] whitespace-nowrap ${
                   index === step ? 'text-ink' : 'text-muted'
                 }`}
               >
@@ -635,7 +635,7 @@ export function ImportWizard({
           ))}
         </nav>
 
-        <form action={formAction} className="border-t-2 border-line">
+        <form action={formAction} className="border-t border-line">
           {/* Every collected value rides hidden inputs so the final submit posts
               the whole wizard regardless of which step is visible. */}
           <input type="hidden" name="sourceType" value={source ?? ''} />
@@ -654,16 +654,16 @@ export function ImportWizard({
           />
 
           <div className="px-6 py-6">
-            <p className="text-[12px] tracking-[-0.023em] text-muted">
+            <p className="text-[12px] text-muted">
               {fill(n.stepCounter, { current: step + 1, total: steps.length })}
             </p>
 
             {current === 'source' ? (
               <>
-                <h2 className="mt-2.5 text-[19px] leading-[1.4] font-[650] tracking-[-0.03em] text-ink">
+                <h2 className="mt-2.5 text-[19px] leading-[1.4] font-medium text-ink">
                   {n.sourceQuestion}
                 </h2>
-                <p className="mt-1.5 text-[12px] tracking-[-0.023em] text-muted">{n.sourceHint}</p>
+                <p className="mt-1.5 text-[12px] text-muted">{n.sourceHint}</p>
                 <div className="mt-5 grid gap-2.5 sm:grid-cols-2">
                   {SOURCES.map((id) => {
                     const Icon = SOURCE_ICONS[id];
@@ -674,17 +674,17 @@ export function ImportWizard({
                         type="button"
                         onClick={() => setSource(id)}
                         aria-pressed={active}
-                        className={`flex flex-col gap-2 rounded-[10px] border-2 p-4 text-left transition-colors ${
-                          active ? 'border-brand bg-[#f0f8f8]' : 'border-line bg-card hover:bg-subtle'
+                        className={`flex flex-col gap-2 rounded-md border p-4 text-left transition-colors ${
+                          active ? 'border-brand bg-brandsoft' : 'border-line bg-card hover:bg-subtle'
                         }`}
                       >
-                        <span className="flex size-8 items-center justify-center rounded-lg bg-brandsoft text-brand">
+                        <span className="flex size-8 items-center justify-center rounded-lg bg-brandsoft text-brandink">
                           <Icon size={18} />
                         </span>
-                        <span className="text-[13px] tracking-[-0.023em] text-ink">
+                        <span className="text-[13px] text-ink">
                           {w.sources[id].name}
                         </span>
-                        <span className="text-[11px] tracking-[-0.023em] text-muted">
+                        <span className="text-[11px] text-muted">
                           {w.sources[id].note}
                         </span>
                       </button>
@@ -759,8 +759,8 @@ export function ImportWizard({
                     {/* The prefix sits inside the field so the id reads the way
                         the catalogue shows it, /websites/ethereum/whitepaper; the
                         operator types only the slug, nested with / if they like. */}
-                    <span className="flex h-9 w-full items-center rounded-[7px] border-2 border-line bg-card pl-2.5 focus-within:border-brand">
-                      <span className="shrink-0 select-none text-[12px] tracking-[-0.023em] text-muted">
+                    <span className="flex h-9 w-full items-center rounded-md border border-line bg-card pl-2.5 focus-within:border-brand">
+                      <span className="shrink-0 select-none text-[12px] text-muted">
                         /{namespace}/
                       </span>
                       <input
@@ -772,12 +772,12 @@ export function ImportWizard({
                         }}
                         maxLength={200 - namespace.length - 2}
                         placeholder={w.slugPlaceholder}
-                        className="h-full min-w-0 flex-1 bg-transparent pr-2.5 text-[12px] tracking-[-0.023em] text-ink placeholder:text-muted/70 focus:outline-none"
+                        className="h-full min-w-0 flex-1 bg-transparent pr-2.5 text-[12px] text-ink placeholder:text-muted/70 focus:outline-none"
                       />
                     </span>
                   </Field>
                 ) : (
-                  <p className="text-[11px] tracking-[-0.023em] text-muted">{w.githubIdNote}</p>
+                  <p className="text-[11px] text-muted">{w.githubIdNote}</p>
                 )}
                 <Field label={w.descriptionLabel}>
                   <input
@@ -817,16 +817,16 @@ export function ImportWizard({
                     type="button"
                     onClick={() => setVisibility(option)}
                     aria-pressed={visibility === option}
-                    className={`flex flex-col gap-2 rounded-[10px] border-2 p-4 text-left transition-colors ${
+                    className={`flex flex-col gap-2 rounded-md border p-4 text-left transition-colors ${
                       visibility === option
-                        ? 'border-brand bg-[#f0f8f8]'
+                        ? 'border-brand bg-brandsoft'
                         : 'border-line bg-card hover:bg-subtle'
                     }`}
                   >
-                    <span className="text-[13px] tracking-[-0.023em] text-ink">
+                    <span className="text-[13px] text-ink">
                       {option === 'public' ? w.visibilityPublic : w.visibilityPrivate}
                     </span>
-                    <span className="text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">
+                    <span className="text-[11px] leading-[1.6] text-muted">
                       {option === 'public' ? w.visibilityPublicNote : w.visibilityPrivateNote}
                     </span>
                   </button>
@@ -835,7 +835,7 @@ export function ImportWizard({
             ) : null}
 
             {current === 'confirm' && source ? (
-              <div className="mt-4 flex max-w-[520px] flex-col gap-1 rounded-[10px] border-2 border-line bg-subtle p-4">
+              <div className="mt-4 flex max-w-[520px] flex-col gap-1 rounded-md border border-line bg-subtle p-4">
                 {[
                   [w.stepSource, w.sources[source].name],
                   [w.titleLabel, title],
@@ -861,7 +861,7 @@ export function ImportWizard({
                     </span>
                   </div>
                 ))}
-                <label className="mt-2 flex items-start gap-2 border-t-2 border-line pt-3 text-[12px] leading-[1.5] tracking-[-0.023em] text-ink">
+                <label className="mt-2 flex items-start gap-2 border-t border-line pt-3 text-[12px] leading-[1.5] text-ink">
                   <input
                     type="checkbox"
                     checked={confirmed}
@@ -874,7 +874,7 @@ export function ImportWizard({
             ) : null}
 
             {state && !state.ok ? (
-              <p className="mt-4 text-[12px] tracking-[-0.023em] text-rose">
+              <p className="mt-4 text-[12px] text-rose">
                 {state.error === 'github'
                   ? w.errorGithub[state.refusal ?? 'not_found']
                   : state.error === 'notion'
@@ -896,12 +896,12 @@ export function ImportWizard({
             ) : null}
           </div>
 
-          <footer className="flex items-center justify-between gap-3 border-t-2 border-line px-6 py-3.5">
+          <footer className="flex items-center justify-between gap-3 border-t border-line px-6 py-3.5">
             <button
               type="button"
               onClick={() => setStep((current) => Math.max(0, current - 1))}
               disabled={step === 0}
-              className="h-[35px] rounded-[7px] border-2 border-line bg-card px-3 text-[12px] text-steel transition-colors hover:bg-subtle disabled:opacity-40"
+              className="h-[35px] rounded-md border border-line bg-card px-3 text-[12px] text-steel transition-colors hover:bg-subtle disabled:opacity-40"
             >
               {n.back2}
             </button>
@@ -915,7 +915,7 @@ export function ImportWizard({
                 type="button"
                 onClick={() => setStep((current) => current + 1)}
                 disabled={!canContinue}
-                className="inline-flex h-[35px] items-center gap-1.5 rounded-[7px] bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40"
+                className="inline-flex h-[35px] items-center gap-1.5 rounded-md bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40"
               >
                 {n.continue}
                 <ArrowRightIcon size={14} />
@@ -927,7 +927,7 @@ export function ImportWizard({
                 disabled={
                   pending || !detailsComplete || !verificationComplete || source === null || !confirmed
                 }
-                className="inline-flex h-[35px] items-center gap-1.5 rounded-[7px] bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40"
+                className="inline-flex h-[35px] items-center gap-1.5 rounded-md bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40"
               >
                 {w.submit}
                 <ArrowRightIcon size={14} />
@@ -967,14 +967,14 @@ function GithubRepositoryPicker({
 
   if (!github.connected) {
     return (
-      <div className="flex flex-col gap-3 rounded-[10px] border-2 border-line bg-subtle p-4">
-        <p className="text-[13px] font-semibold tracking-[-0.023em] text-ink">{w.githubConnectTitle}</p>
-        <p className="text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">{w.githubConnectBody}</p>
-        {notice ? <p className="text-[11px] tracking-[-0.023em] text-rose">{notice}</p> : null}
+      <div className="flex flex-col gap-3 rounded-md border border-line bg-subtle p-4">
+        <p className="text-[13px] font-medium text-ink">{w.githubConnectTitle}</p>
+        <p className="text-[11px] leading-[1.6] text-muted">{w.githubConnectBody}</p>
+        {notice ? <p className="text-[11px] text-rose">{notice}</p> : null}
         <button
           type="submit"
           form={CONNECT_FORM_ID}
-          className="inline-flex h-[35px] w-fit items-center gap-2 rounded-[7px] bg-ink px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-ink/90"
+          className="inline-flex h-[35px] w-fit items-center gap-2 rounded-md bg-ink px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-ink/90"
         >
           <GitHubIcon size={15} className="text-white" />
           {w.githubConnectCta}
@@ -991,23 +991,23 @@ function GithubRepositoryPicker({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">{w.githubRepoLabel}</span>
-        <span className="flex items-center gap-2 text-[10px] tracking-[-0.023em] text-muted">
+        <span className="text-[11px] font-medium text-steel">{w.githubRepoLabel}</span>
+        <span className="flex items-center gap-2 text-[10px] text-muted">
           {github.login ? fill(w.githubConnectedAs, { login: github.login }) : null}
           <button
             type="submit"
             form={CONNECT_FORM_ID}
-            className="text-brandink hover:text-brand"
+            className="text-brandink hover:text-brandink"
           >
             {w.githubSwitch}
           </button>
         </span>
       </div>
-      {notice ? <p className="text-[11px] tracking-[-0.023em] text-rose">{notice}</p> : null}
+      {notice ? <p className="text-[11px] text-rose">{notice}</p> : null}
       {github.listingFailed ? (
-        <p className="text-[11px] tracking-[-0.023em] text-rose">{w.githubListFailed}</p>
+        <p className="text-[11px] text-rose">{w.githubListFailed}</p>
       ) : github.repositories.length === 0 ? (
-        <p className="rounded-[7px] border-2 border-line bg-subtle p-3 text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">
+        <p className="rounded-md border border-line bg-subtle p-3 text-[11px] leading-[1.6] text-muted">
           {w.githubNoRepos}
         </p>
       ) : (
@@ -1022,10 +1022,10 @@ function GithubRepositoryPicker({
           <ul
             role="listbox"
             aria-label={w.githubRepoLabel}
-            className="flex max-h-[260px] flex-col gap-1 overflow-y-auto rounded-[7px] border-2 border-line bg-card p-1"
+            className="flex max-h-[260px] flex-col gap-1 overflow-y-auto rounded-md border border-line bg-card p-1"
           >
             {shown.length === 0 ? (
-              <li className="p-2 text-[11px] tracking-[-0.023em] text-muted">{w.githubNoMatch}</li>
+              <li className="p-2 text-[11px] text-muted">{w.githubNoMatch}</li>
             ) : null}
             {shown.map((repository) => {
               const active = repository.fullName === selected;
@@ -1034,11 +1034,11 @@ function GithubRepositoryPicker({
                   <button
                     type="button"
                     onClick={() => onSelect(repository.fullName)}
-                    className={`flex w-full flex-col gap-0.5 rounded-[6px] px-2.5 py-2 text-left transition-colors ${
-                      active ? 'bg-[#f0f8f8] ring-2 ring-brand' : 'hover:bg-subtle'
+                    className={`flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors ${
+                      active ? 'bg-brandsoft ring-2 ring-brand' : 'hover:bg-subtle'
                     }`}
                   >
-                    <span className="flex items-center gap-2 text-[12px] tracking-[-0.023em] text-ink">
+                    <span className="flex items-center gap-2 text-[12px] text-ink">
                       {repository.fullName}
                       {repository.archived ? (
                         <span className="rounded-full bg-mutedbg px-1.5 text-[9px] text-muted">
@@ -1047,7 +1047,7 @@ function GithubRepositoryPicker({
                       ) : null}
                     </span>
                     {repository.description ? (
-                      <span className="line-clamp-1 text-[10px] tracking-[-0.023em] text-muted">
+                      <span className="line-clamp-1 text-[10px] text-muted">
                         {repository.description}
                       </span>
                     ) : null}
@@ -1058,7 +1058,7 @@ function GithubRepositoryPicker({
           </ul>
         </>
       )}
-      <span className="text-[10px] tracking-[-0.023em] text-muted">{w.githubRepoHint}</span>
+      <span className="text-[10px] text-muted">{w.githubRepoHint}</span>
     </div>
   );
 }
@@ -1090,17 +1090,17 @@ function NotionPagePicker({
 
   if (!notion.connected) {
     return (
-      <div className="flex flex-col gap-3 rounded-[10px] border-2 border-line bg-subtle p-4">
-        <p className="text-[13px] font-semibold tracking-[-0.023em] text-ink">{w.notionConnectTitle}</p>
-        <p className="text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">{w.notionConnectBody}</p>
-        {notice ? <p className="text-[11px] tracking-[-0.023em] text-rose">{notice}</p> : null}
+      <div className="flex flex-col gap-3 rounded-md border border-line bg-subtle p-4">
+        <p className="text-[13px] font-medium text-ink">{w.notionConnectTitle}</p>
+        <p className="text-[11px] leading-[1.6] text-muted">{w.notionConnectBody}</p>
+        {notice ? <p className="text-[11px] text-rose">{notice}</p> : null}
         {notion.unavailable ? (
-          <p className="text-[11px] tracking-[-0.023em] text-rose">{w.notionUnavailable}</p>
+          <p className="text-[11px] text-rose">{w.notionUnavailable}</p>
         ) : (
           <button
             type="submit"
             form={NOTION_CONNECT_FORM_ID}
-            className="inline-flex h-[35px] w-fit items-center gap-2 rounded-[7px] bg-ink px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-ink/90"
+            className="inline-flex h-[35px] w-fit items-center gap-2 rounded-md bg-ink px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-ink/90"
           >
             <NotionIcon size={15} className="text-white" />
             {w.notionConnectCta}
@@ -1119,23 +1119,23 @@ function NotionPagePicker({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold tracking-[-0.023em] text-steel">{w.notionPageLabel}</span>
-        <span className="flex items-center gap-2 text-[10px] tracking-[-0.023em] text-muted">
+        <span className="text-[11px] font-medium text-steel">{w.notionPageLabel}</span>
+        <span className="flex items-center gap-2 text-[10px] text-muted">
           {connectedAs ? fill(w.notionConnectedAs, { name: connectedAs }) : null}
           <button
             type="submit"
             form={NOTION_CONNECT_FORM_ID}
-            className="text-brandink hover:text-brand"
+            className="text-brandink hover:text-brandink"
           >
             {w.notionSwitch}
           </button>
         </span>
       </div>
-      {notice ? <p className="text-[11px] tracking-[-0.023em] text-rose">{notice}</p> : null}
+      {notice ? <p className="text-[11px] text-rose">{notice}</p> : null}
       {notion.listingFailed ? (
-        <p className="text-[11px] tracking-[-0.023em] text-rose">{w.notionListFailed}</p>
+        <p className="text-[11px] text-rose">{w.notionListFailed}</p>
       ) : notion.pages.length === 0 ? (
-        <p className="rounded-[7px] border-2 border-line bg-subtle p-3 text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">
+        <p className="rounded-md border border-line bg-subtle p-3 text-[11px] leading-[1.6] text-muted">
           {w.notionNoPages}
         </p>
       ) : (
@@ -1150,10 +1150,10 @@ function NotionPagePicker({
           <ul
             role="listbox"
             aria-label={w.notionPageLabel}
-            className="flex max-h-[260px] flex-col gap-1 overflow-y-auto rounded-[7px] border-2 border-line bg-card p-1"
+            className="flex max-h-[260px] flex-col gap-1 overflow-y-auto rounded-md border border-line bg-card p-1"
           >
             {shown.length === 0 ? (
-              <li className="p-2 text-[11px] tracking-[-0.023em] text-muted">{w.notionNoMatch}</li>
+              <li className="p-2 text-[11px] text-muted">{w.notionNoMatch}</li>
             ) : null}
             {shown.map((page) => {
               const active = page.url === selected;
@@ -1163,13 +1163,13 @@ function NotionPagePicker({
                   <button
                     type="button"
                     onClick={() => onSelect(page.url)}
-                    className={`flex w-full flex-col gap-0.5 rounded-[6px] px-2.5 py-2 text-left transition-colors ${
-                      active ? 'bg-[#f0f8f8] ring-2 ring-brand' : 'hover:bg-subtle'
+                    className={`flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors ${
+                      active ? 'bg-brandsoft ring-2 ring-brand' : 'hover:bg-subtle'
                     }`}
                   >
-                    <span className="line-clamp-1 text-[12px] tracking-[-0.023em] text-ink">{page.title}</span>
+                    <span className="line-clamp-1 text-[12px] text-ink">{page.title}</span>
                     {edited && !Number.isNaN(edited.getTime()) ? (
-                      <span className="text-[10px] tracking-[-0.023em] text-muted">
+                      <span className="text-[10px] text-muted">
                         {fill(w.notionEdited, { date: edited.toLocaleDateString(locale) })}
                       </span>
                     ) : null}
@@ -1180,7 +1180,7 @@ function NotionPagePicker({
           </ul>
         </>
       )}
-      <span className="text-[10px] tracking-[-0.023em] text-muted">{w.notionPageHint}</span>
+      <span className="text-[10px] text-muted">{w.notionPageHint}</span>
     </div>
   );
 }
@@ -1216,7 +1216,7 @@ function VerifyStep({
   const [error, setError] = useState<string | null>(null);
 
   if (!host) {
-    return <p className="mt-4 text-[12px] tracking-[-0.023em] text-rose">{v.hostInvalid}</p>;
+    return <p className="mt-4 text-[12px] text-rose">{v.hostInvalid}</p>;
   }
 
   const generate = () => {
@@ -1257,21 +1257,21 @@ function VerifyStep({
     ? new Date(challenge.expiresAt).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
     : '';
   const primary =
-    'inline-flex h-[35px] items-center gap-1.5 rounded-[7px] bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40';
+    'inline-flex h-[35px] items-center gap-1.5 rounded-md bg-brand px-3.5 text-[12px] font-medium text-white transition-colors hover:bg-brand/90 disabled:opacity-40';
   const secondary =
-    'h-[35px] rounded-[7px] border-2 border-line bg-card px-3 text-[12px] text-steel transition-colors hover:bg-subtle disabled:opacity-40';
+    'h-[35px] rounded-md border border-line bg-card px-3 text-[12px] text-steel transition-colors hover:bg-subtle disabled:opacity-40';
 
   return (
     <div className="mt-4 flex max-w-[560px] flex-col gap-4">
       <div>
-        <h2 className="text-[19px] leading-[1.4] font-[650] tracking-[-0.03em] text-ink">
+        <h2 className="text-[19px] leading-[1.4] font-medium text-ink">
           {fill(v.title, { host })}
         </h2>
-        <p className="mt-1.5 text-[12px] leading-[1.6] tracking-[-0.023em] text-muted">{v.intro}</p>
+        <p className="mt-1.5 text-[12px] leading-[1.6] text-muted">{v.intro}</p>
       </div>
 
       {challenge?.verified ? (
-        <p className="rounded-[10px] border-2 border-brand bg-[#f0f8f8] p-4 text-[12.5px] leading-[1.6] tracking-[-0.023em] text-ink">
+        <p className="rounded-md border border-brand bg-brandsoft p-4 text-[12.5px] leading-[1.6] text-ink">
           {fill(v.verified, { host: challenge.host })}
         </p>
       ) : (
@@ -1284,14 +1284,14 @@ function VerifyStep({
                 onClick={() => setMethod(option)}
                 disabled={challenge !== null}
                 aria-pressed={method === option}
-                className={`flex flex-col gap-1.5 rounded-[10px] border-2 p-4 text-left transition-colors disabled:opacity-60 ${
-                  method === option ? 'border-brand bg-[#f0f8f8]' : 'border-line bg-card hover:bg-subtle'
+                className={`flex flex-col gap-1.5 rounded-md border p-4 text-left transition-colors disabled:opacity-60 ${
+                  method === option ? 'border-brand bg-brandsoft' : 'border-line bg-card hover:bg-subtle'
                 }`}
               >
-                <span className="text-[13px] tracking-[-0.023em] text-ink">
+                <span className="text-[13px] text-ink">
                   {option === 'dns_txt' ? v.methodDns : v.methodWellKnown}
                 </span>
-                <span className="text-[11px] leading-[1.6] tracking-[-0.023em] text-muted">
+                <span className="text-[11px] leading-[1.6] text-muted">
                   {option === 'dns_txt' ? v.methodDnsNote : v.methodWellKnownNote}
                 </span>
               </button>
@@ -1299,7 +1299,7 @@ function VerifyStep({
           </div>
 
           {challenge ? (
-            <div className="flex flex-col gap-3 rounded-[10px] border-2 border-line bg-subtle p-4">
+            <div className="flex flex-col gap-3 rounded-md border border-line bg-subtle p-4">
               {challenge.method === 'dns_txt' ? (
                 <>
                   <CopyRow label={v.dnsName} value={challenge.dnsName} copy={v.copy} copied={v.copied} />
@@ -1312,7 +1312,7 @@ function VerifyStep({
                   <CopyRow label={v.wellKnownBody} value={challenge.token} copy={v.copy} copied={v.copied} />
                 </>
               )}
-              <p className="text-[10.5px] leading-[1.6] tracking-[-0.023em] text-muted">
+              <p className="text-[10.5px] leading-[1.6] text-muted">
                 {fill(v.expires, { date: expires })}
               </p>
             </div>
@@ -1336,9 +1336,9 @@ function VerifyStep({
           </div>
 
           {failure ? (
-            <p className="text-[12px] leading-[1.6] tracking-[-0.023em] text-rose">{v.reasons[failure]}</p>
+            <p className="text-[12px] leading-[1.6] text-rose">{v.reasons[failure]}</p>
           ) : null}
-          {error ? <p className="text-[12px] tracking-[-0.023em] text-rose">{error}</p> : null}
+          {error ? <p className="text-[12px] text-rose">{error}</p> : null}
         </>
       )}
     </div>
@@ -1359,9 +1359,9 @@ function CopyRow({
   const [done, setDone] = useState(false);
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[10.5px] font-semibold tracking-[-0.023em] text-steel">{label}</span>
+      <span className="text-[10.5px] font-medium text-steel">{label}</span>
       <div className="flex items-center gap-2">
-        <code className="min-w-0 flex-1 truncate rounded-[6px] border-2 border-line bg-card px-2 py-1.5 font-mono text-[11px] text-ink">
+        <code className="min-w-0 flex-1 truncate rounded-md border border-line bg-card px-2 py-1.5 font-mono text-[11px] text-ink">
           {value}
         </code>
         <button
@@ -1372,7 +1372,7 @@ function CopyRow({
               setTimeout(() => setDone(false), 1500);
             });
           }}
-          className="h-[30px] shrink-0 rounded-[6px] border-2 border-line bg-card px-2.5 text-[11px] text-steel transition-colors hover:bg-subtle"
+          className="h-[30px] shrink-0 rounded-md border border-line bg-card px-2.5 text-[11px] text-steel transition-colors hover:bg-subtle"
         >
           {done ? copied : copy}
         </button>

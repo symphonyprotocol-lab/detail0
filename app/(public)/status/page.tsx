@@ -130,7 +130,7 @@ export default async function StatusPage() {
               {degraded.length ? <ClockIcon size={18} /> : <CircleCheckIcon size={18} />}
             </span>
             <div>
-              <p className="text-[15px] font-semibold tracking-[-0.03em] text-ink">
+              <p className="text-[15px] font-medium text-ink">
                 {degraded.length
                   ? fill(st.degradedSummary, { count: degraded.length })
                   : st.allHealthy}
@@ -151,7 +151,7 @@ export default async function StatusPage() {
         </Card>
       </section>
 
-      <section className="mx-auto w-full max-w-[1080px] border-t-2 border-line px-5 pt-12 pb-14">
+      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-14">
         <SectionHeading eyebrow="COMPONENTS" title={st.componentsTitle} />
         <p className="mt-3 text-[13px] text-muted">{st.componentsNote}</p>
 
@@ -160,12 +160,12 @@ export default async function StatusPage() {
             <div
               key={c.id}
               className={`flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between ${
-                index === 0 ? '' : 'border-t-2 border-line'
+                index === 0 ? '' : 'border-t border-line'
               }`}
             >
               <div className="min-w-[240px]">
                 <div className="flex items-center gap-2.5">
-                  <h3 className="text-[13.5px] font-semibold tracking-[-0.02em] text-ink">
+                  <h3 className="text-[13.5px] font-medium text-ink">
                     {c.name}
                   </h3>
                   {healthChip(c.health)}
@@ -198,7 +198,7 @@ export default async function StatusPage() {
                   ) : (
                     <>
                       {fill(live.successRate, { days: status.windowDays })}{' '}
-                      <span className="font-semibold text-muted">
+                      <span className="font-medium text-muted">
                         {percent(c.successBps, locale)}
                       </span>
                     </>
@@ -212,25 +212,25 @@ export default async function StatusPage() {
         <p className="mt-5 text-[12px] text-faint">{st.uptimeFootnote}</p>
       </section>
 
-      <section className="mx-auto w-full max-w-[1080px] border-t-2 border-line px-5 pt-12 pb-14">
+      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-14">
         <SectionHeading eyebrow="INCIDENTS" title={st.incidentsTitle} />
         <p className="mt-3 text-[13px] text-muted">{st.incidentsNote}</p>
 
         {status.incidents.length === 0 ? (
-          <p className="mt-7 border-t-2 border-line py-5 text-[12.5px] text-muted">
+          <p className="mt-7 border-t border-line py-5 text-[12.5px] text-muted">
             {fill(live.incidentsEmpty, { days: status.windowDays })}
           </p>
         ) : (
           <ol className="mt-7 flex flex-col">
             {status.incidents.map((incident) => (
-              <li key={`${incident.component}-${incident.from}`} className="border-t-2 border-line py-5">
+              <li key={`${incident.component}-${incident.from}`} className="border-t border-line py-5">
                 <div className="flex flex-wrap items-center gap-3">
                   <time className="font-mono text-[11px] text-faint">
                     {incident.from === incident.to
                       ? date.format(new Date(incident.from))
                       : `${date.format(new Date(incident.from))} – ${date.format(new Date(incident.to))}`}
                   </time>
-                  <h3 className="text-[13.5px] font-semibold tracking-[-0.02em] text-ink">
+                  <h3 className="text-[13.5px] font-medium text-ink">
                     {fill(live.incidentTitle, {
                       component: live.components[incident.component].name,
                     })}
@@ -255,12 +255,12 @@ export default async function StatusPage() {
         <p className="mt-5 text-[12px] text-faint">{live.derivedNote}</p>
       </section>
 
-      <section className="mx-auto w-full max-w-[1080px] border-t-2 border-line px-5 pt-12 pb-16">
+      <section className="mx-auto w-full max-w-[1080px] border-t border-line px-5 pt-12 pb-16">
         <SectionHeading eyebrow="REPORT" title={st.reportTitle} />
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <Card className="p-6">
-            <p className="flex items-center gap-2 text-[13.5px] font-semibold tracking-[-0.02em] text-ink">
-              <span className="text-brand">
+            <p className="flex items-center gap-2 text-[13.5px] font-medium text-ink">
+              <span className="text-brandink">
                 <ClockIcon size={16} />
               </span>
               {st.reportCardTitle}

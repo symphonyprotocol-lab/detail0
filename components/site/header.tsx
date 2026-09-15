@@ -3,17 +3,21 @@ import Link from 'next/link';
 import { LocaleSwitcher } from '@/components/site/locale-switcher';
 import { MobileNav } from '@/components/site/mobile-nav';
 import { Wordmark } from '@/components/site/wordmark';
+import { HeaderShell } from '@/components/site/header-shell';
+import { RepoLink } from '@/components/site/repo-link';
+import { ThemeToggle } from '@/components/site/theme-toggle';
 import { getMessages } from '@/lib/i18n/server';
 import { optionalSession } from '@/lib/http/session';
 
 /**
- * Marketing chrome: a capsule that docks centred over the page and tracks the
- * 1080px content column rather than spanning the viewport. The one session-aware
- * bit is the action button: a signed-in visitor is offered their dashboard
- * instead of a login they already have.
+ * Marketing chrome: the logo left, the destinations centred and the action
+ * cluster right. The capsule around all of it belongs to `HeaderShell`, and
+ * nothing in here needs to know which plane it is on: every label is spelled as
+ * a token, so the contents repaint with whichever the shell hands them.
  *
- * The nav sits on the right, ahead of the language switcher, so the two
- * destinations a visitor is here for read as one run with the sign-in action.
+ * The one session-aware bit is the filled pill: a signed-in visitor is offered
+ * their dashboard instead of a login they already have. The GitHub mark, the
+ * theme toggle and the language switcher sit ahead of it, see `RepoLink`.
  */
 export async function SiteHeader() {
   const [session, t] = await Promise.all([optionalSession(), getMessages()]);
@@ -24,31 +28,33 @@ export async function SiteHeader() {
   ];
 
   return (
-    <header className="sticky top-0 z-30 px-5 pt-3 pb-3">
-      <div className="mx-auto flex h-[54px] w-full max-w-[1080px] items-center justify-between rounded-full border border-line/70 bg-card/85 px-5 shadow-[0_1px_2px_rgba(3,26,30,0.04),0_8px_24px_-12px_rgba(3,26,30,0.16)] backdrop-blur">
-        <Wordmark />
-        <div className="flex items-center gap-4">
-          <nav className="hidden items-center gap-6 md:flex">
-            {nav.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="text-[13px] text-muted transition-colors hover:text-ink"
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
+    <HeaderShell width="max-w-[1200px]">
+      <Wordmark />
+
+        <nav className="hidden items-center gap-8 md:flex">
+          {nav.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="text-body text-muted transition-colors hover:text-ink"
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+
+        <div className="flex items-center gap-3">
           <MobileNav items={nav} label={t.nav.menu} />
+          <RepoLink label={t.nav.github} />
+          <ThemeToggle label={t.nav.theme} />
           <LocaleSwitcher />
           <Link
             href={session ? '/dashboard' : '/login'}
-            className="inline-flex h-8 items-center rounded-full bg-brand px-4 text-[13px] font-medium text-onbrand transition-colors hover:bg-brand/90"
+            className="inline-flex h-10 shrink-0 items-center rounded-md bg-brand px-4 text-caption font-medium whitespace-nowrap text-onbrand transition-colors hover:bg-brand/90 sm:text-body"
           >
             {session ? t.nav.dashboard : t.nav.signIn}
           </Link>
         </div>
-      </div>
-    </header>
+    </HeaderShell>
   );
 }

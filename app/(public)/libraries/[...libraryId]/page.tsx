@@ -39,8 +39,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 function Stat({ label, value, note }: { label: string; value: string; note: string }) {
   return (
     <Card className="flex flex-col gap-1 px-3.5 py-3">
-      <span className="text-[9.5px] font-semibold tracking-[0.04em] text-muted">{label}</span>
-      <span className="text-[21px] leading-tight font-bold tracking-[-0.03em] text-ink">{value}</span>
+      <span className="text-[9.5px] font-medium tracking-[0.04em] text-muted">{label}</span>
+      <span className="text-[21px] leading-tight font-medium text-ink">{value}</span>
       <span className="text-[10.5px] text-faint">{note}</span>
     </Card>
   );
@@ -64,8 +64,8 @@ function Row({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
 function Panel({ title, right, children }: { title: string; right?: string; children: React.ReactNode }) {
   return (
     <Card className="overflow-hidden">
-      <div className="flex items-center justify-between gap-3 border-b-2 border-line px-4 py-3">
-        <h2 className="text-[13.5px] font-semibold tracking-[-0.02em] text-ink">{title}</h2>
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <h2 className="text-[13.5px] font-medium text-ink">{title}</h2>
         {right ? <span className="text-right text-[11.5px] text-faint">{right}</span> : null}
       </div>
       <div className="flex flex-col gap-2.5 p-4">{children}</div>
@@ -148,13 +148,13 @@ export default async function LibraryDetailPage({ params }: Params) {
             <span aria-hidden className="text-line">/</span>
           </>
         ) : null}
-        <span className="font-semibold text-ink">{entry.title}</span>
+        <span className="font-medium text-ink">{entry.title}</span>
       </nav>
 
       <div className="mt-5 flex flex-wrap items-start justify-between gap-6">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="text-[28px] leading-tight font-bold tracking-[-0.04em] text-ink">
+            <h1 className="text-[28px] leading-tight font-medium text-ink">
               {entry.title}
             </h1>
             <Chip tone="brand">{l.public}</Chip>
@@ -166,7 +166,7 @@ export default async function LibraryDetailPage({ params }: Params) {
           </div>
 
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            <code className="rounded-md border-2 border-line bg-subtle px-2.5 py-1 font-mono text-[12px] text-steel">
+            <code className="rounded-md border border-line bg-subtle px-2.5 py-1 font-mono text-[12px] text-steel">
               {entry.publicId}
             </code>
             <span className="text-[12px] text-faint">
@@ -225,10 +225,10 @@ export default async function LibraryDetailPage({ params }: Params) {
       <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_312px]">
         <div className="flex flex-col gap-4">
           <Panel title={l.versionPanel} right={l.versionPanelRight}>
-            <div className="rounded-lg border-2 border-line bg-subtle p-3.5">
+            <div className="rounded-lg border border-line bg-subtle p-3.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-[14px] font-bold text-ink">
+                  <span className="font-mono text-[14px] font-medium text-ink">
                     {entry.version.label}
                   </span>
                   <Chip tone="brand">{l.currentVersion}</Chip>
@@ -263,12 +263,12 @@ export default async function LibraryDetailPage({ params }: Params) {
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[520px] text-[12px]">
                   <thead>
-                    <tr className="text-left text-[10px] font-semibold tracking-[0.04em] text-muted">
-                      <th className="py-1.5 pr-3 font-semibold">{d.historyColumns.version}</th>
-                      <th className="py-1.5 pr-3 font-semibold">{d.historyColumns.status}</th>
-                      <th className="py-1.5 pr-3 text-right font-semibold">{d.historyColumns.chunks}</th>
-                      <th className="py-1.5 pr-3 text-right font-semibold">{d.historyColumns.tokens}</th>
-                      <th className="py-1.5 text-right font-semibold">{d.historyColumns.built}</th>
+                    <tr className="text-left text-[10px] font-medium tracking-[0.04em] text-muted">
+                      <th className="py-1.5 pr-3 font-medium">{d.historyColumns.version}</th>
+                      <th className="py-1.5 pr-3 font-medium">{d.historyColumns.status}</th>
+                      <th className="py-1.5 pr-3 text-right font-medium">{d.historyColumns.chunks}</th>
+                      <th className="py-1.5 pr-3 text-right font-medium">{d.historyColumns.tokens}</th>
+                      <th className="py-1.5 text-right font-medium">{d.historyColumns.built}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -306,14 +306,14 @@ export default async function LibraryDetailPage({ params }: Params) {
           </Panel>
 
           <Panel title={l.examplesPanel} right={l.examplesPanelRight}>
-            <p className="text-[10.5px] font-semibold tracking-[0.04em] text-muted">{d.restPanel}</p>
-            <div className="rounded-lg border-2 border-line bg-subtle p-3.5">
+            <p className="text-[10.5px] font-medium tracking-[0.04em] text-muted">{d.restPanel}</p>
+            <div className="rounded-lg border border-line bg-subtle p-3.5">
               <pre className="overflow-x-auto font-mono text-[11px] leading-[1.75] text-good">
                 {restSample}
               </pre>
             </div>
-            <p className="text-[10.5px] font-semibold tracking-[0.04em] text-muted">{d.mcpPanel}</p>
-            <div className="rounded-lg border-2 border-line bg-subtle p-3.5">
+            <p className="text-[10.5px] font-medium tracking-[0.04em] text-muted">{d.mcpPanel}</p>
+            <div className="rounded-lg border border-line bg-subtle p-3.5">
               <pre className="overflow-x-auto font-mono text-[11px] leading-[1.75] text-good">
                 {mcpSample}
               </pre>
@@ -378,7 +378,7 @@ export default async function LibraryDetailPage({ params }: Params) {
               <>
                 <div className="flex items-center gap-2">
                   <Chip tone="good">{l.claimed}</Chip>
-                  <span className="text-[12px] font-semibold text-ink">{entry.claimedBy}</span>
+                  <span className="text-[12px] font-medium text-ink">{entry.claimedBy}</span>
                 </div>
                 {/*
                   requirement.md 5.1: when ownership came from a verified claim,

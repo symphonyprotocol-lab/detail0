@@ -76,11 +76,11 @@ function CardHead({
   aside?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2.5 border-b-2 border-line px-5 py-4">
+    <div className="flex items-center gap-2.5 border-b border-line px-5 py-4">
       <IconTile>{icon}</IconTile>
       <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
-        <p className="text-[14px] leading-[1.5] tracking-[-0.025em] text-ink">{title}</p>
-        <p className="truncate text-[11px] tracking-[-0.023em] text-muted">{description}</p>
+        <p className="text-[14px] leading-[1.5] text-ink">{title}</p>
+        <p className="truncate text-[11px] text-muted">{description}</p>
       </div>
       {aside}
     </div>
@@ -136,15 +136,15 @@ function ConnectionRow({
       : labels.notConnected;
   return (
     <li className="flex flex-wrap items-center gap-3 px-5 py-4">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-[9px] bg-ink text-white">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-ink text-white">
         {icon}
       </span>
       <span className="flex min-w-[200px] flex-1 flex-col gap-[3px]">
-        <span className="flex items-center gap-2 text-[13px] tracking-[-0.023em] text-ink">
+        <span className="flex items-center gap-2 text-[13px] text-ink">
           {name}
           <Badge tone={connected ? 'brand' : 'neutral'}>{status}</Badge>
         </span>
-        <span className="text-[11px] tracking-[-0.023em] text-muted">{note}</span>
+        <span className="text-[11px] text-muted">{note}</span>
       </span>
       <span className="flex items-center gap-2">
         {/* POST, same-origin, behind the session: the connect route refuses anything else. */}
@@ -153,7 +153,7 @@ function ConnectionRow({
             <input type="hidden" name="returnTo" value="/dashboard/settings" />
             <button
               type="submit"
-              className="h-8 rounded-[7px] bg-brand px-3 text-[11px] font-medium text-white transition-colors hover:bg-brand/90"
+              className="h-8 rounded-md bg-brand px-3 text-[11px] font-medium text-white transition-colors hover:bg-brand/90"
             >
               {connected ? labels.reconnect : labels.connect}
             </button>
@@ -163,7 +163,7 @@ function ConnectionRow({
           <form action={disconnect}>
             <button
               type="submit"
-              className="h-8 rounded-[7px] border-2 border-line bg-card px-3 text-[11px] text-steel transition-colors hover:bg-subtle"
+              className="h-8 rounded-md border border-line bg-card px-3 text-[11px] text-steel transition-colors hover:bg-subtle"
             >
               {labels.disconnect}
             </button>
@@ -332,7 +332,7 @@ export default async function DashboardSettingsPage({
             description={g.profileDescription}
           />
 
-          <div className="flex items-center gap-2.5 border-b-2 border-line px-5 py-4">
+          <div className="flex items-center gap-2.5 border-b border-line px-5 py-4">
             <span
               aria-hidden
               className="flex size-[46px] shrink-0 items-center justify-center rounded-xl bg-ink text-[15px] font-medium text-white"
@@ -340,10 +340,10 @@ export default async function DashboardSettingsPage({
               {account.initials}
             </span>
             <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-              <span className="text-[14px] tracking-[-0.023em] text-ink">{account.name}</span>
-              <span className="text-[11px] tracking-[-0.023em] text-muted">{g.accountKind}</span>
+              <span className="text-[14px] text-ink">{account.name}</span>
+              <span className="text-[11px] text-muted">{g.accountKind}</span>
             </span>
-            <span className="text-[11px] tracking-[-0.023em] text-brand">{g.emailVerified}</span>
+            <span className="text-[11px] text-brandink">{g.emailVerified}</span>
           </div>
 
           <dl className="flex-1 px-5">
@@ -351,23 +351,23 @@ export default async function DashboardSettingsPage({
               <div
                 key={row.label}
                 className={`flex items-center justify-between gap-3 py-3.5 ${
-                  index < profileRows.length - 1 ? 'border-b-2 border-line' : ''
+                  index < profileRows.length - 1 ? 'border-b border-line' : ''
                 }`}
               >
-                <dt className="flex items-center gap-[7px] text-[11px] tracking-[-0.023em] text-muted">
+                <dt className="flex items-center gap-[7px] text-[11px] text-muted">
                   <row.Icon size={14} />
                   {row.label}
                 </dt>
-                <dd className="truncate text-[11px] font-semibold tracking-[-0.023em] text-steel">
+                <dd className="truncate text-[11px] font-medium text-steel">
                   {row.value}
                 </dd>
               </div>
             ))}
           </dl>
 
-          <footer className="flex items-center gap-2 border-t-2 border-line px-5 py-3.5">
+          <footer className="flex items-center gap-2 border-t border-line px-5 py-3.5">
             <ShieldCheckIcon size={14} className="text-muted" />
-            <p className="text-[11px] tracking-[-0.023em] text-muted">{g.providerManaged}</p>
+            <p className="text-[11px] text-muted">{g.providerManaged}</p>
           </footer>
         </article>
 
@@ -380,23 +380,23 @@ export default async function DashboardSettingsPage({
             aside={<Badge tone="brand">{plan.name}</Badge>}
           />
 
-          <div className="flex flex-col gap-1.5 border-b-2 border-line px-5 py-4">
+          <div className="flex flex-col gap-1.5 border-b border-line px-5 py-4">
             <p className="flex items-baseline gap-1">
-              <span className="text-[26px] leading-[1.2] font-semibold tracking-[-0.03em] text-ink">
+              <span className="text-[26px] leading-[1.2] font-medium text-ink">
                 {plan.price}
               </span>
-              <span className="text-[13px] tracking-[-0.023em] text-muted">{plan.period}</span>
+              <span className="text-[13px] text-muted">{plan.period}</span>
             </p>
-            <p className="text-[11px] tracking-[-0.023em] text-muted">{plan.note}</p>
+            <p className="text-[11px] text-muted">{plan.note}</p>
           </div>
 
           <ul className="flex flex-1 flex-col gap-3 px-5 py-4">
             {plan.perks.map((perk) => (
               <li
                 key={perk}
-                className="flex items-center gap-2 text-[12px] tracking-[-0.023em] text-steel"
+                className="flex items-center gap-2 text-[12px] text-steel"
               >
-                <CircleCheckIcon size={14} className="text-brand" />
+                <CircleCheckIcon size={14} className="text-brandink" />
                 {perk}
               </li>
             ))}
@@ -405,7 +405,7 @@ export default async function DashboardSettingsPage({
           <div className="px-5 pb-5">
             <Link
               href="/pricing"
-              className="flex h-10 items-center justify-center gap-1.5 rounded-lg bg-brand text-[12px] font-medium tracking-[-0.023em] text-white transition-colors hover:bg-brand/90"
+              className="flex h-10 items-center justify-center gap-1.5 rounded-lg bg-brand text-[12px] font-medium text-white transition-colors hover:bg-brand/90"
             >
               {g.upgradeCta}
               <ArrowRightIcon size={14} />
@@ -423,7 +423,7 @@ export default async function DashboardSettingsPage({
         />
         {outcome ? (
           <p
-            className={`border-b-2 border-line px-5 py-3 text-[11px] tracking-[-0.023em] ${
+            className={`border-b border-line px-5 py-3 text-[11px] ${
               outcome.code === 'connected' ? 'text-brandink' : 'text-rose'
             }`}
           >
@@ -456,9 +456,9 @@ export default async function DashboardSettingsPage({
             locale={locale}
           />
         </ul>
-        <footer className="flex items-center gap-2 border-t-2 border-line px-5 py-3.5">
+        <footer className="flex items-center gap-2 border-t border-line px-5 py-3.5">
           <ShieldCheckIcon size={14} className="shrink-0 text-muted" />
-          <p className="text-[11px] tracking-[-0.023em] text-muted">{g.connectionFootnote}</p>
+          <p className="text-[11px] text-muted">{g.connectionFootnote}</p>
         </footer>
       </section>
 
@@ -473,8 +473,8 @@ export default async function DashboardSettingsPage({
         <div className="grid gap-6 px-5 py-5 sm:grid-cols-3">
           {usageMeters.map((meter) => (
             <div key={meter.label} className="flex flex-col gap-1">
-              <p className="text-[12px] tracking-[-0.023em] text-steel">{meter.value}</p>
-              <p className="text-[11px] tracking-[-0.023em] text-muted">{meter.label}</p>
+              <p className="text-[12px] text-steel">{meter.value}</p>
+              <p className="text-[11px] text-muted">{meter.label}</p>
               <Meter value={meter.percent} className="mt-2" />
             </div>
           ))}
@@ -493,19 +493,19 @@ export default async function DashboardSettingsPage({
           description={g.billing.description}
         />
         {billing.rows.length === 0 ? (
-          <p className="px-5 py-6 text-center text-[12px] tracking-[-0.023em] text-muted">
+          <p className="px-5 py-6 text-center text-[12px] text-muted">
             {g.billing.empty}
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[560px] border-collapse text-left">
               <thead>
-                <tr className="border-b-2 border-line">
+                <tr className="border-b border-line">
                   {g.billing.columns.map((head) => (
                     <th
                       key={head}
                       scope="col"
-                      className="px-5 py-3 text-[11px] font-normal tracking-[-0.023em] text-muted"
+                      className="px-5 py-3 text-[11px] font-normal text-muted"
                     >
                       {head}
                     </th>
@@ -516,12 +516,12 @@ export default async function DashboardSettingsPage({
                 {billing.rows.map((row, index) => (
                   <tr
                     key={row.id}
-                    className={index < billing.rows.length - 1 ? 'border-b-2 border-line' : ''}
+                    className={index < billing.rows.length - 1 ? 'border-b border-line' : ''}
                   >
-                    <td className="px-5 py-3.5 text-[12px] font-semibold tracking-[-0.023em] text-steel">
+                    <td className="px-5 py-3.5 text-[12px] font-medium text-steel">
                       {row.number}
                     </td>
-                    <td className="px-5 py-3.5 text-[12px] tracking-[-0.023em] text-steel">
+                    <td className="px-5 py-3.5 text-[12px] text-steel">
                       {g.billing.kinds[row.kind]}
                     </td>
                     <td className="px-5 py-3.5">
@@ -529,7 +529,7 @@ export default async function DashboardSettingsPage({
                         {g.billing.statuses[row.status]}
                       </StatusLabel>
                     </td>
-                    <td className="px-5 py-3.5 text-[12px] tracking-[-0.023em] text-steel">
+                    <td className="px-5 py-3.5 text-[12px] text-steel">
                       {money(row.amountMinor, row.currency)}
                       {row.refundedMinor > 0 ? (
                         <span className="block text-[11px] text-muted">
@@ -539,7 +539,7 @@ export default async function DashboardSettingsPage({
                         </span>
                       ) : null}
                     </td>
-                    <td className="px-5 py-3.5 text-[12px] tracking-[-0.023em] text-steel">
+                    <td className="px-5 py-3.5 text-[12px] text-steel">
                       {issued.format(row.issuedAt)}
                     </td>
                   </tr>
@@ -549,9 +549,9 @@ export default async function DashboardSettingsPage({
           </div>
         )}
         {paymentConnected ? null : (
-          <footer className="flex items-center gap-2 border-t-2 border-line px-5 py-3.5">
+          <footer className="flex items-center gap-2 border-t border-line px-5 py-3.5">
             <ShieldCheckIcon size={14} className="shrink-0 text-muted" />
-            <p className="text-[11px] tracking-[-0.023em] text-muted">{g.billing.unbilled}</p>
+            <p className="text-[11px] text-muted">{g.billing.unbilled}</p>
           </footer>
         )}
       </section>

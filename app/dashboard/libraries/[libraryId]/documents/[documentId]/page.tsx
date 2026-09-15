@@ -34,16 +34,16 @@ export default async function DashboardDocumentPreviewPage({
       <header className="flex flex-col gap-[5px]">
         <Link
           href={`/dashboard/libraries/${library.id}`}
-          className="text-[12px] tracking-[-0.023em] text-brandink transition-colors hover:text-brand"
+          className="text-[12px] text-brandink transition-colors hover:text-brandink"
         >
           {d.back}
         </Link>
-        <h1 className="mt-1.5 text-[22px] leading-[1.4] font-[650] tracking-[-0.04em] text-ink">
+        <h1 className="mt-1.5 text-[22px] leading-[1.4] font-medium text-ink">
           {document.title}
         </h1>
-        <p className="text-[12px] tracking-[-0.023em] text-muted">
+        <p className="text-[12px] text-muted">
           {fill(d.chunks, { n: document.chunks.length, tokens })} · {d.source}:{' '}
-          <a href={document.sourceUrl} target="_blank" rel="noreferrer" className="break-all text-brandink hover:text-brand">
+          <a href={document.sourceUrl} target="_blank" rel="noreferrer" className="break-all text-brandink hover:text-brandink">
             {document.sourceUrl}
           </a>
         </p>

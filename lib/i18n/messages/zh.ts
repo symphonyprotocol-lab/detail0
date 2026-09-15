@@ -21,11 +21,13 @@ export const zh = {
   nav: {
     pricing: '定价',
     playground: '在线试用',
+    github: '在 GitHub 查看源码',
     signIn: '登录',
     dashboard: '进入 Dashboard',
     signOut: '退出登录',
     language: '界面语言',
     menu: '菜单',
+    theme: '切换浅色 / 深色主题',
   },
 
   footer: {
@@ -45,6 +47,7 @@ export const zh = {
     installCopied: '已复制',
     getKey: '获取 API Key',
     heroPoints: ['公开库免费查询', '每条结果保留引用', 'API 与 MCP 同一套规则'],
+    directoryEyebrow: '知识库目录',
     directoryTitle: '探索专业知识库，找到刚好够用的上下文',
     submitLibrary: '提交知识库',
     searchPlaceholder: '搜索名称、领域或 Library ID…',
@@ -57,6 +60,17 @@ export const zh = {
     ctaTitle: '让 Agent 少一点猜测，多一点依据。',
     ctaPricing: '查看定价',
     ctaBrowse: '浏览知识库目录',
+    connect: {
+      promptTab: '提示词',
+      mcpTab: 'MCP 地址',
+      cliTab: 'CLI',
+      /* 这句是写给模型看的，不是写给读者的。 */
+      prompt:
+        '帮我添加一个名为 "re0" 的 MCP 服务器，地址是 {url}，使用 HTTP 传输，然后确认连接成功并列出它提供的工具。',
+      promptCopy: '复制提示词',
+      promptNote: '粘贴到 Claude、Codex、Cursor 或任何能改自己 MCP 配置的客户端，让模型自己完成安装。',
+      mcpNote: '把这个地址粘贴到任何支持 MCP 服务器地址的客户端。',
+    },
     cli: {
       title: '或者用 CLI 一次接入所有客户端',
       command: 'npx @symphonyprotocollab/re0 setup',

@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { ArrowUpRightIcon } from '@/components/ui/icons';
 
 /** Card chrome shared by every panel in the dashboard design frames. */
-export const PANEL = 'rounded-xl border-2 border-line bg-card shadow-[0_4px_10px_rgba(45,45,83,0.06)]';
+export const PANEL = 'rounded-lg border border-line bg-card';
 
 export function Panel({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <section className={`${PANEL} ${className}`}>{children}</section>;
@@ -25,9 +25,9 @@ export function PageHeader({
   return (
     <header className="flex flex-wrap items-center justify-between gap-5">
       <div className="flex flex-col gap-[4.5px]">
-        <p className="text-[11px] font-bold tracking-[0.05em] text-brand">{eyebrow}</p>
-        <h1 className="text-[25px] leading-[1.5] font-[650] tracking-[-0.045em] text-ink">{title}</h1>
-        <p className="text-[13px] leading-[1.5] tracking-[-0.023em] text-muted">{description}</p>
+        <p className="eyebrow">{eyebrow}</p>
+        <h1 className="text-[32px] leading-[1.22] font-medium text-ink">{title}</h1>
+        <p className="text-[13px] leading-[1.5] text-muted">{description}</p>
       </div>
       {action}
     </header>
@@ -46,9 +46,9 @@ export function PanelHeading({
   return (
     <div className="flex flex-wrap items-start justify-between gap-5">
       <div className="flex flex-col gap-[5px]">
-        <h2 className="text-[16px] leading-[1.5] tracking-[-0.025em] text-ink">{title}</h2>
+        <h2 className="text-[16px] leading-[1.5] text-ink">{title}</h2>
         {description ? (
-          <p className="text-[13px] leading-[1.5] tracking-[-0.023em] text-muted">{description}</p>
+          <p className="text-[13px] leading-[1.5] text-muted">{description}</p>
         ) : null}
       </div>
       {action}
@@ -56,7 +56,7 @@ export function PanelHeading({
   );
 }
 
-/** The 35px brand action the design puts in page and panel headers. */
+/** The brand action in page and panel headers. */
 export function ActionButton({
   href,
   children,
@@ -68,12 +68,12 @@ export function ActionButton({
 }) {
   const style =
     variant === 'primary'
-      ? 'bg-brand text-white hover:bg-brand/90'
-      : 'border-2 border-line bg-card text-ink hover:bg-subtle';
+      ? 'bg-brand text-onbrand hover:bg-brand/90'
+      : 'border border-line text-ink hover:bg-subtle';
   return (
     <Link
       href={href}
-      className={`inline-flex h-[35px] shrink-0 items-center gap-1.5 rounded-[7px] px-[13px] text-[12px] font-medium tracking-[-0.023em] transition-colors ${style}`}
+      className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md px-4 text-caption font-medium transition-colors ${style}`}
     >
       {children}
     </Link>
@@ -85,7 +85,7 @@ export function ArrowLink({ href, children }: { href: string; children: ReactNod
   return (
     <Link
       href={href}
-      className="inline-flex shrink-0 items-center gap-1.5 text-[11px] tracking-[-0.023em] text-brandink transition-colors hover:text-brand"
+      className="inline-flex shrink-0 items-center gap-1.5 text-[11px] text-brandink transition-colors hover:text-brandink"
     >
       {children}
       <ArrowUpRightIcon size={13} />
@@ -103,13 +103,13 @@ export function StatTile({
   label: string;
 }) {
   return (
-    <article className={`${PANEL} flex items-center gap-2.5 rounded-[9px] p-[15px]`}>
-      <span className="text-brand">{icon}</span>
+    <article className={`${PANEL} flex items-center gap-2.5 rounded-md p-[15px]`}>
+      <span className="text-brandink">{icon}</span>
       <span className="flex flex-col gap-0.5">
-        <span className="text-[17px] leading-[1.4] font-semibold tracking-[-0.025em] text-ink">
+        <span className="text-[17px] leading-[1.4] font-medium text-ink">
           {value}
         </span>
-        <span className="text-[11px] tracking-[-0.023em] text-muted">{label}</span>
+        <span className="text-[11px] text-muted">{label}</span>
       </span>
     </article>
   );
@@ -136,14 +136,14 @@ export function Notice({
 }) {
   return (
     <section
-      className={`flex flex-wrap items-center gap-4 rounded-[10px] border-2 px-[19px] py-4 ${
-        tone === 'brand' ? 'border-publine bg-[#ebf5f5]' : 'border-line bg-card'
+      className={`flex flex-wrap items-center gap-4 rounded-md border px-[19px] py-4 ${
+        tone === 'brand' ? 'border-publine bg-brandsoft' : 'border-line bg-card'
       }`}
     >
       <IconTile tone="card">{icon}</IconTile>
       <div className="flex min-w-[220px] flex-1 flex-col gap-1">
-        <p className="text-[13px] leading-[1.4] font-bold tracking-[-0.023em] text-ink">{title}</p>
-        <p className="text-[11px] leading-[1.5] tracking-[-0.023em] text-muted">{body}</p>
+        <p className="text-[13px] leading-[1.4] font-medium text-ink">{title}</p>
+        <p className="text-[11px] leading-[1.5] text-muted">{body}</p>
       </div>
       {action}
     </section>
@@ -154,8 +154,8 @@ export function Notice({
 export function IconTile({ children, tone = 'brand' }: { children: ReactNode; tone?: 'brand' | 'card' }) {
   return (
     <span
-      className={`flex size-9 shrink-0 items-center justify-center rounded-[9px] text-brand ${
-        tone === 'brand' ? 'bg-brandsoft' : 'bg-card shadow-[0_4px_10px_rgba(45,45,83,0.06)]'
+      className={`flex size-9 shrink-0 items-center justify-center rounded-md text-brandink ${
+        tone === 'brand' ? 'bg-brandsoft' : 'bg-card border border-line'
       }`}
     >
       {children}
@@ -176,8 +176,8 @@ export function ListHeader({
   return (
     <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-[18px]">
       <div className="flex flex-col gap-1">
-        <p className="text-[14px] leading-[1.5] tracking-[-0.025em] text-ink">{title}</p>
-        <p className="text-[12px] leading-[1.4] tracking-[-0.023em] text-muted">{description}</p>
+        <p className="text-[14px] leading-[1.5] text-ink">{title}</p>
+        <p className="text-[12px] leading-[1.4] text-muted">{description}</p>
       </div>
       {aside}
     </div>
@@ -197,7 +197,7 @@ const BADGE_TONE: Record<BadgeTone, string> = {
 export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: BadgeTone }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-[7px] py-1 text-[11px] font-semibold whitespace-nowrap ${BADGE_TONE[tone]}`}
+      className={`inline-flex items-center rounded-full px-[7px] py-1 text-[11px] font-medium whitespace-nowrap ${BADGE_TONE[tone]}`}
     >
       {children}
     </span>
@@ -216,7 +216,7 @@ const STATUS_DOT: Record<StatusTone, string> = {
 /** Coloured dot + label, the review-state marker used across the dashboard tables. */
 export function StatusLabel({ tone, children }: { tone: StatusTone; children: ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] tracking-[-0.023em] whitespace-nowrap text-steel">
+    <span className="inline-flex items-center gap-1.5 text-[11px] whitespace-nowrap text-steel">
       <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${STATUS_DOT[tone]}`} />
       {children}
     </span>
@@ -238,7 +238,7 @@ export function SearchField({
   onChange?: (next: string) => void;
 }) {
   return (
-    <label className="flex h-[37px] min-w-0 flex-1 items-center gap-2 rounded-[7px] border-2 border-line bg-[#fbfefe] px-3">
+    <label className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-line bg-field px-3">
       <svg
         aria-hidden
         viewBox="0 0 24 24"
@@ -258,7 +258,7 @@ export function SearchField({
         type="search"
         placeholder={placeholder}
         {...(onChange ? { value: value ?? '', onChange: (e) => onChange(e.target.value) } : {})}
-        className="min-w-0 flex-1 bg-transparent text-[13px] tracking-[-0.023em] text-ink placeholder:text-ink/50 focus:outline-none"
+        className="min-w-0 flex-1 bg-transparent text-[13px] text-ink placeholder:text-ink/50 focus:outline-none"
       />
     </label>
   );
