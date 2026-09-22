@@ -353,73 +353,234 @@ export const en: Dictionary = {
   legal: {
     metaTitle: 'Legal',
     metaDescription:
-      'Re0 terms of service, acceptable use, content and copyright rules, privacy policy and billing terms.',
+      'Re0’s two legal documents: the terms of service, which carry the billing and refund policy, and the privacy notice.',
     title: 'Legal',
-    ledeLead:
-      'This page covers the Re0 website, REST API, MCP service, CLI and console. Effective',
-    ledeTail:
-      '. Registering an account, issuing a query or submitting a library means you accept the terms below.',
+    lede:
+      'Re0’s legal text comes in two documents. The terms of service set out the rights and obligations between you and us, and carry the refund policy within them; the privacy notice explains what data we collect, how we use it and how long we keep it. Both apply to the Re0 website, REST API, MCP service, CLI and console.',
     contents: 'CONTENTS',
-    toc: [
-      { title: 'Terms of service', hint: 'Accounts, licence and termination' },
-      { title: 'Acceptable use', hint: 'Prohibited calls and content' },
-      { title: 'Content and copyright', hint: 'Sources, ownership and takedowns' },
-      { title: 'Privacy policy', hint: 'What we collect, how long we keep it' },
-      { title: 'Billing and refunds', hint: 'API calls, packs and revenue share' },
-      { title: 'Disclaimer and liability', hint: 'Availability and liability cap' },
-      { title: 'Changes to these terms', hint: 'Notice and contact' },
-    ],
-    articles: {
-      terms: '1. Terms of service',
-      aup: '2. Acceptable use',
-      content: '3. Content and copyright',
-      privacy: '4. Privacy policy',
-      billing: '5. Billing, quota and revenue share',
-      liability: '6. Disclaimer and limitation of liability',
-      changes: '7. Changes and contact',
-    },
-    clauses: {
-      c11: 'Re0 provides retrieval and citation over knowledge libraries. We return context passages carrying their source, version and citation. We do not make judgements for you, and we are not responsible for decisions taken on the basis of those passages.',
-      c12: 'Using the service requires an account. You may link several sign-in methods, but you are responsible for everything that happens under the account, including calls made with an API key. Revoke a leaked key in the console immediately.',
-      c13: 'We grant you a non-exclusive, non-transferable right to access public libraries and your own private libraries within your quota. That licence does not cover reselling retrieval results in bulk, replicating the platform index, or using retrieval output to rebuild a dataset that substitutes for this service.',
-      c14: 'You may stop using the service and close your account at any time. If you seriously breach these terms, the acceptable use policy or applicable law, we may suspend or terminate the account; unless the law requires otherwise, we give notice and a period to put things right first.',
-      c15: 'After an account is closed, private libraries and their indexes are deleted. Where a published public library has already been cited by others, its version history remains.',
-      c21: 'Do not submit content you have no lawful right to use, and do not upload sensitive personal information, credentials, keys or export-controlled material.',
-      c22: 'Do not work around quota and billing: no sharing accounts to exceed plan limits, no automated bulk registration, and no load testing well beyond normal use. Contact us in advance for capacity planning.',
-      c23: 'Do not use the service to produce or distribute unlawful content, malware or phishing material, or to gain unauthorised access to anyone else’s systems.',
-      c24: 'Security research is welcome, but keep it within your own account and data, do not affect other users’ data, availability or quota, and report findings through the security disclosure channel.',
-      c31: 'Content you submit belongs to you or to the original rights holder. To provide the service you allow us to fetch, parse, chunk, index and cache that content, and to return passages to callers according to the visibility you set.',
-      c32: 'Public libraries are published after review and keep their source attribution and licence information in retrieval results. The original source’s licence takes precedence over the rules on this page; being indexed never widens the licence a source grants.',
-      c33: {
-        lead: 'Ownership of a library is established solely by a DNS TXT record or a well-known file. Writing a public key, token or any declaration into a config file (such as',
-        tail: ') grants no ownership — being able to write that file is not the same as controlling the source.',
+    effective: 'Effective',
+    read: 'Read in full',
+    documents: {
+      terms: {
+        name: 'Terms of service',
+        summary:
+          'Accounts and licence, acceptable use, content and copyright, per-call billing and revenue share, the refund policy, liability and changes.',
+        covers: [
+          'Service and accounts',
+          'Acceptable use',
+          'Content and copyright',
+          'Billing and revenue share',
+          'Refund policy',
+          'Limitation of liability',
+        ],
       },
-      c34: 'If you believe indexed content infringes your rights, submit an appeal through the content channel, stating the basis of the right, the Library ID involved and the specific passages. Once confirmed we will remove, correct or restrict the affected version, and keep a record of the action.',
-      c35: 'Repeated and evident infringing submissions will suspend the libraries concerned, and serious cases will terminate the account.',
-      c41: 'We collect: account information (email, sign-in method, join date), the library source configuration you submit, call metadata (time, Library ID, status code, calls consumed) and the logs and security records we need.',
-      c42: 'We do not use your private library content or your queries to train models, and we do not sell personal information.',
-      c43: 'Payments, cards, invoices and refunds are handled by an external payment provider. We store no card or bank account numbers and hold no user funds.',
-      c44: 'Call metadata is used for metering, reconciliation and abuse prevention, retained per billing period and available for review. Raw request logs are kept no longer than operations and security require.',
-      c45: 'You can export or delete your data from the console. Deletion requests are completed within a reasonable period, except for accounting and audit records the law requires us to keep.',
-      c46: 'We use only the cookies needed to keep you signed in and to gather basic statistics — never for cross-site advertising.',
-      c51: 'The billing unit is the API call: one accepted API or MCP query is 1 call, regardless of chunk count, token count or cache state. Client errors and refusals after a quota is exhausted are not billed.',
-      c52: 'Quota is settled per monthly period. Deduction order is fixed: plan allowance first, then call pack balance. Packs do not auto-renew and their balance does not expire.',
-      c53: 'When quota is exhausted, new billable calls pause. Published content and account data are unaffected.',
-      c54: 'Claimed public libraries take part in revenue share, allocated linearly from platform revenue by successful retrievals rather than weighted by Trust Score. Platform-owned, private and unclaimed public libraries do not take part. Payout thresholds and holding periods follow the rules published on the pricing and settlement pages, and payouts run through an external payment provider.',
-      c55: 'Price changes are announced in advance and take effect from the next billing period. Call packs already purchased are unaffected.',
-      c71: 'The service is provided "as is". We work to keep it available and publish incidents on the status page, but we do not promise uninterrupted or error-free operation.',
-      c72: 'We are not responsible for the accuracy of third-party source content, nor for decisions you make on the basis of retrieval results, nor for indirect loss, lost profit or lost data arising from them.',
-      c73: 'To the extent the law allows, our aggregate liability in any circumstance is capped at the total fees you actually paid Re0 in the 12 months before the event giving rise to the claim.',
-      c74: 'Non-performance caused by force majeure, upstream network failure or third-party service outage is not a breach.',
-      c81: 'When the terms change we update the effective date on this page; material changes to rights or obligations are announced in the product or by email in advance. Continuing to use the service after a change takes effect means you accept it.',
-      c82: {
-        lead: 'For questions about these terms, content appeals or privacy requests, write to',
-        mid: '; for security issues, write to',
-        tail: '.',
+      privacy: {
+        name: 'Privacy notice',
+        summary:
+          'What we collect, what we use it for, who we share it with, how long we keep it, and how you access, export or delete your own data.',
+        covers: [
+          'What we collect',
+          'How we use it',
+          'Sharing and third parties',
+          'Retention',
+          'Cookies',
+          'Your rights',
+        ],
       },
     },
+    contact:
+      'For questions about these documents, content appeals or privacy requests, write to legal@re0.com; for refunds, write to support@re0.com; for security issues, write to security@re0.com.',
     footnote:
       'This is the MVP-stage text and will be updated alongside the product scope before commercial launch. Where the Chinese version and any other language version diverge, the Chinese version governs.',
+
+    terms: {
+      metaTitle: 'Terms of service',
+      metaDescription:
+        'Re0 terms of service: accounts and licence, acceptable use, content and copyright, per-call billing, revenue share, refund policy and liability.',
+      title: 'Terms of service',
+      ledeLead:
+        'These terms cover the Re0 website, REST API, MCP service, CLI and console. Effective',
+      ledeTail:
+        '. Registering an account, issuing a query or submitting a library means you accept them.',
+      alsoLead: 'For how personal data is collected, used and retained, see the',
+      sections: [
+        {
+          title: 'Service and accounts',
+          hint: 'Accounts, licence and termination',
+          clauses: [
+            'Re0 provides retrieval and citation over knowledge libraries. We return context passages carrying their source, version and citation. We do not make judgements for you, and we are not responsible for decisions taken on the basis of those passages.',
+            'Using the service requires an account. You may link several sign-in methods, but you are responsible for everything that happens under the account, including calls made with an API key. Revoke a leaked key in the console immediately.',
+            'We grant you a non-exclusive, non-transferable right to access public libraries and your own private libraries within your quota. That licence does not cover reselling retrieval results in bulk, replicating the platform index, or using retrieval output to rebuild a dataset that substitutes for this service.',
+            'You may stop using the service and close your account at any time. If you seriously breach these terms, the acceptable use policy or applicable law, we may suspend or terminate the account; unless the law requires otherwise, we give notice and a period to put things right first.',
+            'After an account is closed, private libraries and their indexes are deleted. Where a published public library has already been cited by others, its version history remains.',
+          ],
+        },
+        {
+          title: 'Acceptable use',
+          hint: 'Prohibited calls and content',
+          clauses: [
+            'Do not submit content you have no lawful right to use, and do not upload sensitive personal information, credentials, keys or export-controlled material.',
+            'Do not work around quota and billing: no sharing accounts to exceed plan limits, no automated bulk registration, and no load testing well beyond normal use. Contact us in advance for capacity planning.',
+            'Do not use the service to produce or distribute unlawful content, malware or phishing material, or to gain unauthorised access to anyone else’s systems.',
+            'Security research is welcome, but keep it within your own account and data, do not affect other users’ data, availability or quota, and report findings through the security disclosure channel.',
+          ],
+        },
+        {
+          title: 'Content and copyright',
+          hint: 'Sources, ownership and takedowns',
+          clauses: [
+            'Content you submit belongs to you or to the original rights holder. To provide the service you allow us to fetch, parse, chunk, index and cache that content, and to return passages to callers according to the visibility you set.',
+            'Public libraries are published after review and keep their source attribution and licence information in retrieval results. The original source’s licence takes precedence over the rules on this page; being indexed never widens the licence a source grants.',
+            'Ownership of a library is established solely by a DNS TXT record or a well-known file. Writing a public key, token or any declaration into a config file (such as `re0.json`) grants no ownership — being able to write that file is not the same as controlling the source.',
+            'If you believe indexed content infringes your rights, submit an appeal through the content channel, stating the basis of the right, the Library ID involved and the specific passages. Once confirmed we will remove, correct or restrict the affected version, and keep a record of the action.',
+            'Repeated and evident infringing submissions will suspend the libraries concerned, and serious cases will terminate the account.',
+          ],
+        },
+        {
+          title: 'Billing, quota and revenue share',
+          hint: 'API calls, packs and revenue share',
+          clauses: [
+            'The billing unit is the API call: one accepted API or MCP query is 1 call, regardless of chunk count, token count or cache state. Client errors and refusals after a quota is exhausted are not billed.',
+            'Quota is settled per monthly period. Deduction order is fixed: plan allowance first, then call pack balance. Packs do not auto-renew and their balance does not expire.',
+            'When quota is exhausted, new billable calls pause. Published content and account data are unaffected.',
+            'Claimed public libraries take part in revenue share, allocated linearly from platform revenue by successful retrievals rather than weighted by Trust Score. Platform-owned, private and unclaimed public libraries do not take part. Payout thresholds and holding periods follow the rules published on the pricing and settlement pages, and payouts run through an external payment provider.',
+            'Price changes are announced in advance and take effect from the next billing period. Call packs already purchased are unaffected.',
+          ],
+        },
+        {
+          title: 'Refund policy',
+          hint: 'Scope, windows and how to claim',
+          clauses: [
+            'This refund policy forms part of these terms and covers Pro subscriptions and call packs paid directly to Re0. Purchases made through an app store, cloud marketplace or reseller follow that channel’s published refund rules. Payments, invoices and refunds are executed by an external payment provider; we hold no user funds.',
+            'Within 7 calendar days of your first Pro subscription charge, you may claim a full refund provided the period has consumed no more than 10% of the plan allowance. On refund the plan drops to Free immediately, and libraries beyond the Free limits become read-only.',
+            'Within 7 calendar days of a renewal charge, the same consumption condition applies for a full refund. You can also turn renewal off in the console at any time: it takes effect at the end of the current period, and a period already begun is not refunded pro rata.',
+            'Call packs are one-off purchases. Within 30 calendar days of purchase you may claim a refund for the calls still unused, in proportion; calls already consumed are not refunded. After 30 days packs are no longer refundable, but the balance does not expire and stays usable.',
+            'If the service is continuously unavailable for more than 24 hours in a billing period through our fault, you may claim compensation: call quota equivalent to the downtime, issued as credit rather than cash. The status page record determines the incident.',
+            'No refund is given for: accounts suspended or terminated for breaching these terms or the acceptable use policy; calls consumed by builds that completed successfully; amounts already settled to publishers as revenue share; and repeated refund claims from the same party that amount to abuse.',
+            'To claim, write to support@re0.com with your account email, the transaction reference and the reason. We reply within 5 business days; approved refunds are returned by the external payment provider to the original payment method, and arrival depends on your bank, typically 5 to 10 business days.',
+            'Nothing in this policy limits mandatory refund or withdrawal rights that consumer law gives you; where the two conflict, the law prevails.',
+          ],
+        },
+        {
+          title: 'Disclaimer and limitation of liability',
+          hint: 'Availability and liability cap',
+          clauses: [
+            'The service is provided "as is". We work to keep it available and publish incidents on the status page, but we do not promise uninterrupted or error-free operation.',
+            'We are not responsible for the accuracy of third-party source content, nor for decisions you make on the basis of retrieval results, nor for indirect loss, lost profit or lost data arising from them.',
+            'To the extent the law allows, our aggregate liability in any circumstance is capped at the total fees you actually paid Re0 in the 12 months before the event giving rise to the claim.',
+            'Non-performance caused by force majeure, upstream network failure or third-party service outage is not a breach.',
+          ],
+        },
+        {
+          title: 'Changes and contact',
+          hint: 'Notice and contact',
+          clauses: [
+            'When the terms change we update the effective date on this page; material changes to rights or obligations are announced in the product or by email in advance. Continuing to use the service after a change takes effect means you accept it.',
+            'For questions about these terms or content appeals, write to legal@re0.com; for refunds, write to support@re0.com; for security issues, write to security@re0.com.',
+          ],
+        },
+      ],
+    },
+
+    privacy: {
+      metaTitle: 'Privacy notice',
+      metaDescription:
+        'What Re0 collects, what it is used for, who it is shared with, how long it is kept, and how you access, export or delete your data.',
+      title: 'Privacy notice',
+      ledeLead:
+        'This notice explains how Re0 handles personal data across the website, REST API, MCP service, CLI and console. Effective',
+      ledeTail: '. For the rights and obligations around using the service, see the terms of service.',
+      alsoLead: 'For accounts, billing and refunds, see the',
+      sections: [
+        {
+          title: 'What we collect',
+          hint: 'Account, content and call metadata',
+          clauses: [
+            'Account information: email, sign-in method and third-party account identifier, display name and join date. We never receive or store the password you hold with a sign-in provider.',
+            'Content you submit: the source configuration of a library (repository address, site address, uploaded files) and the content within it. Do not place sensitive personal information, credentials or keys in there.',
+            'Call metadata: time, Library ID, endpoint and status code, calls consumed, the identifier of the API key used, and the IP and user agent needed for abuse prevention.',
+            'Billing information: plan, billing period, call pack purchases and the transaction reference returned by the external payment provider. We store no card numbers, bank account numbers or payment credentials.',
+            'Technical records: server-side error logs and security event records.',
+          ],
+        },
+        {
+          title: 'How we use it',
+          hint: 'Providing the service, metering and security',
+          clauses: [
+            'Providing the service: running retrieval, building and refreshing libraries, keeping you signed in and answering the requests you submit.',
+            'Metering and reconciliation: billing per API call, settling call packs and publisher revenue share, and letting you trace every deduction in the console.',
+            'Security and abuse prevention: spotting anomalous calls, protecting quota and account security, and investigating security incidents.',
+            'Necessary communication: notices about your account, billing and changes to these documents. Marketing email is sent only if you opt in, and you can unsubscribe at any time.',
+            'Legal bases: performing our contract with you, our legitimate interests in operating and protecting the service, and legal obligations; where consent is required, we rely on the consent you give.',
+          ],
+        },
+        {
+          title: 'What we do not do',
+          hint: 'No training, no selling, no tracking',
+          clauses: [
+            'We do not use your private library content or your queries to train models.',
+            'We do not sell personal information, and we do not trade or hand it to advertising networks.',
+            'We do not use cookies or similar technology for cross-site advertising or profiling.',
+          ],
+        },
+        {
+          title: 'Sharing and third parties',
+          hint: 'Payments, infrastructure and legal requests',
+          clauses: [
+            'Payments, invoices and refunds are handled by an external payment provider; we receive only the transaction outcome and what reconciliation requires.',
+            'Hosting, databases, object storage and the vector index run on infrastructure providers we engage, who may process data only on our instructions and not for their own purposes.',
+            'Retrieval results from public libraries show callers the source, version and citation; private libraries are visible only within the workspace that owns them.',
+            'We disclose what the law requires, and tell you in advance to the extent the law allows.',
+            'In a merger, acquisition or transfer of assets this notice continues to apply to the data that moves with it, and we give notice before anything changes.',
+          ],
+        },
+        {
+          title: 'Retention',
+          hint: 'How long each kind of data is kept',
+          clauses: [
+            'Account information is kept while the account exists; after closure, private libraries and their indexes are deleted.',
+            'Call metadata is retained per billing period for metering, reconciliation and review.',
+            'Raw request logs are kept no longer than operations and security require.',
+            'Accounting and audit records the law requires us to keep are retained for the statutory period and are not removed on closure.',
+          ],
+        },
+        {
+          title: 'Cookies',
+          hint: 'Only the cookies we need',
+          clauses: [
+            'We use only the cookies needed to keep you signed in, remember your interface language and gather basic visit statistics.',
+            'You can clear or block cookies in your browser, but your sign-in state and some interface preferences will not survive.',
+          ],
+        },
+        {
+          title: 'Your rights',
+          hint: 'Access, export, deletion and complaints',
+          clauses: [
+            'You can access, correct, export or delete your data in the console. Deletion requests are completed within a reasonable period, except for records the law requires us to keep.',
+            'You can object to or ask us to restrict processing based on legitimate interests, and withdraw consent you gave earlier; withdrawal does not affect processing carried out before it.',
+            'To exercise those rights, or if you disagree with how we handle data, write to legal@re0.com. You also have the right to complain to your local data protection authority.',
+          ],
+        },
+        {
+          title: 'Security and international transfers',
+          hint: 'Encryption, transfers and breach notice',
+          clauses: [
+            'Data is transmitted over TLS and encrypted at rest; internal access is granted on a least-privilege basis and recorded.',
+            'Our servers and those of our infrastructure providers may sit outside your country or region; cross-border transfers use the safeguards applicable law allows.',
+            'If a security incident affects personal data, we notify affected users and regulators within the deadlines applicable law sets.',
+            'The service is offered to organisations and developers, not to children under 14, and we do not knowingly collect children’s personal information.',
+          ],
+        },
+        {
+          title: 'Changes and contact',
+          hint: 'Notice and contact',
+          clauses: [
+            'When this notice changes we update the effective date at the top of the page; material changes to how data is handled are announced in the product or by email in advance.',
+            'For privacy requests, write to legal@re0.com; for security issues, write to security@re0.com.',
+          ],
+        },
+      ],
+    },
   },
 
   auth: {
@@ -439,7 +600,7 @@ export const en: Dictionary = {
     passwordNote:
       'Re0 never reads your account password — the third-party account only completes authentication.',
     termsLead: 'By signing in you agree to Re0’s',
-    termsLink: 'terms of service and privacy policy',
+    termsLink: 'terms of service and privacy notice',
     termsTail: '.',
     autoCreate: 'A Re0 account is created automatically on first sign-in.',
     perks: ['Sync conversation history', 'Manage API keys', 'Access private libraries'],
