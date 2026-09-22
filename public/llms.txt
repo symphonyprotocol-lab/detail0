@@ -21,7 +21,9 @@ Core product principles:
 - [About](https://re0.com/about): Re0's purpose, principles, and product scope.
 - [Service status](https://re0.com/status): Current retrieval, indexing, refresh, and review status.
 - [Contact](https://re0.com/contact): Support, claims, partnerships, and security contacts.
-- [Legal](https://re0.com/legal): Terms, acceptable-use rules, privacy, billing, and liability information.
+- [Legal](https://re0.com/legal): Index of the two legal documents.
+- [Terms of service](https://re0.com/legal/terms): Accounts, acceptable use, content and copyright, billing, revenue share, refund policy, and liability.
+- [Privacy notice](https://re0.com/legal/privacy): What Re0 collects, how it is used and shared, retention, cookies, and your rights.
 
 ## Agent and developer access
 
