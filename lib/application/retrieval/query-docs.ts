@@ -29,14 +29,7 @@ import {
 import { httpStatusFor } from '@/contracts/errors';
 import { pinPolicy, policyIsOpen, policyVerdictFor } from '@/lib/application/policies';
 import { db, schema } from '@/lib/infrastructure/postgres/client';
-import {
-  embeddingAdapter,
-  isEmbeddingConfigured,
-  isRerankConfigured,
-  rerankAdapter,
-  type EmbeddingAdapter,
-  type RerankAdapter,
-} from '@/lib/infrastructure/ai/providers';
+import type { EmbeddingAdapter, RerankAdapter } from '@/lib/infrastructure/ai/providers';
 import type { CallerContext } from './index';
 import { toTsquery } from './resolve-library';
 import { searchTokens } from '@/lib/domain/profile';
@@ -53,12 +46,21 @@ import {
   activeRetrievalSettings,
   type ActiveRetrievalSettings,
 } from '@/lib/application/administration/manage-retrieval-config';
+import { modelAdapters } from '@/lib/application/administration/manage-model-config';
 
 export interface RetrievalDependencies {
-  embeddings(): EmbeddingAdapter;
-  rerank(): RerankAdapter;
+  /**
+   * Awaited: both models are console configuration now (`provider_model_config`),
+   * so the default resolves a row and opens its credential. A test's
+   * synchronous fake still satisfies this -- awaiting a plain value is
+   * awaiting a resolved promise.
+   */
+  embeddings(): EmbeddingAdapter | Promise<EmbeddingAdapter>;
+  rerank(): RerankAdapter | Promise<RerankAdapter>;
   cache(): RetrievalCache;
-  configured(): { embeddings: boolean; rerank: boolean };
+  configured():
+    | { embeddings: boolean; rerank: boolean }
+    | Promise<{ embeddings: boolean; rerank: boolean }>;
   /**
    * The tunables in force: recall widths, fusion constant, rerank window,
    * cache TTL (lib/domain/retrieval-config.ts). Read per request so a console
@@ -68,16 +70,19 @@ export interface RetrievalDependencies {
   settings?(): Promise<ActiveRetrievalSettings>;
 }
 
-export const defaultRetrievalDependencies: RetrievalDependencies = {
-  embeddings: embeddingAdapter,
-  rerank: rerankAdapter,
-  cache: retrievalCache,
-  configured: () => ({
-    embeddings: isEmbeddingConfigured(),
-    rerank: isRerankConfigured(),
-  }),
-  settings: activeRetrievalSettings,
-};
+/**
+ * A fresh set per call: the model seams share one resolution of the
+ * configuration rows (`modelAdapters`), which belongs to one request and
+ * must not outlive it -- a module-level set would pin the first request's
+ * models, keys and all, for the life of the process.
+ */
+export function defaultRetrievalDependencies(): RetrievalDependencies {
+  return {
+    ...modelAdapters(),
+    cache: retrievalCache,
+    settings: activeRetrievalSettings,
+  };
+}
 
 /**
  * Participates in every cache key (architecture.md 9.4), together with the
@@ -105,7 +110,7 @@ const NO_CONFIG = 'c0';
 export async function queryDocs(
   caller: CallerContext,
   input: QueryDocsInput,
-  dependencies: RetrievalDependencies = defaultRetrievalDependencies,
+  dependencies: RetrievalDependencies = defaultRetrievalDependencies(),
 ): Promise<QueryDocsOutput> {
   const { confidence: _confidence, ...output } = await queryDocsDetailed(
     caller,
@@ -132,7 +137,7 @@ export interface QueryDocsOptions {
 export async function queryDocsDetailed(
   caller: CallerContext,
   input: QueryDocsInput,
-  dependencies: RetrievalDependencies = defaultRetrievalDependencies,
+  dependencies: RetrievalDependencies = defaultRetrievalDependencies(),
   options: QueryDocsOptions = {},
 ): Promise<QueryDocsResult> {
   const startedAt = Date.now();
@@ -369,6 +374,11 @@ async function queryDocsInner(
 
     /* ---------------------------------------------------------- recall */
 
+    /* Which stages this installation can run. The default seams answer this
+       and hand out the adapters from one read of `provider_model_config`, so
+       a stage reported here cannot vanish before it is called. */
+    const configured = await dependencies.configured();
+
     /*
      * OR over the query's tokens, ranked -- AND semantics (plainto) would
      * demand every word in one chunk, and a question's words usually straddle
@@ -412,17 +422,23 @@ async function queryDocsInner(
 
     /*
      * The vector leg only runs when the configured adapter is the model the
-     * version's vectors were built with (frozen on the version, requirement.md
-     * 8.1): a query embedded by a different model lives in a different vector
-     * space, and comparing across spaces returns confident nonsense. On a
-     * mismatch the keyword leg carries the request alone.
+     * version's vectors were built with, at the same width (both frozen on the
+     * version, requirement.md 8.1): a query embedded by a different model --
+     * or by the same model asked for a different number of dimensions -- lives
+     * in a different vector space, and comparing across spaces returns
+     * confident nonsense. The stored rows are all the column's width, since
+     * narrower vectors are padded into it, so the width has to be compared
+     * against what the version recorded rather than against what came back.
+     * On a mismatch the keyword leg carries the request alone.
      */
     let semantic: ((typeof keyword)[number] & { distance: number })[] = [];
+    const embeddings = configured.embeddings ? await dependencies.embeddings() : null;
     if (
-      dependencies.configured().embeddings &&
-      dependencies.embeddings().model === version.embeddingModel
+      embeddings &&
+      embeddings.model === version.embeddingModel &&
+      embeddings.dimensions === version.embeddingDimensions
     ) {
-      const [queryVector] = await dependencies.embeddings().embed([input.query]);
+      const [queryVector] = await embeddings.embed([input.query]);
       if (queryVector) {
         const literal = `[${queryVector.join(',')}]`;
         semantic = await database
@@ -470,10 +486,10 @@ async function queryDocsInner(
      * rerank refines an already-correct list, so it is never worth an error
      * or a retry -- the adapter carries a tight timeout for the same reason.
      */
-    if (dependencies.configured().rerank && ordered.length > 1) {
+    if (configured.rerank && ordered.length > 1) {
       const head = ordered.slice(0, settings.rerankWindow);
       try {
-        const scores = await dependencies.rerank().rerank(
+        const scores = await (await dependencies.rerank()).rerank(
           input.query,
           head.map((entry) => entry.row.body.slice(0, settings.rerankDocumentChars)),
         );
@@ -603,6 +619,8 @@ interface PinnedVersion {
   label: string;
   searchConfig: string;
   embeddingModel: string;
+  /** The width the model was asked for; see the vector leg's guard. */
+  embeddingDimensions: number;
 }
 
 async function pinVersion(
@@ -615,6 +633,7 @@ async function pinVersion(
       label: schema.libraryVersion.label,
       searchConfig: schema.libraryVersion.searchConfig,
       embeddingModel: schema.libraryVersion.embeddingModel,
+      embeddingDimensions: schema.libraryVersion.embeddingDimensions,
       indexStatus: schema.libraryVersion.indexStatus,
     })
     .from(schema.libraryVersion)
@@ -637,6 +656,7 @@ async function pinLabeledVersion(
       label: schema.libraryVersion.label,
       searchConfig: schema.libraryVersion.searchConfig,
       embeddingModel: schema.libraryVersion.embeddingModel,
+      embeddingDimensions: schema.libraryVersion.embeddingDimensions,
       indexStatus: schema.libraryVersion.indexStatus,
     })
     .from(schema.libraryVersion)

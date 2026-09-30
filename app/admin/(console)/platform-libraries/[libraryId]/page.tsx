@@ -158,7 +158,7 @@ export default async function AdminPlatformLibraryPage({
   const sourceType: PlatformLibraryType = isPlatformLibraryType(firstType) ? firstType : 'github';
 
   /* Whether a queued refresh could actually build anything in this deployment. */
-  const ingestionReady = isIngestionConfigured();
+  const ingestionReady = await isIngestionConfigured();
 
   const target: PlatformLibraryTarget = {
     id: record.id,

@@ -107,7 +107,7 @@ export async function purgeLibrary(input: {
   ];
 
   if (keys.length > 0) {
-    if (!dependencies.configured().storage) {
+    if (!(await dependencies.configured()).storage) {
       throw new IngestionFailure('storage_unavailable', 'purge', 'no object storage is configured');
     }
     const store = dependencies.store();

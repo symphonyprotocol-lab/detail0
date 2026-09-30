@@ -120,7 +120,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
 
   /* ------------------------------------------------------ validate-source */
 
-  const available = dependencies.configured();
+  const available = await dependencies.configured();
   if (!available.embeddings) {
     throw new IngestionFailure(
       'embedding_unavailable',
@@ -204,7 +204,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
    * is deliberately forgiving and falls back to `simple` rather than guessing.
    */
   const searchConfig = textSearchConfig(library.language);
-  const adapter = dependencies.embeddings();
+  const adapter = await dependencies.embeddings();
 
   const current = library.currentVersionId
     ? await database
@@ -215,6 +215,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
           parserVersion: schema.libraryVersion.parserVersion,
           chunkerVersion: schema.libraryVersion.chunkerVersion,
           embeddingModel: schema.libraryVersion.embeddingModel,
+          embeddingDimensions: schema.libraryVersion.embeddingDimensions,
           searchConfig: schema.libraryVersion.searchConfig,
         })
         .from(schema.libraryVersion)
@@ -226,8 +227,10 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
    * The source is only half of what decides whether a rebuild is needed.
    *
    * requirement.md 8.1 freezes the parser, chunker, embedding model and search
-   * configuration on a Version, which is a statement that those four decide
-   * what the version *is*. So an unchanged source is a reason to carry it
+   * configuration on a Version, which is a statement that those decide what
+   * the version *is* -- the model's width along with its name, since the same
+   * model asked for a different number of dimensions produces vectors in a
+   * different space. So an unchanged source is a reason to carry it
    * forward only when today's build would produce the same thing: correcting
    * a library's language or shipping a new chunker must rebuild everything,
    * and without this check both would be reported as "unchanged" and quietly
@@ -239,6 +242,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     built.parserVersion === PARSER_VERSION &&
     built.chunkerVersion === CHUNKER_VERSION &&
     built.embeddingModel === adapter.model &&
+    built.embeddingDimensions === adapter.dimensions &&
     built.searchConfig === searchConfig;
   const cached = (sameConfiguration && built?.sourceDigests) || {};
   /*
@@ -252,6 +256,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
     (built.parserVersion !== PARSER_VERSION ||
       built.chunkerVersion !== CHUNKER_VERSION ||
       built.embeddingModel !== adapter.model ||
+      built.embeddingDimensions !== adapter.dimensions ||
       /* A version from before per-source digests carries nothing forward
          (`cached` is empty), so its first refresh re-embeds the whole
          library. That is our migration, not the owner's change. */
@@ -746,6 +751,7 @@ export async function buildVersion(input: BuildInput): Promise<BuildOutcome> {
       parserVersion: PARSER_VERSION,
       chunkerVersion: CHUNKER_VERSION,
       embeddingModel: adapter.model,
+      embeddingDimensions: adapter.dimensions,
       searchConfig,
       contentMerkleRoot: root,
       /* Not `ready`: nothing has been embedded yet. */

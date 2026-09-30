@@ -1866,17 +1866,75 @@ export const en: Dictionary = {
       plans: 'Plans',
       billing: 'Billing',
       settlements: 'Settlements',
-      llm: 'Playground model',
+      models: 'Models',
       retrieval: 'Retrieval',
       administrators: 'Administrators',
       audit: 'Audit log',
       pending: '{count} awaiting review',
       claims: 'Ownership & claims',
     },
+    models: {
+      title: 'Models',
+      description:
+        'Every model this installation runs: the embedding model its libraries are indexed with, the reranker in front of results, and the generation models the playground calls. Endpoints and credentials are held here, so changing a provider is a save rather than a deploy.',
+      retrievalTitle: 'Retrieval models',
+      retrievalDescription:
+        'One of each is in force. Switching either off is a documented degradation, not a failure: without an embedding model retrieval keeps its keyword leg, and without a reranker the fused order stands.',
+      kinds: { embedding: 'Embedding', rerank: 'Rerank' },
+      kindUnset: 'not configured',
+      kindEnvironment: 'from the environment',
+      environmentNote:
+        'Nothing has been saved for this model yet, so it runs on the deployment\'s environment variables. The first save here takes over from them.',
+      credentialKeyMissingTitle: 'Stored keys cannot be opened',
+      credentialKeyMissing:
+        'CREDENTIAL_ENCRYPTION_KEY is not set (it needs at least 32 characters). Every key saved on this page is sealed with it, so no saved model can be called and no new key can be stored until it is.',
+      kindNote: {
+        embedding:
+          'Vectors are stored 1,536 wide and narrower ones are zero-padded into that, which leaves cosine distance unchanged. Changing the model or the width does not touch libraries already built — their vector leg stops until each is rebuilt, and the keyword leg carries them meanwhile.',
+        rerank:
+          'A Cohere-compatible /rerank endpoint: Cohere, Jina, OpenRouter and most hosted rerankers. Takes effect on the next request; the window it reorders is set under Retrieval.',
+      },
+      label: 'Name',
+      labelHint: 'what the console calls it',
+      model: 'Model',
+      baseUrl: 'Provider base URL',
+      baseUrlHint: 'up to the version segment; /embeddings or /rerank is appended',
+      apiKey: 'API key',
+      apiKeyNew: 'stored sealed; never shown again',
+      apiKeyStored: 'a key is stored — leave blank to keep it',
+      apiKeyKeep: 'unchanged',
+      dimensions: 'Dimensions',
+      dimensionsHint: 'what the provider is asked for;',
+      timeoutMs: 'Timeout (ms)',
+      enabled: 'Enabled',
+      reason: 'Reason for the change',
+      save: 'Save as a new version',
+      saveNew: 'Save',
+      saved: 'Saved. The next request runs with it.',
+      none: 'Nothing configured yet.',
+      stateOn: 'In force',
+      stateOff: 'Off',
+      historyTitle: 'Retrieval model history',
+      historyDescription: 'Append-only: every save mints a version, and the newest is in force.',
+      historyColumns: ['Created', 'Kind', 'Name / model', 'Endpoint', 'Width / timeout', 'State'],
+      errors: {
+        invalid_kind: 'Unknown model kind.',
+        invalid_base_url: 'The base URL must be a valid https:// URL.',
+        invalid_model: 'Enter a model name (up to 120 characters).',
+        invalid_dimensions:
+          'Dimensions must be between 64 and 1,536 — the width of the stored vector column.',
+        invalid_timeout: 'The timeout is outside the range shown beside the field.',
+        invalid_api_key: 'That key is too long to store.',
+        api_key_required:
+          'Enter the provider key. It may only be left blank to keep a stored key at the same host — a new entry, or a changed base URL host, needs it typed again.',
+        reason_required: 'A reason is recorded with every change.',
+        unavailable: 'The change could not be saved. Try again shortly.',
+      },
+    },
     llm: {
       title: 'Playground models',
       description:
-        'The models the online playground may call, and what they spend. The API key stays in the environment and is never configured here.',
+        'The models the online playground may call, and what they spend. Each entry carries its own credential, sealed at rest and never shown again.',
       statsTitle: 'Spend',
       statsDescription: 'Model calls made by the playground and what they cost.',
       monthCost: 'Cost this month',
@@ -1915,9 +1973,6 @@ export const en: Dictionary = {
       labelHint: 'The identifier is derived from the name on first save, then fixed',
       saveNew: 'Add and save',
       baseUrl: 'Provider base URL',
-      apiKeyEnv: 'API key environment variable',
-      apiKeyEnvHint:
-        'The key stays in the environment; this names the variable. It must start with LLM_PROVIDER_API_KEY; blank means that name itself. Configured:',
       model: 'Model',
       maxInputTokens: 'Max input tokens',
       maxInputTokensHint: 'The context window; the retrieval budget is derived from it',
@@ -1953,6 +2008,12 @@ export const en: Dictionary = {
       probeReply: 'Reply:',
       historyTitle: 'Version history',
       historyColumns: ['Created', 'Name / model', 'Endpoint', 'Budgets', 'Unit prices', 'State'],
+      apiKey: 'API key',
+      apiKeyNew: 'stored sealed; never shown again',
+      apiKeyStored: 'a key is stored — leave blank to keep it',
+      apiKeyKeep: 'unchanged',
+      keyStored: 'key stored',
+      keyMissing: 'no key',
       stateEnabled: 'Enabled',
       stateDisabled: 'Disabled',
       errors: {
@@ -1964,10 +2025,9 @@ export const en: Dictionary = {
         invalid_price: 'Prices must be non-negative, to a millionth of a dollar.',
         invalid_slug: 'Invalid identifier: lowercase letters, digits and hyphens only.',
         unknown_model: 'The chosen model does not exist or is switched off.',
-        invalid_api_key_env:
-          'Variable names use upper-case letters, digits and underscores, starting with a letter.',
-        api_key_env_not_allowed:
-          'The variable must be named LLM_PROVIDER_API_KEY or start with it, e.g. LLM_PROVIDER_API_KEY_MINIMAX. The prefix is the permission: whatever is named here is sent as a Bearer token to the endpoint above, so the console can reach model keys named by the convention and nothing else.',
+        invalid_api_key: 'That key is too long to store.',
+        api_key_required:
+          'Enter the provider key. It may only be left blank to keep a stored key at the same host — a new entry, or a changed base URL host, needs it typed again.',
         invalid_effort: 'Invalid reasoning effort, or the model is not marked as reasoning.',
         reason_required: 'A reason is recorded with every change.',
         unavailable: 'The change could not be saved. Try again shortly.',
@@ -1986,7 +2046,7 @@ export const en: Dictionary = {
         on: 'configured',
         off: 'not configured',
         rerankOff:
-          'Reranking runs once RERANK_PROVIDER_API_KEY and RERANK_PROVIDER_BASE_URL are set; until then the rerank window does nothing and fusion order stands.',
+          'Reranking runs once a rerank model is saved and switched on under Models; until then the rerank window does nothing and fusion order stands.',
       },
       configTitle: 'Change',
       configDescription:

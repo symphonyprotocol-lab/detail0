@@ -703,7 +703,7 @@ libraryVersion + policyVersion + queryHash + maxTokens + responseType + retrieva
 - 成本口径：`prompt_tokens` 仍是供应商口径的全部输入（含缓存命中），其中 `cached_tokens` 按缓存单价计、其余按输入单价计，两者不重复计费；`reasoning_tokens` 是 `completion_tokens` 的构成部分，只记录不另计价；
 - REST、MCP 与在线试用共用同一个检索函数，Contract Test 对「三者返回相同 Version 与 Citation」有断言；
 - 检索阶段的 Usage、Policy 与额度逻辑完全复用 §10 与 §11，生成阶段不再做第二次计量；
-- LLM Provider Key 只在服务端 Route Handler 与 Workflow 中读取，不进入前端 Bundle；Provider 通过 `lib/providers` 的 Adapter 隔离，类型不得泄漏到 Domain 或 SDK；
+- LLM Provider Key 随条目保存在 `llm_config`，密封至静态（§9.7、§15.3），只在服务端 Route Handler 与 Workflow 中解开，不回显给后台、不进入前端 Bundle；Provider 通过 `lib/providers` 的 Adapter 隔离，类型不得泄漏到 Domain 或 SDK；
 - 模型调用失败或超时时降级为直接返回 Chunk 列表，不返回错误页，也不重试到超过预算；
 - 生成结果与 Query 正文适用同一保密要求，不写产品日志与 Analytics；模型 Token 只进成本指标；
 - **REST 与 MCP 链路不得引入 LLM 依赖**：移除生成层后，API 与 MCP 的行为必须完全不变。
@@ -733,6 +733,16 @@ libraryVersion + policyVersion + queryHash + maxTokens + responseType + retrieva
 - **候选必须附带命中证据**（命中的文档标题/实体、少量段落摘录）：库名不可信之后，证据是调用方一轮定案的依据，证据薄导致的错选与重试比省下的往返更贵，见 §13.1；
 - **双入口共用同一实现**：MCP 走 agent 显式两轮（搜库 → 确认 → 查数），Web 问答走服务端自动 scatter-gather；两者只在「谁做最终裁决」上不同——一个交给调用方模型，一个交给服务端命中分数；
 - **中文分词是前置依赖**：`search_config` 目前没有中文路径，中文内容落到 `simple` 不分词，画像 FTS、全局倒排乃至库内 FTS 对中文整体失效。该缺口（§22 待验证事项）必须先于路由实现修复。
+
+### 9.7 模型配置
+
+四类模型——向量、重排、试用生成、订阅生成——都是后台配置，不是部署配置。端点、模型名、凭据、超时统一保存在数据库，后台 `/admin/models` 一处管理：
+
+- **向量与重排各有一条生效配置**（`provider_model_config`，按 kind 追加，最新一行生效）。两者都可以停用，停用是有记录的降级而非故障：没有向量模型时检索只走关键词一路，没有重排时融合顺序即最终顺序；
+- **生成模型是注册表加指派**（`llm_config` + `llm_audience_assignment`，见 §9.5）。"试用模型"和"订阅模型"是指派出来的角色，不是条目自身的属性；
+- **凭据随条目保存并密封**（§15.3）。后台只显示"是否已配置"，不回显密钥；编辑时留空即沿用已存的那一把，所以改一个超时不需要重新粘贴供应商密钥；
+- **向量维度是配置项，不是常量**。列宽固定为 1536，更窄的模型零填充进去——零维对点积和模长都无贡献，余弦距离因此完全不变，这是列宽可以固定而模型维度可以配置的全部理由。想用超过 1536 维的模型需要一次迁移改列宽，不是一次保存；
+- **维度与模型名一起冻结在 `library_version` 上**。同一个模型在不同维度下产出的向量属于不同空间，检索时两者都要对得上才走向量一路，否则该版本退回关键词一路，直到它各自重建一次。
 
 ## 10. Policy Engine
 
@@ -997,7 +1007,8 @@ Audit Log 采用只追加表，并保存前一条记录 Hash 形成链式校验�
 - 写操作校验 Origin/CSRF；
 - 管理后台强制 MFA、重新认证、IP/设备异常检测；
 - Payment/Connector Webhook 使用原始 Body 验签、时间窗和 Event ID 去重；
-- Secret 通过平台环境变量与 Secret 管理注入，不写入仓库、数据库或日志。
+- Secret 通过平台环境变量与 Secret 管理注入，不写入仓库或日志；
+- 例外是模型供应商凭据（§9.7）：它们保存在数据库，以 `CREDENTIAL_ENCRYPTION_KEY` 派生的 AES-256-GCM 密封。理由是这四类模型属于后台运营配置，换供应商不应当等于一次部署；代价是 `CREDENTIAL_ENCRYPTION_KEY` 成为它们的唯一保护，因此它本身仍只存在于环境变量中。密文不回传浏览器，不进审计链（审计只记录"是否轮换"），日志与导出同理。
 
 ## 16. 一致性、恢复与备份
 
@@ -1101,10 +1112,9 @@ NOTION_OAUTH_CLIENT_SECRET
 NOTION_INGESTION_TOKEN         # 可选，internal integration：仅平台 Notion 知识库使用；工作空间知识库用用户自己的授权
 SESSION_SIGNING_SECRET
 API_KEY_HASH_SECRET
-CREDENTIAL_ENCRYPTION_KEY
-EMBEDDING_PROVIDER_API_KEY
-RERANK_PROVIDER_API_KEY
-LLM_PROVIDER_API_KEY           # 仅在线试用的答案生成，见 §9.5
+CREDENTIAL_ENCRYPTION_KEY      # 密封后台保存的模型凭据，见 §9.7；轮换后所有已存密钥读不出来，需重新录入
+EMBEDDING_PROVIDER_API_KEY     # 可选，升级兼容：后台从未保存过向量模型时的兜底（连同 EMBEDDING_PROVIDER_BASE_URL、EMBEDDING_MODEL），首次保存后不再读取
+RERANK_PROVIDER_API_KEY        # 可选，同上，重排模型的兜底；需与 RERANK_PROVIDER_BASE_URL 同时设置（RERANK_MODEL 可选）
 RENDER_PROVIDER                # 可选，firecrawl | jina：网站来源被拒或返回 JS 空壳时的渲染兜底，见 §8.2
 RENDER_PROVIDER_API_KEY
 RENDER_PROVIDER_BASE_URL       # 可选，自托管实例的地址（如 http://firecrawl:3002）；设了它 key 可省略，内网 http 允许但不允许重定向
