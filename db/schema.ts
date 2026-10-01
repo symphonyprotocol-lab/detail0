@@ -30,6 +30,8 @@ import { sql } from 'drizzle-orm';
 // ---------------------------------------------------------------- enums
 
 export const visibilityEnum = pgEnum('visibility', ['public', 'private']);
+/** The retrieval models the console configures; see `providerModelConfig`. */
+export const modelKindEnum = pgEnum('model_kind', ['embedding', 'rerank']);
 export const lifecycleStatusEnum = pgEnum('lifecycle_status', [
   'draft',
   'submitted',
@@ -567,6 +569,16 @@ export const libraryVersion = pgTable(
     chunkerVersion: text('chunker_version').notNull(),
     embeddingModel: text('embedding_model').notNull(),
     /**
+     * The width the model was asked for, frozen beside its name.
+     *
+     * The column is fixed and narrower vectors are zero-padded into it
+     * (`lib/domain/model-config.ts`), so the stored width says nothing about
+     * which space a version lives in -- two builds of the same model at
+     * different dimensions are as incomparable as two different models, and
+     * without this the guard on the retrieval path could not tell them apart.
+     */
+    embeddingDimensions: integer('embedding_dimensions').notNull().default(1536),
+    /**
      * The text-search configuration its chunks were indexed with, resolved from
      * the library's language at build time.
      *
@@ -902,9 +914,10 @@ export const retrievalConfig = pgTable(
 /**
  * The playground's selectable models. architecture.md 9.5 -- the playground is
  * the only entry that calls a model, and these rows are what the console
- * configures: provider endpoint, model id, budgets and unit prices. The API
- * key is NOT here -- 15.3 keeps secrets in the environment, so the console
- * configures everything about the provider except the credential.
+ * configures: provider endpoint, model id, credential, budgets and unit
+ * prices. The credential is sealed at rest and never leaves the server in the
+ * clear (15.3); an edit that leaves the field blank carries the stored one
+ * forward, so re-minting an entry does not mean re-typing the secret.
  *
  * Immutable versions like plans and policies, but a chain per `slug` rather
  * than one for the table: an entry's history is its rows in slug order, and
@@ -922,8 +935,13 @@ export const llmConfig = pgTable(
     label: text('label').notNull(),
     baseUrl: text('base_url').notNull(),
     model: text('model').notNull(),
-    /** Name of the environment variable holding this entry's key; never the key. */
-    apiKeyEnv: text('api_key_env').notNull().default('LLM_PROVIDER_API_KEY'),
+    /**
+     * The provider credential, sealed with `CREDENTIAL_ENCRYPTION_KEY`
+     * (`lib/infrastructure/crypto/credentials.ts`). Null on an entry nobody
+     * has given a key yet, which is a model that cannot be called rather than
+     * one quietly borrowing another entry's credential.
+     */
+    apiKeyCipher: text('api_key_cipher'),
     /** The model's context window; the playground sizes retrieval from it. */
     maxInputTokens: integer('max_input_tokens').notNull().default(8_000),
     maxOutputTokens: integer('max_output_tokens').notNull(),
@@ -947,6 +965,55 @@ export const llmConfig = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('llm_config_slug_time_idx').on(t.slug, t.createdAt.desc())],
+);
+
+/**
+ * The retrieval models: the embedding model a version's vectors are built and
+ * queried with, and the reranker that refines the fused head.
+ * architecture.md 9.1, 9.2.
+ *
+ * One row per `kind`, newest in force -- there is exactly one model an
+ * installation is indexing with and one reranker in front of its results, so
+ * unlike `llm_config` there is nothing to assign. Append-only for the same
+ * reason as `retrieval_config`: a change to either of these changes what
+ * retrieval *is*, and the history of when it changed is the table itself.
+ *
+ * `dimensions` belongs only to an embedding entry and is what
+ * `library_version.embedding_dimensions` freezes; the stored vector columns
+ * are wider and narrower vectors are padded into them (lib/domain/model-config.ts).
+ * A rerank row leaves it null.
+ */
+export const providerModelConfig = pgTable(
+  'provider_model_config',
+  {
+    id: uuid('id').primaryKey(),
+    kind: modelKindEnum('kind').notNull(),
+    /** What the console calls it -- a model id is rarely readable on its own. */
+    label: text('label').notNull(),
+    baseUrl: text('base_url').notNull(),
+    model: text('model').notNull(),
+    /** Sealed like `llm_config.api_key_cipher`; never stored in the clear. */
+    apiKeyCipher: text('api_key_cipher'),
+    /** Embedding only; null on a rerank row. */
+    dimensions: integer('dimensions'),
+    timeoutMs: integer('timeout_ms').notNull(),
+    /**
+     * Switched off means the stage does not run: retrieval keeps its keyword
+     * leg without an embedding model, and fusion order stands without a
+     * reranker. Both are documented degradations, not failures.
+     */
+    enabled: boolean('enabled').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('provider_model_config_kind_time_idx').on(t.kind, t.createdAt.desc()),
+    /* A rerank row carrying a width would describe a model that does not
+       exist, and an embedding row without one cannot be padded. */
+    check(
+      'provider_model_config_dimensions',
+      sql`(${t.kind} = 'embedding') = (${t.dimensions} is not null)`,
+    ),
+  ],
 );
 
 /**

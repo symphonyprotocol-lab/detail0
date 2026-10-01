@@ -16,6 +16,7 @@ import {
   SparklesIcon,
 } from '@/components/ui/icons';
 import { listPublicLibraries, POPULARITY_WINDOW_DAYS } from '@/lib/application/libraries';
+import { publicUrl } from '@/lib/site/origin';
 import { fill } from '@/lib/i18n/format';
 import { getMessages } from '@/lib/i18n/server';
 
@@ -28,15 +29,14 @@ const SURFACES = [
   { label: 'MCP', Icon: McpIcon },
 ];
 
-/** Where the public site lives when the deployment does not say. */
-const PUBLIC_ORIGIN = 'https://re0.com';
-
 export default async function HomePage() {
   const t = await getMessages();
   /* The MCP endpoint a person pastes into their client: the one thing every
-     surface in the hero row shares. Anonymous use rides the trial limit; an
-     API key from the dashboard lifts it (requirement.md 9.3). */
-  const mcpUrl = `${(process.env.APP_BASE_URL ?? PUBLIC_ORIGIN).replace(/\/$/, '')}/mcp`;
+     surface in the hero row shares. It is always the public host -- a visitor
+     reading a preview deployment still has to connect to the real one.
+     Anonymous use rides the trial limit; an API key from the dashboard lifts
+     it (requirement.md 9.3). */
+  const mcpUrl = publicUrl('/mcp');
   /* The featured table is the live catalogue's head, not copy. */
   const featured = (await listPublicLibraries({ sort: 'popular', limit: 6 })).map((row) => ({
     libraryId: row.publicId,
